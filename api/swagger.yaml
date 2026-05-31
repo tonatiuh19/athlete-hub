@@ -1,0 +1,503 @@
+openapi: 3.0.3
+info:
+  title: Athlete Hub API
+  description: |
+    REST API for the Athlete Hub sports events platform.
+
+    ## Authentication
+    - **Protected routes** require `Authorization: Bearer <session_token>`
+    - **Public routes** require no authentication
+
+    ## Base URL
+    All endpoints are prefixed with `/api`.
+  version: "1.0.0"
+  contact:
+    name: Athlete Hub Dev
+
+servers:
+  - url: /api
+    description: Same-origin (development & production)
+
+tags:
+  - name: Health
+    description: System health checks
+  - name: Auth
+    description: Passwordless OTP authentication (athlete, organizer, admin)
+  - name: Marketplace
+    description: Public event discovery
+  - name: Athlete
+    description: Athlete portal
+  - name: Organizer
+    description: Organizer portal
+  - name: Admin
+    description: Platform admin
+  - name: Webhooks
+    description: External service webhooks (Stripe)
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        "200":
+          description: Service is healthy
+        "503":
+          description: Database disconnected
+
+  /ping:
+    get:
+      tags: [Health]
+      summary: Ping
+      responses:
+        "200":
+          description: Pong
+
+  /auth/athlete/request-otp:
+    post:
+      tags: [Auth]
+      summary: Request athlete OTP (email or SMS)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                  enum: [email, sms]
+                email:
+                  type: string
+                phone:
+                  type: string
+                purpose:
+                  type: string
+                  enum: [login, register, verify]
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+      responses:
+        "200":
+          description: OTP sent
+
+  /auth/athlete/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Verify athlete OTP and create session
+      responses:
+        "200":
+          description: Session token returned
+
+  /auth/organizer/request-otp:
+    post:
+      tags: [Auth]
+      summary: Request organizer OTP
+      responses:
+        "200":
+          description: OTP sent
+
+  /auth/organizer/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Verify organizer OTP
+      responses:
+        "200":
+          description: Session token returned
+
+  /auth/admin/request-otp:
+    post:
+      tags: [Auth]
+      summary: Request admin OTP
+      responses:
+        "200":
+          description: OTP sent
+
+  /auth/admin/verify-otp:
+    post:
+      tags: [Auth]
+      summary: Verify admin OTP
+      responses:
+        "200":
+          description: Session token returned
+
+  /auth/admin/me:
+    get:
+      tags: [Auth]
+      summary: Current admin profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin profile
+
+  /auth/organizer/me:
+    get:
+      tags: [Auth]
+      summary: Current organizer member profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Organizer member profile
+
+  /auth/clerk/athlete:
+    post:
+      tags: [Auth]
+      summary: Exchange Clerk session for athlete JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionToken]
+              properties:
+                sessionToken:
+                  type: string
+      responses:
+        "200":
+          description: Athlete session token
+
+  /auth/clerk/staff:
+    post:
+      tags: [Auth]
+      summary: Exchange Clerk session for staff JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionToken]
+              properties:
+                sessionToken:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, organizer]
+      responses:
+        "200":
+          description: Staff session token
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke current session
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logged out
+
+  /sport-types:
+    get:
+      tags: [Marketplace]
+      summary: List active sport types
+      responses:
+        "200":
+          description: Sport types list
+
+  /events:
+    get:
+      tags: [Marketplace]
+      summary: List published public events with search, filters, and pagination
+      parameters:
+        - name: q
+          in: query
+          description: Search query (title, city, organizer)
+          schema:
+            type: string
+        - name: sport
+          in: query
+          schema:
+            type: string
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: featured
+          in: query
+          schema:
+            type: boolean
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: minPrice
+          in: query
+          schema:
+            type: number
+        - name: maxPrice
+          in: query
+          schema:
+            type: number
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [date_asc, date_desc, price_asc, price_desc, popular]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Events list with total count, includes location_lat and location_lng
+
+  /events/filters/cities:
+    get:
+      tags: [Marketplace]
+      summary: List distinct cities for published events (for filter dropdown)
+      responses:
+        "200":
+          description: Array of city names
+
+  /events/{slug}:
+    get:
+      tags: [Marketplace]
+      summary: Get event detail with categories, registration fields, course, and media
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event detail
+        "404":
+          description: Event not found
+
+  /athlete/me:
+    get:
+      tags: [Athlete]
+      summary: Get current athlete profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Athlete profile
+
+  /athlete/preferences:
+    patch:
+      tags: [Athlete]
+      summary: Update athlete preferences (language)
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                preferred_language:
+                  type: string
+                  enum: [es, en]
+      responses:
+        "200":
+          description: Preferences updated
+
+  /athlete/registrations:
+    get:
+      tags: [Athlete]
+      summary: List athlete registrations
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Registrations list
+
+  /events/{slug}/register/checkout:
+    post:
+      tags: [Marketplace]
+      summary: Create pending registration and Stripe PaymentIntent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categoryId, idempotencyKey]
+              properties:
+                categoryId:
+                  type: integer
+                fieldValues:
+                  type: object
+                  additionalProperties: true
+                idempotencyKey:
+                  type: string
+      responses:
+        "200":
+          description: Checkout session with client secret
+        "401":
+          description: Unauthorized
+        "409":
+          description: Already registered or sold out
+
+  /events/{slug}/register/confirm:
+    post:
+      tags: [Marketplace]
+      summary: Confirm payment and activate registration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [registrationPublicUuid]
+              properties:
+                registrationPublicUuid:
+                  type: string
+                paymentIntentId:
+                  type: string
+      responses:
+        "200":
+          description: Registration confirmed
+        "402":
+          description: Payment failed
+
+  /config/payments:
+    get:
+      tags: [Marketplace]
+      summary: Stripe publishable key and mock mode flag
+      responses:
+        "200":
+          description: Payment configuration
+
+  /config/app-version:
+    get:
+      tags: [Health]
+      summary: Deployed application version (footer display)
+      responses:
+        "200":
+          description: Current app version
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    nullable: true
+
+  /organizer/events:
+    get:
+      tags: [Organizer]
+      summary: List organizer events
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Events list
+
+  /organizer/events/{eventId}/sponsors:
+    get:
+      tags: [Organizer]
+      summary: List sponsors configured for an organizer event
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Event sponsors list
+        "404":
+          description: Event not found
+    put:
+      tags: [Organizer]
+      summary: Replace all sponsors for an event (used during event setup)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sponsors]
+              properties:
+                sponsors:
+                  type: array
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name:
+                        type: string
+                      logo_url:
+                        type: string
+                      website_url:
+                        type: string
+                      tier:
+                        type: string
+                        enum: [title, gold, silver, bronze, partner]
+                      sort_order:
+                        type: integer
+      responses:
+        "200":
+          description: Updated sponsors list
+        "404":
+          description: Event not found
+
+  /admin/dashboard:
+    get:
+      tags: [Admin]
+      summary: Platform dashboard stats
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dashboard stats
+
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      summary: Stripe Connect webhook handler
+      responses:
+        "200":
+          description: Webhook received
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
