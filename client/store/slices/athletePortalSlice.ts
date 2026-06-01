@@ -1,38 +1,141 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import api from "@/lib/api";
-import type { EventListItem, RegistrationItem } from "@shared/api";
+import type {
+  AthleteResultItem,
+  AthleteResultVisualization,
+  AthleteWaitlistResponse,
+  EventListItem,
+  RegistrationItem,
+  RegistrationTransferRequest,
+  RegistrationTransferResponse,
+  WaitlistEntry,
+} from "@shared/api";
 
 interface AthletePortalState {
   registrations: RegistrationItem[];
+  waitlistEntries: WaitlistEntry[];
   upcomingEvents: EventListItem[];
+  results: AthleteResultItem[];
   loadingRegistrations: boolean;
+  loadingWaitlist: boolean;
   loadingEvents: boolean;
-  error: string | null;
+  loadingResults: boolean;
+  transferringRegistration: boolean;
+  registrationsError: string | null;
+  waitlistError: string | null;
+  transferError: string | null;
+  resultVisualization: AthleteResultVisualization | null;
+  loadingResultViz: boolean;
+  resultVizError: string | null;
+  eventsError: string | null;
+  resultsError: string | null;
 }
 
 const initialState: AthletePortalState = {
   registrations: [],
+  waitlistEntries: [],
   upcomingEvents: [],
+  results: [],
   loadingRegistrations: false,
+  loadingWaitlist: false,
   loadingEvents: false,
-  error: null,
+  loadingResults: false,
+  transferringRegistration: false,
+  registrationsError: null,
+  waitlistError: null,
+  transferError: null,
+  resultVisualization: null,
+  loadingResultViz: false,
+  resultVizError: null,
+  eventsError: null,
+  resultsError: null,
 };
 
-export const fetchAthleteRegistrations = createAsyncThunk(
-  "athletePortal/registrations",
-  async () => {
+function rejectMessage(e: unknown, fallback: string): string {
+  const err = e as { response?: { data?: { error?: string } } };
+  return err?.response?.data?.error || fallback;
+}
+
+export const fetchAthleteRegistrations = createAsyncThunk<
+  RegistrationItem[],
+  void,
+  { rejectValue: string }
+>("athletePortal/registrations", async (_, { rejectWithValue }) => {
+  try {
     const { data } = await api.get("/athlete/registrations");
     return data.registrations as RegistrationItem[];
-  },
-);
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load registrations"));
+  }
+});
 
-export const fetchMarketplaceEvents = createAsyncThunk(
-  "athletePortal/events",
-  async () => {
+export const fetchMarketplaceEvents = createAsyncThunk<
+  EventListItem[],
+  void,
+  { rejectValue: string }
+>("athletePortal/events", async (_, { rejectWithValue }) => {
+  try {
     const { data } = await api.get("/events", { params: { limit: 6 } });
     return data.events as EventListItem[];
-  },
-);
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load events"));
+  }
+});
+
+export const fetchAthleteResults = createAsyncThunk<
+  AthleteResultItem[],
+  void,
+  { rejectValue: string }
+>("athletePortal/results", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get("/athlete/results");
+    return data.results as AthleteResultItem[];
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load results"));
+  }
+});
+
+export const fetchResultVisualization = createAsyncThunk<
+  AthleteResultVisualization,
+  { resultId: number },
+  { rejectValue: string }
+>("athletePortal/resultViz", async ({ resultId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get(`/athlete/results/${resultId}/visualization`);
+    return data as AthleteResultVisualization;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load visualization"));
+  }
+});
+
+export const fetchAthleteWaitlist = createAsyncThunk<
+  WaitlistEntry[],
+  void,
+  { rejectValue: string }
+>("athletePortal/waitlist", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get<AthleteWaitlistResponse>("/athlete/waitlist");
+    return data.entries;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load waitlist"));
+  }
+});
+
+export const transferRegistration = createAsyncThunk<
+  RegistrationTransferResponse,
+  { publicUuid: string; body: RegistrationTransferRequest },
+  { rejectValue: string }
+>("athletePortal/transfer", async ({ publicUuid, body }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<RegistrationTransferResponse>(
+      `/athlete/registrations/${publicUuid}/transfer`,
+      body,
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not transfer registration"));
+  }
+});
 
 const slice = createSlice({
   name: "athletePortal",
@@ -41,7 +144,7 @@ const slice = createSlice({
   extraReducers: (b) => {
     b.addCase(fetchAthleteRegistrations.pending, (s) => {
       s.loadingRegistrations = true;
-      s.error = null;
+      s.registrationsError = null;
     });
     b.addCase(fetchAthleteRegistrations.fulfilled, (s, a) => {
       s.loadingRegistrations = false;
@@ -49,18 +152,71 @@ const slice = createSlice({
     });
     b.addCase(fetchAthleteRegistrations.rejected, (s, a) => {
       s.loadingRegistrations = false;
-      s.error = a.error.message || "Error loading registrations";
+      s.registrationsError = a.payload || "Error loading registrations";
     });
 
     b.addCase(fetchMarketplaceEvents.pending, (s) => {
       s.loadingEvents = true;
+      s.eventsError = null;
     });
     b.addCase(fetchMarketplaceEvents.fulfilled, (s, a) => {
       s.loadingEvents = false;
       s.upcomingEvents = a.payload;
     });
-    b.addCase(fetchMarketplaceEvents.rejected, (s) => {
+    b.addCase(fetchMarketplaceEvents.rejected, (s, a) => {
       s.loadingEvents = false;
+      s.eventsError = a.payload || "Error loading events";
+    });
+
+    b.addCase(fetchAthleteResults.pending, (s) => {
+      s.loadingResults = true;
+      s.resultsError = null;
+    });
+    b.addCase(fetchAthleteResults.fulfilled, (s, a) => {
+      s.loadingResults = false;
+      s.results = a.payload;
+    });
+    b.addCase(fetchAthleteResults.rejected, (s, a) => {
+      s.loadingResults = false;
+      s.resultsError = a.payload || "Error loading results";
+    });
+
+    b.addCase(fetchAthleteWaitlist.pending, (s) => {
+      s.loadingWaitlist = true;
+      s.waitlistError = null;
+    });
+    b.addCase(fetchAthleteWaitlist.fulfilled, (s, a) => {
+      s.loadingWaitlist = false;
+      s.waitlistEntries = a.payload;
+    });
+    b.addCase(fetchAthleteWaitlist.rejected, (s, a) => {
+      s.loadingWaitlist = false;
+      s.waitlistError = a.payload || "Error loading waitlist";
+    });
+
+    b.addCase(transferRegistration.pending, (s) => {
+      s.transferringRegistration = true;
+      s.transferError = null;
+    });
+    b.addCase(transferRegistration.fulfilled, (s) => {
+      s.transferringRegistration = false;
+    });
+    b.addCase(transferRegistration.rejected, (s, a) => {
+      s.transferringRegistration = false;
+      s.transferError = a.payload || "Error transferring registration";
+    });
+
+    b.addCase(fetchResultVisualization.pending, (s) => {
+      s.loadingResultViz = true;
+      s.resultVizError = null;
+    });
+    b.addCase(fetchResultVisualization.fulfilled, (s, a) => {
+      s.loadingResultViz = false;
+      s.resultVisualization = a.payload;
+    });
+    b.addCase(fetchResultVisualization.rejected, (s, a) => {
+      s.loadingResultViz = false;
+      s.resultVizError = a.payload || "Error loading visualization";
     });
   },
 });

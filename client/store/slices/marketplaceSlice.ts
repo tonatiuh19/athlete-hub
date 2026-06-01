@@ -106,6 +106,21 @@ export const fetchMarketplaceEvents = createAsyncThunk(
   },
 );
 
+export const trackSponsorEvent = createAsyncThunk(
+  "marketplace/trackSponsor",
+  async ({
+    slug,
+    sponsorId,
+    type,
+  }: {
+    slug: string;
+    sponsorId: number;
+    type: "impression" | "click";
+  }) => {
+    await api.post(`/events/${slug}/sponsors/track`, { sponsorId, type });
+  },
+);
+
 export const fetchEventDetail = createAsyncThunk(
   "marketplace/eventDetail",
   async (slug: string) => {

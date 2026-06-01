@@ -44,17 +44,40 @@ export default function MarketplaceEventCard({
     />
   );
 
-  const badges = (
+  const sportBadge = (
+    <span
+      className={cn(
+        "inline-flex max-w-full truncate rounded-md bg-bg-dark/80 backdrop-blur-sm font-medium text-cyan border border-cyan/25 shadow-sm",
+        compact ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]",
+      )}
+    >
+      {event.sport_name}
+    </span>
+  );
+
+  const featuredBadge = event.featured ? (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full bg-cyan text-navy-deep font-bold uppercase shadow-[0_2px_8px_rgba(0,229,255,0.35)]",
+        compact ? "gap-0.5 px-1.5 py-0.5 text-[8px]" : "gap-1 px-2 py-0.5 text-[9px]",
+      )}
+    >
+      <Star className={cn(compact ? "w-2 h-2" : "w-2.5 h-2.5")} />
+      {t("eventsBrowse.featured")}
+    </span>
+  ) : null;
+
+  const badges = compact ? (
+    <div className="absolute top-1.5 left-1.5 z-10 flex max-w-[calc(100%-0.75rem)] flex-col items-start gap-1">
+      {featuredBadge}
+      {sportBadge}
+    </div>
+  ) : (
     <>
-      {event.featured ? (
-        <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan text-navy-deep text-[9px] font-bold uppercase shadow-sm">
-          <Star className="w-2.5 h-2.5" />
-          {t("eventsBrowse.featured")}
-        </span>
+      {featuredBadge ? (
+        <span className="absolute top-2 left-2 z-10">{featuredBadge}</span>
       ) : null}
-      <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-bg-dark/75 backdrop-blur text-[9px] font-medium text-cyan border border-cyan/25 max-w-[55%] truncate">
-        {event.sport_name}
-      </span>
+      <span className="absolute top-2 right-2 z-10 max-w-[50%]">{sportBadge}</span>
     </>
   );
 

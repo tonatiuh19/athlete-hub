@@ -1,13 +1,21 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import api, { getAthleteToken, setAthleteToken } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
-import type { AthleteUser } from "@shared/api";
+import type {
+  AthleteCheckEmailResponse,
+  AthleteProfileUpdateRequest,
+  AthleteUser,
+} from "@shared/api";
+import { mapAthleteApiRow } from "@shared/api";
 import i18n from "@/i18n";
 
 interface AthleteAuthState {
   user: AthleteUser | null;
   token: string | null;
   loading: boolean;
+  updatingProfile: boolean;
+  uploadingAvatar: boolean;
+  checkingEmail: boolean;
   requestingOtp: boolean;
   verifyingOtp: boolean;
   syncingClerk: boolean;
@@ -20,6 +28,9 @@ const initialState: AthleteAuthState = {
   user: null,
   token: getAthleteToken(),
   loading: false,
+  updatingProfile: false,
+  uploadingAvatar: false,
+  checkingEmail: false,
   requestingOtp: false,
   verifyingOtp: false,
   syncingClerk: false,
@@ -28,9 +39,33 @@ const initialState: AthleteAuthState = {
   otpChannel: "email",
 };
 
+export const checkAthleteEmail = createAsyncThunk<
+  { exists: boolean },
+  { email: string },
+  { rejectValue: string }
+>("athleteAuth/checkEmail", async (payload, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<AthleteCheckEmailResponse>(
+      "/auth/athlete/check-email",
+      { email: payload.email.trim().toLowerCase() },
+    );
+    return { exists: data.exists };
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Could not verify email");
+  }
+});
+
 export const requestAthleteOtp = createAsyncThunk<
   { destination: string; channel: "email" | "sms" },
-  { email?: string; phone?: string; channel?: "email" | "sms"; purpose?: string },
+  {
+    email?: string;
+    phone?: string;
+    channel?: "email" | "sms";
+    purpose?: string;
+    first_name?: string;
+    last_name?: string;
+  },
   { rejectValue: string }
 >("athleteAuth/requestOtp", async (payload, { rejectWithValue }) => {
   try {
@@ -54,12 +89,22 @@ export const requestAthleteOtp = createAsyncThunk<
 
 export const verifyAthleteOtp = createAsyncThunk<
   { token: string; athlete: AthleteUser },
-  { email?: string; phone?: string; code: string; channel?: "email" | "sms" },
+  {
+    email?: string;
+    phone?: string;
+    code: string;
+    channel?: "email" | "sms";
+    purpose?: string;
+  },
   { rejectValue: string }
 >("athleteAuth/verifyOtp", async (payload, { rejectWithValue }) => {
   try {
     const channel = payload.channel || (payload.phone ? "sms" : "email");
-    const { data } = await api.post("/auth/athlete/verify-otp", { ...payload, channel });
+    const { data } = await api.post("/auth/athlete/verify-otp", {
+      ...payload,
+      channel,
+      purpose: payload.purpose || "login",
+    });
     setAthleteToken(data.token);
     return { token: data.token, athlete: data.athlete };
   } catch (e: unknown) {
@@ -87,21 +132,29 @@ export const fetchAthleteMe = createAsyncThunk<{ athlete: AthleteUser }>(
   "athleteAuth/me",
   async () => {
     const { data } = await api.get("/athlete/me");
-    const a = data.athlete as Record<string, unknown>;
     return {
-      athlete: {
-        id: a.id as number,
-        email: a.email as string | undefined,
-        phone: a.phone as string | undefined,
-        firstName: (a.first_name ?? a.firstName) as string,
-        lastName: (a.last_name ?? a.lastName) as string,
-        avatarUrl: (a.avatar_url ?? a.avatarUrl) as string | undefined,
-        preferredLanguage: (a.preferred_language ??
-          a.preferredLanguage) as string | undefined,
-      },
+      athlete: mapAthleteApiRow(data.athlete as Record<string, unknown>),
     };
   },
 );
+
+export const updateAthleteProfile = createAsyncThunk<
+  { athlete: AthleteUser },
+  AthleteProfileUpdateRequest,
+  { rejectValue: string }
+>("athleteAuth/updateProfile", async (payload, { rejectWithValue }) => {
+  try {
+    const { data } = await api.patch("/athlete/me", payload);
+    return {
+      athlete: mapAthleteApiRow(data.athlete as Record<string, unknown>),
+    };
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(
+      err?.response?.data?.error || "Could not update profile",
+    );
+  }
+});
 
 export const updateAthleteLanguage = createAsyncThunk<
   { preferred_language: string },
@@ -116,6 +169,37 @@ export const updateAthleteLanguage = createAsyncThunk<
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
     return rejectWithValue(err?.response?.data?.error || "Error");
+  }
+});
+
+export const uploadAthleteAvatar = createAsyncThunk<
+  { avatar_url: string },
+  { image: string },
+  { rejectValue: string }
+>("athleteAuth/uploadAvatar", async (payload, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post("/athlete/avatar", payload);
+    return { avatar_url: data.avatar_url as string };
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(
+      err?.response?.data?.error || "Could not upload avatar",
+    );
+  }
+});
+
+export const removeAthleteAvatar = createAsyncThunk<
+  void,
+  void,
+  { rejectValue: string }
+>("athleteAuth/removeAvatar", async (_, { rejectWithValue }) => {
+  try {
+    await api.delete("/athlete/avatar");
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(
+      err?.response?.data?.error || "Could not remove avatar",
+    );
   }
 });
 
@@ -140,6 +224,18 @@ const slice = createSlice({
     },
   },
   extraReducers: (b) => {
+    b.addCase(checkAthleteEmail.pending, (s) => {
+      s.checkingEmail = true;
+      s.error = null;
+    });
+    b.addCase(checkAthleteEmail.fulfilled, (s) => {
+      s.checkingEmail = false;
+    });
+    b.addCase(checkAthleteEmail.rejected, (s, a) => {
+      s.checkingEmail = false;
+      s.error = a.payload || "Error";
+    });
+
     b.addCase(requestAthleteOtp.pending, (s) => {
       s.requestingOtp = true;
       s.error = null;
@@ -199,6 +295,55 @@ const slice = createSlice({
       s.token = null;
       s.user = null;
       setAthleteToken(null);
+    });
+
+    b.addCase(updateAthleteProfile.pending, (s) => {
+      s.updatingProfile = true;
+      s.error = null;
+    });
+    b.addCase(updateAthleteProfile.fulfilled, (s, a) => {
+      s.updatingProfile = false;
+      s.user = a.payload.athlete;
+    });
+    b.addCase(updateAthleteProfile.rejected, (s, a) => {
+      s.updatingProfile = false;
+      s.error = a.payload || "Error";
+    });
+
+    b.addCase(updateAthleteLanguage.fulfilled, (s, a) => {
+      if (s.user) {
+        s.user.preferredLanguage = a.payload.preferred_language;
+      }
+    });
+
+    b.addCase(uploadAthleteAvatar.pending, (s) => {
+      s.uploadingAvatar = true;
+      s.error = null;
+    });
+    b.addCase(uploadAthleteAvatar.fulfilled, (s, a) => {
+      s.uploadingAvatar = false;
+      if (s.user) {
+        s.user.avatarUrl = a.payload.avatar_url;
+      }
+    });
+    b.addCase(uploadAthleteAvatar.rejected, (s, a) => {
+      s.uploadingAvatar = false;
+      s.error = a.payload || "Error";
+    });
+
+    b.addCase(removeAthleteAvatar.pending, (s) => {
+      s.uploadingAvatar = true;
+      s.error = null;
+    });
+    b.addCase(removeAthleteAvatar.fulfilled, (s) => {
+      s.uploadingAvatar = false;
+      if (s.user) {
+        s.user.avatarUrl = undefined;
+      }
+    });
+    b.addCase(removeAthleteAvatar.rejected, (s, a) => {
+      s.uploadingAvatar = false;
+      s.error = a.payload || "Error";
     });
 
     b.addCase(athleteLogout.fulfilled, (s) => {

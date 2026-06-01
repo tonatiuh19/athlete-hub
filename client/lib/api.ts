@@ -28,8 +28,7 @@ function isStaffRoute(url: string) {
     url.startsWith("/organizer") ||
     url.startsWith("/auth/admin") ||
     url.startsWith("/auth/organizer") ||
-    url.startsWith("/auth/staff") ||
-    url.startsWith("/auth/clerk/staff")
+    url.startsWith("/auth/staff")
   );
 }
 

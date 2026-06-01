@@ -166,11 +166,12 @@ CREATE TABLE `athletes` (
   `city` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `emergency_contact_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `emergency_contact_phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `avatar_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `avatar_url` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `preferred_language` varchar(5) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'es',
   `google_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `apple_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `facebook_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `stripe_customer_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Stripe Customer ID for saved cards',
   `status` enum('active','suspended','deleted') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `last_login_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -183,6 +184,7 @@ CREATE TABLE `athletes` (
   UNIQUE KEY `uk_athletes_public_uuid` (`public_uuid`),
   KEY `idx_athletes_name` (`last_name`,`first_name`),
   KEY `idx_athletes_city` (`city`,`country`),
+  KEY `idx_athletes_stripe_customer` (`stripe_customer_id`),
   KEY `idx_athletes_deleted` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -404,6 +406,26 @@ CREATE TABLE `event_sponsors` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `sponsor_analytics_events`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sponsor_analytics_events` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `event_sponsor_id` int unsigned NOT NULL,
+  `event_id` int unsigned NOT NULL,
+  `event_type` enum('impression','click') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_sponsor_analytics_sponsor` (`event_sponsor_id`,`event_type`),
+  KEY `idx_sponsor_analytics_event` (`event_id`),
+  CONSTRAINT `fk_sponsor_analytics_sponsor` FOREIGN KEY (`event_sponsor_id`) REFERENCES `event_sponsors` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_sponsor_analytics_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `event_tags`
 --
 
@@ -515,6 +537,7 @@ CREATE TABLE `event_courses` (
   `points_json` json NOT NULL COMMENT 'Array of {type,name,lat,lng,km,description}',
   `distance_km` decimal(8,3) DEFAULT NULL,
   `elevation_gain_m` int unsigned DEFAULT NULL,
+  `elevation_profile_json` json DEFAULT NULL COMMENT 'Array of {km, elevation_m}',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`event_id`) /*T![clustered_index] CLUSTERED */,
@@ -627,6 +650,7 @@ CREATE TABLE `organizer_members` (
   `last_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `role` enum('owner','organizer','marketing','finance','timing','operations','sponsor') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'organizer',
+  `event_access_scope` enum('organization','events') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'organization',
   `status` enum('invited','active','inactive','suspended') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'invited',
   `invited_at` datetime DEFAULT NULL,
   `invited_by_member_id` int unsigned DEFAULT NULL,
@@ -645,6 +669,23 @@ CREATE TABLE `organizer_members` (
   KEY `idx_organizer_members_deleted` (`deleted_at`),
   CONSTRAINT `fk_organizer_members_organizer` FOREIGN KEY (`organizer_id`) REFERENCES `organizers` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `organizer_member_events`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `organizer_member_events` (
+  `organizer_member_id` int unsigned NOT NULL,
+  `event_id` int unsigned NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`organizer_member_id`,`event_id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_organizer_member_events_event` (`event_id`),
+  CONSTRAINT `fk_organizer_member_events_member` FOREIGN KEY (`organizer_member_id`) REFERENCES `organizer_members` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_organizer_member_events_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1134,6 +1175,114 @@ CREATE TABLE `system_settings` (
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   UNIQUE KEY `uk_system_settings_key` (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `athlete_teams`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `athlete_teams` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `public_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `owner_athlete_id` int unsigned NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `avatar_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `invite_code` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_public` tinyint(1) NOT NULL DEFAULT '1',
+  `member_count` int unsigned NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_athlete_teams_public_uuid` (`public_uuid`),
+  UNIQUE KEY `uk_athlete_teams_slug` (`slug`),
+  UNIQUE KEY `uk_athlete_teams_invite_code` (`invite_code`),
+  KEY `idx_athlete_teams_owner` (`owner_athlete_id`),
+  KEY `idx_athlete_teams_public` (`is_public`,`member_count`),
+  CONSTRAINT `fk_athlete_teams_owner` FOREIGN KEY (`owner_athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `athlete_team_members`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `athlete_team_members` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `team_id` int unsigned NOT NULL,
+  `athlete_id` int unsigned NOT NULL,
+  `role` enum('owner','member') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'member',
+  `joined_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_team_member_athlete` (`team_id`,`athlete_id`),
+  KEY `idx_team_members_athlete` (`athlete_id`),
+  CONSTRAINT `fk_team_members_team` FOREIGN KEY (`team_id`) REFERENCES `athlete_teams` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_team_members_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `achievement_definitions`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `achievement_definitions` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `slug` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `icon` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `xp_reward` int unsigned NOT NULL DEFAULT '0',
+  `criteria_type` enum('registration','result','streak','team') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `criteria_value` int unsigned NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_achievement_definitions_slug` (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `athlete_achievements`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `athlete_achievements` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `athlete_id` int unsigned NOT NULL,
+  `achievement_id` int unsigned NOT NULL,
+  `earned_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `event_id` int unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_athlete_achievement` (`athlete_id`,`achievement_id`),
+  KEY `idx_athlete_achievements_earned` (`athlete_id`,`earned_at`),
+  KEY `fk_athlete_achievements_event` (`event_id`),
+  CONSTRAINT `fk_athlete_achievements_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_athlete_achievements_definition` FOREIGN KEY (`achievement_id`) REFERENCES `achievement_definitions` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_athlete_achievements_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `athlete_gamification`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `athlete_gamification` (
+  `athlete_id` int unsigned NOT NULL,
+  `xp_total` int unsigned NOT NULL DEFAULT '0',
+  `level` int unsigned NOT NULL DEFAULT '1',
+  `streak_days` int unsigned NOT NULL DEFAULT '0',
+  `last_activity_date` date DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`athlete_id`) /*T![clustered_index] CLUSTERED */,
+  CONSTRAINT `fk_athlete_gamification_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

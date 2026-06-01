@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { useTranslation } from "react-i18next";
 import type { EventSponsor, SponsorTier } from "@shared/api";
+import { useAppDispatch } from "@/store/hooks";
+import { trackSponsorEvent } from "@/store/slices/marketplaceSlice";
 import { cn } from "@/lib/utils";
 
 const STRATEGIC_TIERS: SponsorTier[] = ["title", "gold"];
+const trackedImpressions = new Set<string>();
 
 interface EventSponsorsCarouselProps {
   sponsors: EventSponsor[];
+  eventSlug?: string;
   /** inline = sticky CTA strip; compact = sidebar card */
   variant?: "inline" | "compact";
   className?: string;
@@ -21,9 +25,13 @@ function tierLabelKey(tier?: string): string | null {
 function SponsorChip({
   sponsor,
   variant,
+  eventSlug,
+  onClickTrack,
 }: {
   sponsor: EventSponsor;
   variant: "inline" | "compact";
+  eventSlug?: string;
+  onClickTrack?: () => void;
 }) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
@@ -88,6 +96,9 @@ function SponsorChip({
         rel="noopener noreferrer"
         className="shrink-0 hover:opacity-90 transition-opacity"
         aria-label={title}
+        onClick={() => {
+          if (eventSlug && sponsor.id) onClickTrack?.();
+        }}
       >
         {chip}
       </a>
@@ -99,16 +110,36 @@ function SponsorChip({
 
 export default function EventSponsorsCarousel({
   sponsors,
+  eventSlug,
   variant = "inline",
   className,
 }: EventSponsorsCarouselProps) {
   const { t } = useTranslation();
+  const dispatch = useAppDispatch();
 
   const displaySponsors = useMemo(() => {
     const strategic = sponsors.filter((s) => STRATEGIC_TIERS.includes(s.tier as SponsorTier));
     const list = strategic.length > 0 ? strategic : sponsors;
     return [...list].sort((a, b) => a.sort_order - b.sort_order);
   }, [sponsors]);
+
+  useEffect(() => {
+    if (!eventSlug) return;
+    displaySponsors.forEach((sponsor) => {
+      if (!sponsor.id) return;
+      const key = `${eventSlug}-${sponsor.id}`;
+      if (trackedImpressions.has(key)) return;
+      trackedImpressions.add(key);
+      dispatch(
+        trackSponsorEvent({ slug: eventSlug, sponsorId: sponsor.id, type: "impression" }),
+      );
+    });
+  }, [dispatch, eventSlug, displaySponsors]);
+
+  const trackClick = (sponsorId: number) => {
+    if (!eventSlug) return;
+    dispatch(trackSponsorEvent({ slug: eventSlug, sponsorId, type: "click" }));
+  };
 
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: displaySponsors.length > 3,
@@ -143,7 +174,12 @@ export default function EventSponsorsCarousel({
         <div className="flex flex-wrap gap-2">
           {displaySponsors.map((sponsor) => (
             <div key={`${sponsor.name}-${sponsor.sort_order}`} className="w-[calc(50%-4px)]">
-              <SponsorChip sponsor={sponsor} variant="compact" />
+              <SponsorChip
+                sponsor={sponsor}
+                variant="compact"
+                eventSlug={eventSlug}
+                onClickTrack={() => sponsor.id && trackClick(sponsor.id)}
+              />
             </div>
           ))}
         </div>
@@ -169,6 +205,8 @@ export default function EventSponsorsCarousel({
                 key={`${sponsor.name}-${sponsor.sort_order}`}
                 sponsor={sponsor}
                 variant="inline"
+                eventSlug={eventSlug}
+                onClickTrack={() => sponsor.id && trackClick(sponsor.id)}
               />
             ))}
           </div>

@@ -137,11 +137,11 @@ SELECT
   v.name, v.address_line1, v.city, v.state, v.country, v.lat, v.lng,
   'https://images.unsplash.com/photo-1452626212852-811d58933cae?w=1200',
   'https://images.unsplash.com/photo-1476480862128-209bfaa8dba8?w=1600',
-  1, 15000, 1, 30000, 1247,
+  1, 15000, 1, 30000, 0,
   'maraton cdmx ciudad de mexico 42k running reforma chapultepec'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'running' AND v.public_uuid = 'v0000001-0000-4000-8000-000000000001'
-ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published', `registration_count` = VALUES(`registration_count`);
+ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
 
 INSERT INTO `events` (
   `public_uuid`, `organizer_id`, `sport_type_id`, `venue_id`, `slug`, `title`,
@@ -161,7 +161,7 @@ SELECT
   '2026-06-14 07:00:00', '2026-01-15 00:00:00', '2026-06-10 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
   'https://images.unsplash.com/photo-1551632811-561732d1e306?w=1200',
-  1, 800, 312, 'trail nevado toluca montaña running 21k 10k'
+  1, 800, 0, 'trail nevado toluca montaña running 21k 10k'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'trail' AND v.public_uuid = 'v0000002-0000-4000-8000-000000000002'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -184,7 +184,7 @@ SELECT
   '2026-11-08 06:30:00', '2026-02-01 00:00:00', '2026-11-01 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
   'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=1200',
-  1, 1500, 428, 'triatlon acapulco natacion ciclismo running sprint olimpico'
+  1, 1500, 0, 'triatlon acapulco natacion ciclismo running sprint olimpico'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'pacific-endurance' AND st.slug = 'triathlon' AND v.public_uuid = 'v0000003-0000-4000-8000-000000000003'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -207,7 +207,7 @@ SELECT
   '2026-04-18 19:00:00', '2026-01-01 00:00:00', '2026-04-15 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
   'https://images.unsplash.com/photo-1571008887538-b36bb08f4571?w=1200',
-  1, 5000, 892, '10k polanco carrera nocturna running cdmx'
+  1, 5000, 0, '10k polanco carrera nocturna running cdmx'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'running' AND v.public_uuid = 'v0000004-0000-4000-8000-000000000004'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -231,7 +231,7 @@ SELECT
   '2025-06-01 00:00:00', '2025-11-10 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
   'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1200',
-  1, 2000, 1856, 'hyrox fitness funcional mexico city crossfit'
+  1, 2000, 0, 'hyrox fitness funcional mexico city crossfit'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'hyrox' AND v.public_uuid = 'v0000005-0000-4000-8000-000000000005'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'completed';
@@ -240,49 +240,49 @@ ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'completed';
 -- EVENT CATEGORIES
 -- ============================================================================
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `difficulty`, `capacity`, `sold_count`, `price_cents`, `gender_restriction`, `min_age`, `sort_order`)
-SELECT 'ec000001-0000-4000-8000-000000000001', e.id, 'Maratón 42K', 'Distancia completa certificada AIMS', 42.20, 'advanced', 30000, 1247, 150000, 'any', 18, 1
+SELECT 'ec000001-0000-4000-8000-000000000001', e.id, 'Maratón 42K', 'Distancia completa certificada AIMS', 42.20, 'advanced', 30000, 0, 150000, 'any', 18, 1
 FROM events e WHERE e.slug = 'maraton-cdmx-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `difficulty`, `capacity`, `sold_count`, `price_cents`, `gender_restriction`, `min_age`, `sort_order`)
-SELECT 'ec000002-0000-4000-8000-000000000002', e.id, 'Media Maratón 21K', 'Media maratón por Reforma y Chapultepec', 21.10, 'intermediate', 15000, 890, 90000, 'any', 16, 2
+SELECT 'ec000002-0000-4000-8000-000000000002', e.id, 'Media Maratón 21K', 'Media maratón por Reforma y Chapultepec', 21.10, 'intermediate', 15000, 0, 90000, 'any', 16, 2
 FROM events e WHERE e.slug = 'maraton-cdmx-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `difficulty`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000003-0000-4000-8000-000000000003', e.id, 'Trail 21K', 'Recorrido técnico de montaña', 21.00, 'expert', 500, 212, 95000, 1
+SELECT 'ec000003-0000-4000-8000-000000000003', e.id, 'Trail 21K', 'Recorrido técnico de montaña', 21.00, 'expert', 500, 0, 95000, 1
 FROM events e WHERE e.slug = 'trail-nevado-toluca-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `difficulty`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000004-0000-4000-8000-000000000004', e.id, 'Trail 10K', 'Distancia accesible con vistas al cráter', 10.00, 'intermediate', 300, 100, 65000, 2
+SELECT 'ec000004-0000-4000-8000-000000000004', e.id, 'Trail 10K', 'Distancia accesible con vistas al cráter', 10.00, 'intermediate', 300, 0, 65000, 2
 FROM events e WHERE e.slug = 'trail-nevado-toluca-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000005-0000-4000-8000-000000000005', e.id, 'Sprint', '750m natación · 20K bici · 5K carrera', 25.75, 800, 320, 180000, 1
+SELECT 'ec000005-0000-4000-8000-000000000005', e.id, 'Sprint', '750m natación · 20K bici · 5K carrera', 25.75, 800, 0, 180000, 1
 FROM events e WHERE e.slug = 'triatlon-acapulco-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000006-0000-4000-8000-000000000006', e.id, 'Olímpico', '1.5K natación · 40K bici · 10K carrera', 51.50, 700, 108, 220000, 2
+SELECT 'ec000006-0000-4000-8000-000000000006', e.id, 'Olímpico', '1.5K natación · 40K bici · 10K carrera', 51.50, 700, 0, 220000, 2
 FROM events e WHERE e.slug = 'triatlon-acapulco-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000007-0000-4000-8000-000000000007', e.id, '10K General', 'Categoría abierta', 10.00, 5000, 892, 80000, 1
+SELECT 'ec000007-0000-4000-8000-000000000007', e.id, '10K General', 'Categoría abierta', 10.00, 5000, 0, 80000, 1
 FROM events e WHERE e.slug = 'carrera-10k-polanco-2026'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000008-0000-4000-8000-000000000008', e.id, 'Hyrox Open', 'Individual — categoría abierta', 8.00, 1200, 980, 175000, 1
+SELECT 'ec000008-0000-4000-8000-000000000008', e.id, 'Hyrox Open', 'Individual — categoría abierta', 8.00, 1200, 0, 175000, 1
 FROM events e WHERE e.slug = 'hyrox-mexico-city-2025'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 INSERT INTO `event_categories` (`public_uuid`, `event_id`, `name`, `description`, `distance_km`, `capacity`, `sold_count`, `price_cents`, `sort_order`)
-SELECT 'ec000009-0000-4000-8000-000000000009', e.id, 'Hyrox Pro', 'Individual — categoría pro', 8.00, 400, 380, 195000, 2
+SELECT 'ec000009-0000-4000-8000-000000000009', e.id, 'Hyrox Pro', 'Individual — categoría pro', 8.00, 400, 0, 195000, 2
 FROM events e WHERE e.slug = 'hyrox-mexico-city-2025'
-ON DUPLICATE KEY UPDATE `sold_count` = VALUES(`sold_count`);
+ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- ============================================================================
 -- EVENT TAGS
@@ -359,13 +359,13 @@ FROM events e WHERE e.slug = 'triatlon-acapulco-2026'
 -- SCHEDULE WAVES
 -- ============================================================================
 INSERT INTO `event_schedule_waves` (`event_id`, `event_category_id`, `name`, `starts_at`, `capacity`, `registered_count`, `sort_order`)
-SELECT e.id, ec.id, 'Ola A — Sub 3:30', '2026-08-30 06:00:00', 5000, 420, 1
+SELECT e.id, ec.id, 'Ola A — Sub 3:30', '2026-08-30 06:00:00', 5000, 0, 1
 FROM events e JOIN event_categories ec ON ec.event_id = e.id AND ec.name = 'Maratón 42K'
 WHERE e.slug = 'maraton-cdmx-2026'
   AND NOT EXISTS (SELECT 1 FROM event_schedule_waves w WHERE w.event_id = e.id AND w.name = 'Ola A — Sub 3:30');
 
 INSERT INTO `event_schedule_waves` (`event_id`, `event_category_id`, `name`, `starts_at`, `capacity`, `registered_count`, `sort_order`)
-SELECT e.id, ec.id, 'Ola B — General', '2026-08-30 06:15:00', 25000, 827, 2
+SELECT e.id, ec.id, 'Ola B — General', '2026-08-30 06:15:00', 25000, 0, 2
 FROM events e JOIN event_categories ec ON ec.event_id = e.id AND ec.name = 'Maratón 42K'
 WHERE e.slug = 'maraton-cdmx-2026'
   AND NOT EXISTS (SELECT 1 FROM event_schedule_waves w WHERE w.event_id = e.id AND w.name = 'Ola B — General');
@@ -374,7 +374,7 @@ WHERE e.slug = 'maraton-cdmx-2026'
 -- DISCOUNT CODES
 -- ============================================================================
 INSERT INTO `discount_codes` (`event_id`, `organizer_id`, `code`, `description`, `discount_type`, `discount_value`, `applies_to`, `max_uses`, `used_count`, `valid_until`, `is_active`)
-SELECT e.id, e.organizer_id, 'EARLY2026', '15% descuento inscripción temprana', 'percent', 15, 'registration', 500, 87, '2026-03-31 23:59:59', 1
+SELECT e.id, e.organizer_id, 'EARLY2026', '15% descuento inscripción temprana', 'percent', 15, 'registration', 500, 0, '2026-03-31 23:59:59', 1
 FROM events e WHERE e.slug = 'maraton-cdmx-2026'
 ON DUPLICATE KEY UPDATE `used_count` = VALUES(`used_count`);
 

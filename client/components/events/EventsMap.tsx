@@ -21,6 +21,12 @@ import {
 import type { GeoJsonLineString } from "@shared/api";
 import { formatEventDate } from "@/utils/eventFormat";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
+import {
+  CARTO_DARK_TILE_URL,
+  CARTO_TILE_ATTRIBUTION,
+  MapInvalidateSize,
+} from "@/components/maps/LeafletMapHelpers";
 
 interface EventsMapProps {
   events?: EventListItem[];
@@ -29,6 +35,8 @@ interface EventsMapProps {
   courseRoute?: GeoJsonLineString | Record<string, unknown> | null;
   coursePoints?: CoursePoint[];
   className?: string;
+  /** Explicit pixel height — Leaflet requires a defined size at mount time */
+  height?: number;
   interactive?: boolean;
 }
 
@@ -46,8 +54,6 @@ function FitBounds({
   const map = useMap();
 
   useEffect(() => {
-    if (selectedSlug) return;
-
     const coords: [number, number][] = [];
 
     events.forEach((ev) => {
@@ -72,7 +78,9 @@ function FitBounds({
       map.setView(coords[0], 12);
       return;
     }
-    map.fitBounds(coords, { padding: [48, 48], maxZoom: 12 });
+    if (!selectedSlug) {
+      map.fitBounds(coords, { padding: [48, 48], maxZoom: 12 });
+    }
   }, [map, events, courseRoute, coursePoints, selectedSlug]);
 
   return null;
@@ -125,7 +133,8 @@ export default function EventsMap({
   onSelectEvent,
   courseRoute,
   coursePoints,
-  className = "h-full min-h-[320px] w-full rounded-xl overflow-hidden border border-gray-700/50",
+  className,
+  height = 480,
   interactive = true,
 }: EventsMapProps) {
   const [mounted, setMounted] = useState(false);
@@ -145,29 +154,37 @@ export default function EventsMap({
     (e) => parseCoord(e.location_lat) != null && parseCoord(e.location_lng) != null,
   );
 
+  const shellClass = cn(
+    "w-full overflow-hidden rounded-xl border border-gray-700/50",
+    className,
+  );
+
   if (!mounted) {
     return (
-      <div className={className} aria-hidden>
+      <div className={shellClass} style={{ height }} aria-hidden>
         <div className="h-full w-full animate-pulse bg-gradient-to-br from-surface-dark to-bg-dark" />
       </div>
     );
   }
 
   return (
-    <div className={className}>
+    <div className={shellClass} style={{ height }}>
       <MapContainer
         center={MEXICO_CENTER}
         zoom={5}
         scrollWheelZoom={interactive}
         dragging={interactive}
         zoomControl={interactive}
-        className="events-leaflet-map h-full w-full z-0"
-        style={{ background: "#0A0F1F" }}
+        className="events-leaflet-map z-0"
+        style={{ height, width: "100%" }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution={CARTO_TILE_ATTRIBUTION}
+          url={CARTO_DARK_TILE_URL}
+          subdomains="abcd"
+          maxZoom={20}
         />
+        <MapInvalidateSize />
         <FitBounds
           events={mappableEvents}
           courseRoute={courseRoute}

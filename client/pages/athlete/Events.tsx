@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { MapPin, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
+import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchMarketplaceEvents } from "@/store/slices/athletePortalSlice";
 import { getNumberLocale } from "@/utils/dateLocale";
@@ -10,7 +11,9 @@ import { getNumberLocale } from "@/utils/dateLocale";
 export default function AthleteEvents() {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
-  const { upcomingEvents, loadingEvents } = useAppSelector((s) => s.athletePortal);
+  const { upcomingEvents, loadingEvents, eventsError } = useAppSelector(
+    (s) => s.athletePortal,
+  );
   const numLocale = getNumberLocale(i18n.language);
 
   useEffect(() => {
@@ -30,8 +33,17 @@ export default function AthleteEvents() {
         </p>
       </div>
 
+      <PortalErrorAlert
+        error={eventsError}
+        onRetry={() => dispatch(fetchMarketplaceEvents())}
+      />
+
       {loadingEvents ? (
         <p className="text-muted-foreground">{t("athletePortal.events.loading")}</p>
+      ) : eventsError ? null : upcomingEvents.length === 0 ? (
+        <div className="card-sport p-8 text-center text-muted-foreground">
+          {t("athletePortal.events.subtitle")}
+        </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {upcomingEvents.map((ev) => (

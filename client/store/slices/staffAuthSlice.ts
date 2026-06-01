@@ -1,7 +1,8 @@
-import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import api, { getStaffToken, setStaffToken } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
-import type { StaffRole, StaffUser } from "@shared/api";
+import type { StaffProfileUpdateRequest, StaffRole, StaffUser } from "@shared/api";
+import i18n from "@/i18n";
 
 const STAFF_ROLE_KEY = "athlete_hub_staff_role";
 
@@ -15,6 +16,31 @@ function setStoredStaffRole(r: StaffRole | null) {
   else localStorage.removeItem(STAFF_ROLE_KEY);
 }
 
+function mapStaffUser(role: StaffRole, data: Record<string, unknown>): StaffUser {
+  const source = role === "admin" ? (data.admin as Record<string, unknown>) : (data.member as Record<string, unknown>);
+  const base = {
+    id: source.id as number,
+    email: source.email as string,
+    firstName: (source.firstName ?? source.first_name) as string,
+    lastName: (source.lastName ?? source.last_name) as string,
+    role: source.role as string,
+    phone: (source.phone as string | null | undefined) ?? null,
+    avatarUrl: (source.avatarUrl ?? source.avatar_url ?? null) as string | null,
+    preferredLanguage: (source.preferredLanguage ?? source.preferred_language) as string | undefined,
+    lastLoginAt: (source.lastLoginAt ?? source.last_login_at ?? null) as string | null,
+    createdAt: (source.createdAt ?? source.created_at) as string | undefined,
+  };
+  if (role === "admin") {
+    return { type: "admin", ...base };
+  }
+  return {
+    type: "organizer",
+    ...base,
+    organizerId: (source.organizerId ?? source.organizer_id) as number,
+    organizerName: (source.organizerName ?? source.organizer_name) as string | undefined,
+  };
+}
+
 interface StaffAuthState {
   user: StaffUser | null;
   role: StaffRole | null;
@@ -22,8 +48,10 @@ interface StaffAuthState {
   loading: boolean;
   requestingOtp: boolean;
   verifyingOtp: boolean;
-  syncingClerk: boolean;
+  updatingProfile: boolean;
+  uploadingAvatar: boolean;
   error: string | null;
+  profileError: string | null;
   otpSentTo: string | null;
 }
 
@@ -34,8 +62,10 @@ const initialState: StaffAuthState = {
   loading: false,
   requestingOtp: false,
   verifyingOtp: false,
-  syncingClerk: false,
+  updatingProfile: false,
+  uploadingAvatar: false,
   error: null,
+  profileError: null,
   otpSentTo: null,
 };
 
@@ -69,27 +99,27 @@ export const verifyStaffOtp = createAsyncThunk<
     const role = data.role as StaffRole;
     const user: StaffUser =
       role === "admin"
-        ? { type: "admin", ...data.admin }
-        : { type: "organizer", ...data.member };
+        ? {
+            type: "admin",
+            id: data.admin.id,
+            email: data.admin.email,
+            firstName: data.admin.firstName,
+            lastName: data.admin.lastName,
+            role: data.admin.role,
+          }
+        : {
+            type: "organizer",
+            id: data.member.id,
+            email: data.member.email,
+            firstName: data.member.firstName,
+            lastName: data.member.lastName,
+            role: data.member.role,
+            organizerId: data.member.organizerId,
+          };
     return { token: data.token, user, role };
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
     return rejectWithValue(err?.response?.data?.error || "Invalid code");
-  }
-});
-
-export const syncStaffClerk = createAsyncThunk<
-  { token: string; user: StaffUser; role: StaffRole },
-  { sessionToken: string },
-  { rejectValue: string }
->("staffAuth/syncClerk", async ({ sessionToken }, { rejectWithValue }) => {
-  try {
-    const { data } = await api.post("/auth/clerk/staff", { sessionToken });
-    setStaffToken(data.token);
-    return { token: data.token, user: data.user, role: data.role };
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { error?: string } } };
-    return rejectWithValue(err?.response?.data?.error || "Social login failed");
   }
 });
 
@@ -101,29 +131,71 @@ export const fetchStaffMe = createAsyncThunk<
   try {
     const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
     const { data } = await api.get(path);
-    const user: StaffUser =
-      role === "admin"
-        ? {
-            type: "admin",
-            id: data.admin.id,
-            email: data.admin.email,
-            firstName: data.admin.firstName ?? data.admin.first_name,
-            lastName: data.admin.lastName ?? data.admin.last_name,
-            role: data.admin.role,
-          }
-        : {
-            type: "organizer",
-            id: data.member.id,
-            email: data.member.email,
-            firstName: data.member.firstName ?? data.member.first_name,
-            lastName: data.member.lastName ?? data.member.last_name,
-            role: data.member.role,
-            organizerId: data.member.organizerId ?? data.member.organizer_id,
-          };
-    return { user, role };
+    return { user: mapStaffUser(role, data as Record<string, unknown>), role };
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
     return rejectWithValue(err?.response?.data?.error || "Unauthorized");
+  }
+});
+
+export const updateStaffProfile = createAsyncThunk<
+  StaffUser,
+  StaffProfileUpdateRequest & { role: StaffRole },
+  { rejectValue: string }
+>("staffAuth/updateProfile", async ({ role, ...body }, { rejectWithValue }) => {
+  try {
+    const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
+    const { data } = await api.patch(path, body);
+    return mapStaffUser(role, data as Record<string, unknown>);
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Could not update profile");
+  }
+});
+
+export const updateStaffLanguage = createAsyncThunk<
+  { preferred_language: string; role: StaffRole },
+  { locale: string; role: StaffRole },
+  { rejectValue: string }
+>("staffAuth/updateLanguage", async ({ locale, role }, { rejectWithValue }) => {
+  try {
+    const normalized = normalizeLocale(locale);
+    const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
+    await api.patch(path, { preferred_language: normalized });
+    return { preferred_language: normalized, role };
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Error");
+  }
+});
+
+export const uploadStaffAvatar = createAsyncThunk<
+  string,
+  { image: string; role: StaffRole },
+  { rejectValue: string }
+>("staffAuth/uploadAvatar", async ({ image, role }, { rejectWithValue }) => {
+  try {
+    const path = role === "admin" ? "/auth/admin/avatar" : "/auth/organizer/avatar";
+    const { data } = await api.post(path, { image });
+    return (data.avatarUrl ?? data.avatar_url) as string;
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Could not upload photo");
+  }
+});
+
+export const removeStaffAvatar = createAsyncThunk<
+  null,
+  StaffRole,
+  { rejectValue: string }
+>("staffAuth/removeAvatar", async (role, { rejectWithValue }) => {
+  try {
+    const path = role === "admin" ? "/auth/admin/avatar" : "/auth/organizer/avatar";
+    await api.delete(path);
+    return null;
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Could not remove photo");
   }
 });
 
@@ -142,6 +214,7 @@ const slice = createSlice({
   reducers: {
     clearStaffError(state) {
       state.error = null;
+      state.profileError = null;
     },
   },
   extraReducers: (b) => {
@@ -176,22 +249,6 @@ const slice = createSlice({
       s.error = a.payload || "Error";
     });
 
-    b.addCase(syncStaffClerk.pending, (s) => {
-      s.syncingClerk = true;
-      s.error = null;
-    });
-    b.addCase(syncStaffClerk.fulfilled, (s, a) => {
-      s.syncingClerk = false;
-      s.token = a.payload.token;
-      s.user = a.payload.user;
-      s.role = a.payload.role;
-      setStoredStaffRole(a.payload.role);
-    });
-    b.addCase(syncStaffClerk.rejected, (s, a) => {
-      s.syncingClerk = false;
-      s.error = a.payload || "Error";
-    });
-
     b.addCase(fetchStaffMe.pending, (s) => {
       s.loading = true;
     });
@@ -199,6 +256,9 @@ const slice = createSlice({
       s.loading = false;
       s.user = a.payload.user;
       s.role = a.payload.role;
+      if (a.payload.user.preferredLanguage) {
+        void i18n.changeLanguage(normalizeLocale(a.payload.user.preferredLanguage));
+      }
     });
     b.addCase(fetchStaffMe.rejected, (s) => {
       s.loading = false;
@@ -209,12 +269,52 @@ const slice = createSlice({
       setStoredStaffRole(null);
     });
 
+    b.addCase(updateStaffProfile.pending, (s) => {
+      s.updatingProfile = true;
+      s.profileError = null;
+    });
+    b.addCase(updateStaffProfile.fulfilled, (s, a) => {
+      s.updatingProfile = false;
+      s.user = a.payload;
+      if (a.payload.preferredLanguage) {
+        void i18n.changeLanguage(normalizeLocale(a.payload.preferredLanguage));
+      }
+    });
+    b.addCase(updateStaffProfile.rejected, (s, a) => {
+      s.updatingProfile = false;
+      s.profileError = a.payload || "Error";
+    });
+
+    b.addCase(uploadStaffAvatar.pending, (s) => {
+      s.uploadingAvatar = true;
+      s.profileError = null;
+    });
+    b.addCase(uploadStaffAvatar.fulfilled, (s, a) => {
+      s.uploadingAvatar = false;
+      if (s.user) s.user.avatarUrl = a.payload;
+    });
+    b.addCase(uploadStaffAvatar.rejected, (s, a) => {
+      s.uploadingAvatar = false;
+      s.profileError = a.payload || "Error";
+    });
+
+    b.addCase(removeStaffAvatar.fulfilled, (s) => {
+      s.uploadingAvatar = false;
+      if (s.user) s.user.avatarUrl = null;
+    });
+
     b.addCase(staffLogout.fulfilled, (s) => {
       s.token = null;
       s.user = null;
       s.role = null;
       s.otpSentTo = null;
       setStoredStaffRole(null);
+    });
+
+    b.addCase(updateStaffLanguage.fulfilled, (s, a) => {
+      if (s.user) {
+        s.user.preferredLanguage = a.payload.preferred_language;
+      }
     });
   },
 });

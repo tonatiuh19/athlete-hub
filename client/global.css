@@ -357,10 +357,36 @@
   animation: event-pin-pulse 2s ease-in-out infinite;
 }
 
+/* Leaflet breaks when any ancestor uses CSS transform (Radix Dialog default centering). */
+.leaflet-safe-dialog,
+.leaflet-safe-dialog[data-state="open"],
+.leaflet-safe-dialog[data-state="closed"] {
+  transform: none !important;
+  animation: none !important;
+}
+
 .events-leaflet-map {
   overflow: hidden;
   max-width: 100%;
+  height: 100% !important;
+  width: 100% !important;
+  min-height: inherit;
+  background: #0a0f1f;
 }
+
+/* Tailwind preflight sets img { max-width: 100% } which breaks Leaflet tiles. */
+.leaflet-container img.leaflet-tile,
+.leaflet-container img.leaflet-marker-icon,
+.leaflet-container img.leaflet-marker-shadow {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.events-leaflet-map--editor {
+  background: #e8eef4;
+}
+
+/* Do not force width/height on Leaflet panes — it breaks tile positioning. */
 
 .events-leaflet-map .leaflet-control-zoom a {
   background: rgba(10, 15, 31, 0.92) !important;
@@ -410,4 +436,11 @@
 
 .event-map-popup a {
   color: #00e5ff;
+}
+
+@layer utilities {
+  /** Main content fills at least one viewport below the fixed navbar; footer follows immediately after */
+  .min-h-below-nav {
+    min-height: calc(100dvh - 4.5rem);
+  }
 }

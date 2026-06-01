@@ -2,20 +2,16 @@ import { ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
-  LayoutDashboard,
-  Calendar,
-  Users,
-  Settings,
   LogOut,
   Menu,
   X,
   ShieldCheck,
   Building2,
-  BarChart3,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { staffLogout, fetchStaffMe } from "@/store/slices/staffAuthSlice";
+import { getStaffNav } from "@/utils/staffNav";
 
 export default function StaffLayout({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -41,20 +37,11 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   }
 
   const isAdmin = role === "admin";
-  const NAV = isAdmin
-    ? [
-        { to: "/staff", end: true, label: t("staffPortal.nav.dashboard"), icon: LayoutDashboard },
-        { to: "/staff/athletes", label: t("staffPortal.nav.athletes"), icon: Users },
-        { to: "/staff/events", label: t("staffPortal.nav.events"), icon: Calendar },
-        { to: "/staff/analytics", label: t("staffPortal.nav.analytics"), icon: BarChart3 },
-        { to: "/staff/settings", label: t("staffPortal.nav.settings"), icon: Settings },
-      ]
-    : [
-        { to: "/staff", end: true, label: t("staffPortal.nav.dashboard"), icon: LayoutDashboard },
-        { to: "/staff/events", label: t("staffPortal.nav.myEvents"), icon: Calendar },
-        { to: "/staff/registrations", label: t("staffPortal.nav.registrations"), icon: Users },
-        { to: "/staff/settings", label: t("staffPortal.nav.settings"), icon: Settings },
-      ];
+  const organizerRole = user?.type === "organizer" ? user.role : undefined;
+  const NAV = getStaffNav(isAdmin, organizerRole).map((item) => ({
+    ...item,
+    label: t(item.labelKey),
+  }));
 
   const handleLogout = async () => {
     await dispatch(staffLogout());
@@ -127,7 +114,31 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="p-4 border-t border-border">
-          <p className="text-sm font-medium px-3 mb-2 truncate">{displayName}</p>
+          <Link
+            to="/staff/profile"
+            className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-card transition-colors mb-2 group"
+          >
+            <div className="w-9 h-9 rounded-xl overflow-hidden bg-cyan/10 border border-cyan/20 flex items-center justify-center shrink-0">
+              {user?.avatarUrl ? (
+                <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-bold text-cyan">
+                  {displayName
+                    .split(" ")
+                    .map((p) => p[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate group-hover:text-cyan transition-colors">
+                {displayName}
+              </p>
+              <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </Link>
           <button
             type="button"
             onClick={handleLogout}
@@ -158,7 +169,30 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
             <nav className="space-y-1">
               <NavItems mobile />
               <div className="mt-4 pt-4 border-t border-border">
-                <p className="text-sm font-medium px-4 mb-2 truncate">{displayName}</p>
+                <Link
+                  to="/staff/profile"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-card"
+                >
+                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-cyan/10 border border-cyan/20 flex items-center justify-center shrink-0">
+                    {user?.avatarUrl ? (
+                      <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-xs font-bold text-cyan">
+                        {displayName
+                          .split(" ")
+                          .map((p) => p[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{displayName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                  </div>
+                </Link>
                 <button
                   type="button"
                   onClick={() => {

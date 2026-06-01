@@ -19,6 +19,14 @@ export function pointColor(type: string): string {
       return "#00E5FF";
     case "aid":
       return "#7C4DFF";
+    case "medical":
+      return "#FF5252";
+    case "restroom":
+      return "#B388FF";
+    case "spectator":
+      return "#FFD54F";
+    case "risk":
+      return "#FF9100";
     default:
       return "#94A3B8";
   }

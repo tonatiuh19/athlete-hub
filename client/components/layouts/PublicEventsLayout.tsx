@@ -1,22 +1,17 @@
-import { Link, Outlet } from "react-router-dom";
-import AppVersionLabel from "@/components/AppVersionLabel";
+import { Outlet } from "react-router-dom";
 import HomeNavbar from "@/components/home/HomeNavbar";
+import SiteFooter from "@/components/SiteFooter";
 
 export default function PublicEventsLayout() {
   return (
-    <div className="min-h-screen bg-gradient-dark overflow-x-clip max-w-[100vw]">
+    <div className="flex flex-col bg-gradient-dark overflow-x-clip max-w-[100vw]">
       <HomeNavbar />
-      <main className="pt-[4.5rem]">
-        <Outlet />
-      </main>
-      <footer className="border-t border-gray-800/50 py-8 px-4 text-center text-xs text-gray-500">
-        <Link to="/" className="hover:text-cyan transition-colors">
-          AthleteHub
-        </Link>
-        <div className="mt-2 flex justify-center">
-          <AppVersionLabel />
+      <main className="pt-[4.5rem] w-full">
+        <div className="min-h-below-nav flex flex-col">
+          <Outlet />
         </div>
-      </footer>
+      </main>
+      <SiteFooter />
     </div>
   );
 }

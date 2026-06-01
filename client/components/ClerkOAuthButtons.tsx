@@ -9,9 +9,10 @@ import { useTranslation } from "react-i18next";
 type OAuthProvider = "google" | "apple";
 
 interface ClerkOAuthButtonsProps {
-  mode: "athlete" | "staff";
   onSuccess?: () => void;
   disabled?: boolean;
+  /** After SSO, return here instead of /portal (athlete registration wizard). */
+  returnTo?: string;
 }
 
 const PROVIDERS: {
@@ -58,9 +59,9 @@ function ClerkOAuthButtonsDisabled() {
 }
 
 function ClerkOAuthButtonsInner({
-  mode,
   onSuccess,
   disabled,
+  returnTo,
 }: ClerkOAuthButtonsProps) {
   const { isLoaded, signIn } = useSignIn();
   const { isSignedIn } = useAuth();
@@ -72,10 +73,13 @@ function ClerkOAuthButtonsInner({
     if (!signIn || disabled) return;
     setLoading(provider);
     try {
+      const returnQuery = returnTo
+        ? `?returnTo=${encodeURIComponent(returnTo)}`
+        : "";
       await signIn.authenticateWithRedirect({
         strategy: strategy as "oauth_google" | "oauth_apple",
-        redirectUrl: `/sso-callback?mode=${mode}`,
-        redirectUrlComplete: mode === "athlete" ? "/portal" : "/staff",
+        redirectUrl: `/sso-callback${returnQuery}`,
+        redirectUrlComplete: returnTo || "/portal",
       });
       onSuccess?.();
     } catch (err) {

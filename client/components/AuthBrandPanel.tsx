@@ -71,8 +71,8 @@ export default function AuthBrandPanel({
       />
 
       <div className="relative z-10 flex flex-col justify-between h-full p-12 text-white">
-        <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan/10 backdrop-blur-sm border border-cyan/25 text-xs font-medium text-cyan w-fit">
-          {badge}
+        <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full backdrop-blur-sm border text-xs font-medium text-cyan w-fit">
+          {/* {badge} */}
         </span>
 
         <div className="space-y-8">
@@ -116,10 +116,7 @@ export default function AuthBrandPanel({
                 <div className="text-sm font-semibold">{testimonial.name}</div>
                 <div className="flex items-center gap-1 mt-0.5">
                   {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className="w-3 h-3 fill-cyan text-cyan"
-                    />
+                    <Star key={i} className="w-3 h-3 fill-cyan text-cyan" />
                   ))}
                   <span className="text-[10px] text-white/45 ml-1">
                     {testimonial.detail}

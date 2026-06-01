@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
+import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import {
   Calendar,
   ChevronRight,
@@ -16,6 +17,7 @@ import { format } from "date-fns";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchAthleteRegistrations,
+  fetchAthleteResults,
   fetchMarketplaceEvents,
 } from "@/store/slices/athletePortalSlice";
 import { getDateFnsLocale } from "@/utils/dateLocale";
@@ -24,8 +26,14 @@ export default function AthleteDashboard() {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((s) => s.athleteAuth);
-  const { registrations, upcomingEvents, loadingRegistrations } =
-    useAppSelector((s) => s.athletePortal);
+  const {
+    registrations,
+    upcomingEvents,
+    results,
+    loadingRegistrations,
+    registrationsError,
+    eventsError,
+  } = useAppSelector((s) => s.athletePortal);
 
   const quotes = [
     t("athletePortal.dashboard.quote1"),
@@ -38,16 +46,28 @@ export default function AthleteDashboard() {
   useEffect(() => {
     dispatch(fetchAthleteRegistrations());
     dispatch(fetchMarketplaceEvents());
+    dispatch(fetchAthleteResults());
   }, [dispatch]);
 
   const confirmed = registrations.filter((r) => r.status === "confirmed");
   const nextReg = confirmed[0];
+  const completedCount = results.filter((r) => r.status === "finished").length;
+
+  const loadDashboard = () => {
+    dispatch(fetchAthleteRegistrations());
+    dispatch(fetchMarketplaceEvents());
+    dispatch(fetchAthleteResults());
+  };
+
+  const dashboardError = registrationsError || eventsError;
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 min-w-0">
       <MetaHelmet
         title={t("athletePortal.nav.home")}
-        description={t("athletePortal.dashboard.activeRegs", { count: confirmed.length })}
+        description={t("athletePortal.dashboard.activeRegs", {
+          count: confirmed.length,
+        })}
       />
       <motion.div
         initial={{ opacity: 0, y: 16 }}
@@ -64,10 +84,14 @@ export default function AthleteDashboard() {
             {t("athletePortal.dashboard.greeting", { name: user?.firstName })}
           </h1>
           <p className="text-muted-foreground max-w-xl">
-            {t("athletePortal.dashboard.activeRegs", { count: confirmed.length })}
+            {t("athletePortal.dashboard.activeRegs", {
+              count: confirmed.length,
+            })}
           </p>
         </div>
       </motion.div>
+
+      <PortalErrorAlert error={dashboardError} onRetry={loadDashboard} />
 
       <div className="grid md:grid-cols-3 gap-4">
         {[
@@ -85,7 +109,7 @@ export default function AthleteDashboard() {
           },
           {
             label: t("athletePortal.dashboard.statCompleted"),
-            value: confirmed.length,
+            value: completedCount,
             icon: Trophy,
             color: "text-success",
           },
@@ -121,10 +145,11 @@ export default function AthleteDashboard() {
               </p>
             </div>
             <Link
-              to="/portal/registrations"
+              to={`/portal/registrations?qr=${nextReg.id}`}
               className="btn-primary rounded-xl inline-flex items-center gap-2 text-sm shrink-0"
             >
-              <QrCode className="w-4 h-4" /> {t("athletePortal.dashboard.viewQr")}
+              <QrCode className="w-4 h-4" />
+              {t("athletePortal.dashboard.viewQr")}
             </Link>
           </div>
         </section>
@@ -140,41 +165,44 @@ export default function AthleteDashboard() {
             to="/portal/events"
             className="text-sm text-cyan hover:underline flex items-center gap-1"
           >
-            {t("athletePortal.dashboard.viewAll")} <ChevronRight className="w-4 h-4" />
+            {t("athletePortal.dashboard.viewAll")}
+            <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {upcomingEvents.slice(0, 3).map((ev) => (
-            <Link
-              key={ev.id}
-              to={`/events/${ev.slug}`}
-              className="card-sport group overflow-hidden"
-            >
-              {ev.hero_image_url && (
-                <div className="aspect-video overflow-hidden">
-                  <img
-                    src={ev.hero_image_url}
-                    alt=""
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
+        {eventsError ? null : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {upcomingEvents.slice(0, 3).map((ev) => (
+              <Link
+                key={ev.id}
+                to={`/events/${ev.slug}`}
+                className="card-sport group overflow-hidden"
+              >
+                {ev.hero_image_url && (
+                  <div className="aspect-video overflow-hidden">
+                    <img
+                      src={ev.hero_image_url}
+                      alt=""
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                  </div>
+                )}
+                <div className="p-4">
+                  <span className="text-[10px] uppercase tracking-wider text-cyan">
+                    {ev.sport_name}
+                  </span>
+                  <h3 className="font-semibold mt-1 line-clamp-2">{ev.title}</h3>
+                  <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    {ev.location_city}
+                  </p>
                 </div>
-              )}
-              <div className="p-4">
-                <span className="text-[10px] uppercase tracking-wider text-cyan">
-                  {ev.sport_name}
-                </span>
-                <h3 className="font-semibold mt-1 line-clamp-2">{ev.title}</h3>
-                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  {ev.location_city}
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
-      {loadingRegistrations && (
+      {loadingRegistrations && confirmed.length === 0 && (
         <p className="text-center text-muted-foreground text-sm">
           {t("athletePortal.dashboard.loadingRegs")}
         </p>

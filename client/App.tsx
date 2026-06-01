@@ -14,7 +14,6 @@ import { ClerkProvider } from "@clerk/clerk-react";
 import { store } from "@/store";
 import { clerkPublishableKey, isClerkEnabled } from "@/lib/api";
 import I18nSync from "@/components/I18nSync";
-import { Users, Calendar, BarChart3, Settings } from "lucide-react";
 
 const Index = lazy(() => import("./pages/Index"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -28,8 +27,23 @@ const AthleteRegistrations = lazy(() => import("./pages/athlete/Registrations"))
 const AthleteEvents = lazy(() => import("./pages/athlete/Events"));
 const AthleteResults = lazy(() => import("./pages/athlete/Results"));
 const AthleteProfile = lazy(() => import("./pages/athlete/Profile"));
+const AthletePaymentMethods = lazy(() => import("./pages/athlete/PaymentMethods"));
+const AthleteTeams = lazy(() => import("./pages/athlete/Teams"));
+const AthleteAchievements = lazy(() => import("./pages/athlete/Achievements"));
 const StaffDashboard = lazy(() => import("./pages/staff/Dashboard"));
-const StaffPlaceholder = lazy(() => import("./pages/staff/Placeholder"));
+const StaffAthletes = lazy(() => import("./pages/staff/Athletes"));
+const StaffPeople = lazy(() => import("./pages/staff/People"));
+const StaffPayments = lazy(() => import("./pages/staff/Payments"));
+const StaffEvents = lazy(() => import("./pages/staff/Events"));
+const AdminCreateEvent = lazy(() => import("./pages/staff/AdminCreateEvent"));
+const StaffEventEdit = lazy(() => import("./pages/staff/EventEdit"));
+const StaffEventHub = lazy(() => import("./pages/staff/EventHub"));
+const StaffEventResults = lazy(() => import("./pages/staff/EventResults"));
+const StaffTeam = lazy(() => import("./pages/staff/Team"));
+const StaffAnalytics = lazy(() => import("./pages/staff/Analytics"));
+const StaffRegistrations = lazy(() => import("./pages/staff/Registrations"));
+const StaffProfile = lazy(() => import("./pages/staff/Profile"));
+const StaffMessaging = lazy(() => import("./pages/staff/Messaging"));
 const EventsBrowse = lazy(() => import("./pages/events/EventsBrowse"));
 const EventDetail = lazy(() => import("./pages/events/EventDetail"));
 const PublicEventsLayout = lazy(
@@ -94,10 +108,34 @@ function AppRoutes() {
             }
           />
           <Route
+            path="/portal/payment-methods"
+            element={
+              <AthleteLayout>
+                <AthletePaymentMethods />
+              </AthleteLayout>
+            }
+          />
+          <Route
             path="/portal/profile"
             element={
               <AthleteLayout>
                 <AthleteProfile />
+              </AthleteLayout>
+            }
+          />
+          <Route
+            path="/portal/teams"
+            element={
+              <AthleteLayout>
+                <AthleteTeams />
+              </AthleteLayout>
+            }
+          />
+          <Route
+            path="/portal/achievements"
+            element={
+              <AthleteLayout>
+                <AthleteAchievements />
               </AthleteLayout>
             }
           />
@@ -114,11 +152,23 @@ function AppRoutes() {
             path="/staff/athletes"
             element={
               <StaffLayout>
-                <StaffPlaceholder
-                  titleKey="staffPortal.placeholder.athletesTitle"
-                  descKey="staffPortal.placeholder.athletesDesc"
-                  icon={Users}
-                />
+                <StaffAthletes />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/people"
+            element={
+              <StaffLayout>
+                <StaffPeople />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/payments"
+            element={
+              <StaffLayout>
+                <StaffPayments />
               </StaffLayout>
             }
           />
@@ -126,11 +176,55 @@ function AppRoutes() {
             path="/staff/events"
             element={
               <StaffLayout>
-                <StaffPlaceholder
-                  titleKey="staffPortal.placeholder.eventsTitle"
-                  descKey="staffPortal.placeholder.eventsDesc"
-                  icon={Calendar}
-                />
+                <StaffEvents />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/events/create"
+            element={
+              <StaffLayout>
+                <AdminCreateEvent />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/events/new"
+            element={
+              <StaffLayout>
+                <StaffEventEdit />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/events/:eventId"
+            element={
+              <StaffLayout>
+                <StaffEventHub />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/events/:eventId/edit"
+            element={
+              <StaffLayout>
+                <StaffEventEdit />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/events/:eventId/results"
+            element={
+              <StaffLayout>
+                <StaffEventResults />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/team"
+            element={
+              <StaffLayout>
+                <StaffTeam />
               </StaffLayout>
             }
           />
@@ -138,11 +232,7 @@ function AppRoutes() {
             path="/staff/registrations"
             element={
               <StaffLayout>
-                <StaffPlaceholder
-                  titleKey="staffPortal.placeholder.registrationsTitle"
-                  descKey="staffPortal.placeholder.registrationsDesc"
-                  icon={Users}
-                />
+                <StaffRegistrations />
               </StaffLayout>
             }
           />
@@ -150,11 +240,15 @@ function AppRoutes() {
             path="/staff/analytics"
             element={
               <StaffLayout>
-                <StaffPlaceholder
-                  titleKey="staffPortal.placeholder.analyticsTitle"
-                  descKey="staffPortal.placeholder.analyticsDesc"
-                  icon={BarChart3}
-                />
+                <StaffAnalytics />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/profile"
+            element={
+              <StaffLayout>
+                <StaffProfile />
               </StaffLayout>
             }
           />
@@ -162,11 +256,15 @@ function AppRoutes() {
             path="/staff/settings"
             element={
               <StaffLayout>
-                <StaffPlaceholder
-                  titleKey="staffPortal.placeholder.settingsTitle"
-                  descKey="staffPortal.placeholder.settingsDesc"
-                  icon={Settings}
-                />
+                <StaffProfile />
+              </StaffLayout>
+            }
+          />
+          <Route
+            path="/staff/messaging"
+            element={
+              <StaffLayout>
+                <StaffMessaging />
               </StaffLayout>
             }
           />

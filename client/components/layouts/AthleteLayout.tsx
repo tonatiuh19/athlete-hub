@@ -17,8 +17,12 @@ import {
   X,
   QrCode,
   Footprints,
+  CreditCard,
+  Users,
+  Medal,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import EventRegistrationWizard from "@/components/events/registration/EventRegistrationWizard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   athleteLogout,
@@ -38,6 +42,9 @@ export default function AthleteLayout({ children }: { children: ReactNode }) {
     { to: "/portal/registrations", label: t("athletePortal.nav.registrations"), icon: QrCode },
     { to: "/portal/events", label: t("athletePortal.nav.discover"), icon: Calendar },
     { to: "/portal/results", label: t("athletePortal.nav.results"), icon: Trophy },
+    { to: "/portal/teams", label: t("athletePortal.nav.teams"), icon: Users },
+    { to: "/portal/achievements", label: t("athletePortal.nav.achievements"), icon: Medal },
+    { to: "/portal/payment-methods", label: t("athletePortal.nav.paymentMethods"), icon: CreditCard },
     { to: "/portal/profile", label: t("athletePortal.nav.profile"), icon: User },
   ];
 
@@ -106,9 +113,17 @@ export default function AthleteLayout({ children }: { children: ReactNode }) {
         </nav>
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan/30 to-purple-accent/30 flex items-center justify-center text-sm font-bold">
-              {user?.firstName?.[0] || "A"}
-            </div>
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt=""
+                className="w-9 h-9 rounded-full object-cover border border-cyan/20"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan/30 to-purple-accent/30 flex items-center justify-center text-sm font-bold">
+                {user?.firstName?.[0] || "A"}
+              </div>
+            )}
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">
                 {user?.firstName} {user?.lastName}
@@ -163,6 +178,7 @@ export default function AthleteLayout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      <EventRegistrationWizard />
     </div>
   );
 }

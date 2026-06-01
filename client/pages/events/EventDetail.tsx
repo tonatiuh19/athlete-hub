@@ -11,11 +11,17 @@ import {
   Flag,
   Mountain,
   Loader2,
+  CheckCircle2,
+  HeartPulse,
+  Bath,
+  AlertTriangle,
 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
 import { resolveAbsoluteImage, resolveAbsoluteUrl } from "@/lib/siteMeta";
 import EventsMap from "@/components/events/EventsMap";
 import EventSponsorsCarousel from "@/components/events/EventSponsorsCarousel";
+import EventMediaGallery from "@/components/events/EventMediaGallery";
+import ElevationProfileChart from "@/components/events/ElevationProfileChart";
 import EventRegistrationWizard from "@/components/events/registration/EventRegistrationWizard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { openRegistrationWizard } from "@/store/slices/registrationCheckoutSlice";
@@ -26,6 +32,7 @@ import { clearEventDetail, fetchEventDetail } from "@/store/slices/marketplaceSl
 import { formatEventDate, formatPriceMxn } from "@/utils/eventFormat";
 import type { CoursePoint } from "@shared/api";
 import { pointColor } from "@/lib/leafletSetup";
+import { useMapPanelHeight } from "@/hooks/use-media-query";
 
 function pointIcon(type: CoursePoint["type"]) {
   switch (type) {
@@ -36,6 +43,14 @@ function pointIcon(type: CoursePoint["type"]) {
       return Flag;
     case "aid":
       return Mountain;
+    case "medical":
+      return HeartPulse;
+    case "restroom":
+      return Bath;
+    case "spectator":
+      return Users;
+    case "risk":
+      return AlertTriangle;
     default:
       return MapPin;
   }
@@ -46,12 +61,36 @@ export default function EventDetail() {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
   const { eventDetail, loadingDetail, detailError } = useAppSelector((s) => s.marketplace);
+  const { token } = useAppSelector((s) => s.athleteAuth);
+  const { open: wizardOpen, joiningWaitlist } = useAppSelector((s) => s.registrationCheckout);
   const [activeTab, setActiveTab] = useState("overview");
+  const courseMapHeight = useMapPanelHeight({ compact: true });
 
   const startRegistration = useCallback(
+    (category: EventCategory, initialStep?: "auth" | "checkout") => {
+      if (!slug) return;
+      dispatch(
+        openRegistrationWizard({
+          slug,
+          category,
+          initialStep,
+        }),
+      );
+    },
+    [dispatch, slug],
+  );
+
+  const handleJoinWaitlist = useCallback(
     (category: EventCategory) => {
       if (!slug) return;
-      dispatch(openRegistrationWizard({ slug, category }));
+      dispatch(
+        openRegistrationWizard({
+          slug,
+          category,
+          waitlistMode: true,
+          initialStep: "auth",
+        }),
+      );
     },
     [dispatch, slug],
   );
@@ -68,11 +107,17 @@ export default function EventDetail() {
     return () => {
       dispatch(clearEventDetail());
     };
-  }, [dispatch, slug]);
+  }, [dispatch, slug, token]);
+
+  useEffect(() => {
+    if (!wizardOpen && slug) {
+      dispatch(fetchEventDetail(slug));
+    }
+  }, [wizardOpen, slug, dispatch]);
 
   if (loadingDetail) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-gray-400">
+      <div className="flex flex-1 flex-col items-center justify-center min-h-below-nav gap-3 text-gray-400">
         <Loader2 className="w-8 h-8 animate-spin text-cyan" />
         {t("eventDetail.loading")}
       </div>
@@ -81,7 +126,7 @@ export default function EventDetail() {
 
   if (detailError || !eventDetail) {
     return (
-      <div className="max-w-lg mx-auto py-20 px-4 text-center">
+      <div className="flex flex-1 flex-col items-center justify-center min-h-below-nav max-w-lg mx-auto py-20 px-4 text-center">
         <p className="text-gray-400 mb-6">{t("eventDetail.notFound")}</p>
         <Link to="/events">
           <Button variant="outline">{t("eventDetail.backToEvents")}</Button>
@@ -90,8 +135,11 @@ export default function EventDetail() {
     );
   }
 
-  const { event, categories, course, sponsors, tags, scheduleWaves, serviceFeePercent } =
+  const { event, categories, course, sponsors, tags, scheduleWaves, serviceFeePercent, myRegistration, media } =
     eventDetail;
+
+  const isRegisteredConfirmed = Boolean(myRegistration);
+  const canRegister = !isRegisteredConfirmed;
   const descriptionParagraphs = (event.description || "")
     .split(/\n+/)
     .map((p) => p.trim())
@@ -132,7 +180,7 @@ export default function EventDetail() {
   };
 
   return (
-    <>
+    <div className="flex flex-1 flex-col w-full min-h-full">
       <MetaHelmet
         title={event.title}
         description={event.short_description || event.description || event.title}
@@ -187,7 +235,7 @@ export default function EventDetail() {
               <Users className="w-4 h-4 text-cyan" />
               {event.registration_count}
               {event.max_registrations ? ` / ${event.max_registrations}` : ""}{" "}
-              {t("eventDetail.registered")}
+              {t("eventDetail.attendeesRegistered")}
             </span>
           </div>
         </div>
@@ -197,38 +245,69 @@ export default function EventDetail() {
       <div className="sticky top-[4.5rem] z-40 border-b border-gray-800/80 bg-bg-dark/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-2.5 md:py-3">
           <div className="flex items-center gap-3 md:gap-5">
-            <div className="shrink-0">
-              {Number.isFinite(minPrice) && minPrice !== Infinity && (
-                <p className="text-[10px] text-gray-500 leading-none mb-0.5">{t("eventDetail.from")}</p>
-              )}
-              <p className="text-base md:text-lg font-bold text-cyan leading-tight">
-                {Number.isFinite(minPrice) && minPrice !== Infinity
-                  ? formatPriceMxn(minPrice, i18n.language)
-                  : t("eventDetail.freeOrTbd")}
-              </p>
-            </div>
+            {isRegisteredConfirmed ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white leading-tight">
+                    {t("eventDetail.alreadyRegisteredTitle")}
+                  </p>
+                  {myRegistration && (
+                    <p className="text-xs text-gray-400 truncate">
+                      {t("eventDetail.alreadyRegisteredDesc", {
+                        category: myRegistration.categoryName,
+                        number: myRegistration.registrationNumber,
+                      })}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="shrink-0">
+                {Number.isFinite(minPrice) && minPrice !== Infinity && (
+                  <p className="text-[10px] text-gray-500 leading-none mb-0.5">{t("eventDetail.from")}</p>
+                )}
+                <p className="text-base md:text-lg font-bold text-cyan leading-tight">
+                  {Number.isFinite(minPrice) && minPrice !== Infinity
+                    ? formatPriceMxn(minPrice, i18n.language)
+                    : t("eventDetail.freeOrTbd")}
+                </p>
+              </div>
+            )}
 
             {sponsors.length > 0 && (
               <EventSponsorsCarousel
                 sponsors={sponsors}
+                eventSlug={event.slug}
                 variant="inline"
                 className="flex-1 min-w-0 hidden sm:flex border-l border-gray-800/80 pl-3 md:pl-5"
               />
             )}
 
-            <Button
-              size="sm"
-              disabled={categories.length === 0}
-              onClick={scrollToPricing}
-              className="shrink-0 ml-auto h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold hover:opacity-90"
-            >
-              {t("eventDetail.registerCta")}
-            </Button>
+            {isRegisteredConfirmed ? (
+              <Button
+                asChild
+                size="sm"
+                className="shrink-0 ml-auto h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap bg-success/15 text-success border border-success/40 hover:bg-success/25"
+              >
+                <Link to="/portal/registrations">{t("eventDetail.viewMyRegistration")}</Link>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={categories.length === 0}
+                onClick={scrollToPricing}
+                className="shrink-0 ml-auto h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold hover:opacity-90"
+              >
+                {t("eventDetail.registerCta")}
+              </Button>
+            )}
           </div>
 
           {sponsors.length > 0 && (
             <EventSponsorsCarousel
               sponsors={sponsors}
+              eventSlug={event.slug}
               variant="inline"
               className="sm:hidden mt-2.5 pt-2.5 border-t border-gray-800/60"
             />
@@ -236,19 +315,43 @@ export default function EventDetail() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
+      <div className="flex flex-1 flex-col max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12 w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col gap-8">
           <TabsList className="bg-surface-dark/80 border border-gray-700/50 p-1 h-auto w-full flex flex-nowrap justify-start gap-1 overflow-x-auto scrollbar-hide">
             <TabsTrigger value="overview">{t("eventDetail.tabOverview")}</TabsTrigger>
             <TabsTrigger value="convocatoria">{t("eventDetail.tabConvocatoria")}</TabsTrigger>
             <TabsTrigger value="course">{t("eventDetail.tabCourse")}</TabsTrigger>
-            <TabsTrigger value="pricing">{t("eventDetail.tabPricing")}</TabsTrigger>
+            {canRegister && (
+              <TabsTrigger value="pricing">{t("eventDetail.tabPricing")}</TabsTrigger>
+            )}
             {scheduleWaves.length > 0 && (
               <TabsTrigger value="schedule">{t("eventDetail.tabSchedule")}</TabsTrigger>
+            )}
+            {(media?.length ?? 0) > 0 && (
+              <TabsTrigger value="media">{t("eventDetail.tabMedia")}</TabsTrigger>
             )}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-8">
+            {isRegisteredConfirmed && myRegistration && (
+              <div className="p-5 rounded-xl border border-success/30 bg-success/5 flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <CheckCircle2 className="w-6 h-6 text-success shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-bold text-white">{t("eventDetail.alreadyRegisteredTitle")}</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      {t("eventDetail.alreadyRegisteredDesc", {
+                        category: myRegistration.categoryName,
+                        number: myRegistration.registrationNumber,
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <Button asChild variant="outline" className="shrink-0 border-success/40 text-success hover:bg-success/10">
+                  <Link to="/portal/registrations">{t("eventDetail.viewMyRegistration")}</Link>
+                </Button>
+              </div>
+            )}
             <div className="grid md:grid-cols-3 gap-6">
               <div className="md:col-span-2 space-y-6">
                 <div className="p-6 rounded-xl border border-gray-700/50 bg-surface-dark/50">
@@ -334,14 +437,17 @@ export default function EventDetail() {
                   </div>
                 </div>
 
-                <div className="h-[420px] md:h-[480px]">
-                  <EventsMap
+                <EventsMap
                     courseRoute={course.routeGeojson}
                     coursePoints={course.points}
                     interactive
-                    className="h-full w-full rounded-xl overflow-hidden border border-gray-700/50"
+                    height={courseMapHeight}
+                    className="rounded-xl w-full"
                   />
-                </div>
+
+                {course.elevationProfile && course.elevationProfile.length > 1 ? (
+                  <ElevationProfileChart profile={course.elevationProfile} />
+                ) : null}
 
                 <div className="grid sm:grid-cols-2 gap-3">
                   {course.points.map((p) => {
@@ -376,6 +482,13 @@ export default function EventDetail() {
             )}
           </TabsContent>
 
+          {(media?.length ?? 0) > 0 ? (
+            <TabsContent value="media">
+              <EventMediaGallery media={media} />
+            </TabsContent>
+          ) : null}
+
+          {canRegister && (
           <TabsContent value="pricing" id="event-pricing" className="space-y-4 scroll-mt-[8rem]">
             <p className="text-sm text-gray-500 mb-2">
               {t("eventDetail.serviceFeeNote", { percent: serviceFeePercent })}
@@ -384,6 +497,9 @@ export default function EventDetail() {
               {categories.map((cat) => {
                 const spotsLeft =
                   cat.capacity != null ? Math.max(0, cat.capacity - cat.sold_count) : null;
+                const isSoldOut =
+                  cat.capacity != null && cat.sold_count >= cat.capacity;
+                const waitlistEnabled = Boolean(cat.waitlist_enabled);
                 return (
                   <div
                     key={cat.id}
@@ -425,11 +541,33 @@ export default function EventDetail() {
                         </span>
                       </div>
                     </div>
-                    {spotsLeft != null && (
+                    {spotsLeft != null && !isSoldOut && (
                       <p className="text-xs text-gray-500 mt-3">
                         {t("eventDetail.spotsLeft", { count: spotsLeft })}
                       </p>
                     )}
+                    {isSoldOut && waitlistEnabled ? (
+                      <Button
+                        type="button"
+                        onClick={() => handleJoinWaitlist(cat)}
+                        disabled={joiningWaitlist}
+                        className="w-full mt-4 bg-amber-500/10 text-amber-400 border border-amber-500/40 hover:bg-amber-500/20"
+                      >
+                        {joiningWaitlist ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          t("eventDetail.joinWaitlist")
+                        )}
+                      </Button>
+                    ) : isSoldOut ? (
+                      <Button
+                        type="button"
+                        disabled
+                        className="w-full mt-4 opacity-60"
+                      >
+                        {t("eventDetail.soldOut")}
+                      </Button>
+                    ) : (
                     <Button
                       type="button"
                       onClick={() => startRegistration(cat)}
@@ -437,11 +575,13 @@ export default function EventDetail() {
                     >
                       {t("eventDetail.selectCategory")}
                     </Button>
+                    )}
                   </div>
                 );
               })}
             </div>
           </TabsContent>
+          )}
 
           {scheduleWaves.length > 0 && (
             <TabsContent value="schedule" className="space-y-3">
@@ -468,6 +608,6 @@ export default function EventDetail() {
       </div>
 
       <EventRegistrationWizard />
-    </>
+    </div>
   );
 }

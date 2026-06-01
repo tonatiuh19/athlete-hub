@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import {
-  ArrowRight,
   Calendar,
   Footprints,
   MapPin,
@@ -9,8 +8,9 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+
+const MotionLink = motion.create(Link);
 
 export interface HeroEvent {
   title: string;
@@ -105,12 +105,13 @@ export default function HeroEventCard({
   index,
   layout = "stack",
 }: HeroEventCardProps) {
-  const { t } = useTranslation();
   const accent = accentMap[event.accent];
   const isStack = layout === "stack";
+  const href = event.slug ? `/events/${event.slug}` : "/events";
 
   return (
-    <motion.article
+    <MotionLink
+      to={href}
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.15 + index * 0.08 }}
@@ -165,22 +166,7 @@ export default function HeroEventCard({
             {event.distance}
           </span>
         </div>
-
-        {/* CTA — compact ghost pill */}
-        <div className="mt-auto pt-0.5 shrink-0 flex mb-1 justify-end">
-          <Link
-            to={event.slug ? `/events/${event.slug}` : "/events"}
-            className={`group/btn inline-flex items-center gap-1.5 mb-2 rounded-full font-semibold uppercase tracking-wider text-cyan border border-cyan/30 bg-white/[0.03] hover:bg-cyan/10 hover:border-cyan/55 hover:shadow-[0_0_20px_rgba(0,229,255,0.2)] transition-all duration-300 ${
-              isStack ? "px-2.5 py-1 text-[9px]" : "px-3 py-1.5 text-[10px]"
-            }`}
-          >
-            <span>{t("home.hero.signUp")}</span>
-            <span className="flex items-center justify-center w-4 h-4 rounded-full bg-cyan/15 group-hover/btn:bg-cyan group-hover/btn:text-navy-deep transition-colors duration-300">
-              <ArrowRight className="w-2.5 h-2.5 group-hover/btn:translate-x-px transition-transform" />
-            </span>
-          </Link>
-        </div>
       </div>
-    </motion.article>
+    </MotionLink>
   );
 }

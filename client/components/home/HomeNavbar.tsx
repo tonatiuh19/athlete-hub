@@ -1,19 +1,93 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
 import { useHomeNavScroll } from "./useHomeNavScroll";
 
 const NAV_SECTIONS = [
   { key: "home.navEvents", href: "/events" },
   { key: "home.navCommunities", href: "/#communities" },
   { key: "home.navLeaderboards", href: "/#leaderboards" },
-  { key: "home.navChallenges", href: "/#challenges" },
 ] as const;
+
+function NavUserAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+  solid,
+}: {
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string;
+  solid: boolean;
+}) {
+  const initials =
+    `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "?";
+  const hasAvatar = Boolean(avatarUrl?.trim());
+
+  const avatarShell = cn(
+    "h-8 w-8 shrink-0 rounded-full ring-2",
+    solid
+      ? "ring-cyan/30 ring-offset-2 ring-offset-[hsl(var(--background))]"
+      : "ring-white/25 ring-offset-2 ring-offset-transparent shadow-[0_0_16px_rgba(0,229,255,0.35)]",
+  );
+
+  if (hasAvatar) {
+    return (
+      <Avatar className={avatarShell}>
+        <AvatarImage src={avatarUrl} alt="" />
+        <AvatarFallback
+          delayMs={0}
+          className="bg-gradient-to-br from-cyan to-blue-electric text-navy-deep text-[11px] font-bold"
+        >
+          {initials}
+        </AvatarFallback>
+      </Avatar>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        avatarShell,
+        "flex items-center justify-center bg-gradient-to-br from-cyan via-blue-electric to-purple-accent/90 text-navy-deep text-[11px] font-bold tracking-tight",
+      )}
+      aria-hidden
+    >
+      {initials}
+    </div>
+  );
+}
 
 export default function HomeNavbar() {
   const { t } = useTranslation();
+  const dispatch = useAppDispatch();
+  const { token, user, loading } = useAppSelector((s) => s.athleteAuth);
   const { solid, scrollProgress } = useHomeNavScroll();
+
+  useEffect(() => {
+    if (token && !user) dispatch(fetchAthleteMe());
+  }, [token, user, dispatch]);
+
+  const isLoggedIn = Boolean(token && user);
+
+  const authButtonClass = cn(
+    "text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 whitespace-nowrap",
+    solid
+      ? "btn-primary px-3 py-2 sm:px-5 sm:py-2.5"
+      : "px-3 py-2 sm:px-5 sm:py-2.5 text-cyan border border-cyan/40 bg-white/[0.06] backdrop-blur-md hover:bg-cyan/15 hover:border-cyan/70 hover:shadow-[0_0_24px_rgba(0,229,255,0.2)]",
+  );
+
+  const portalChipClass = cn(
+    "inline-flex items-center gap-2 sm:gap-2.5 rounded-full pl-1 pr-3 sm:pr-4 py-1 text-xs sm:text-sm font-semibold transition-all duration-300 whitespace-nowrap",
+    solid
+      ? "border border-border bg-surface-dark/90 text-foreground hover:border-cyan/45 hover:bg-cyan/5 hover:shadow-[0_0_20px_rgba(0,229,255,0.12)]"
+      : "border border-white/15 bg-white/[0.08] text-white backdrop-blur-md hover:border-cyan/50 hover:bg-white/[0.12] hover:shadow-[0_0_24px_rgba(0,229,255,0.18)]",
+  );
 
   return (
     <header
@@ -76,17 +150,33 @@ export default function HomeNavbar() {
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <Link
-            to="/login"
-            className={cn(
-              "text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 whitespace-nowrap",
-              solid
-                ? "btn-primary px-3 py-2 sm:px-5 sm:py-2.5"
-                : "px-3 py-2 sm:px-5 sm:py-2.5 text-cyan border border-cyan/40 bg-white/[0.06] backdrop-blur-md hover:bg-cyan/15 hover:border-cyan/70 hover:shadow-[0_0_24px_rgba(0,229,255,0.2)]",
-            )}
-          >
-            {t("home.signIn")}
-          </Link>
+          {token && !user && loading ? (
+            <div
+              className="h-9 w-24 sm:w-28 rounded-xl bg-white/10 animate-pulse"
+              aria-hidden
+            />
+          ) : isLoggedIn && user ? (
+            <Link
+              to="/portal"
+              className={portalChipClass}
+              title={t("home.myPortal")}
+            >
+              <NavUserAvatar
+                firstName={user.firstName}
+                lastName={user.lastName}
+                avatarUrl={user.avatarUrl}
+                solid={solid}
+              />
+              <span className="hidden sm:inline max-w-[8rem] truncate">
+                {user.firstName}
+              </span>
+              <span className="sm:hidden">{t("home.myPortalShort")}</span>
+            </Link>
+          ) : (
+            <Link to="/login" className={authButtonClass}>
+              {t("home.signIn")}
+            </Link>
+          )}
         </div>
       </div>
 

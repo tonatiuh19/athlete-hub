@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS `event_courses` (
   `points_json` json NOT NULL COMMENT 'Array of {type,name,lat,lng,km,description}',
   `distance_km` decimal(8,3) DEFAULT NULL,
   `elevation_gain_m` int unsigned DEFAULT NULL,
+  `elevation_profile_json` json DEFAULT NULL COMMENT 'Array of {km, elevation_m}',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`event_id`),

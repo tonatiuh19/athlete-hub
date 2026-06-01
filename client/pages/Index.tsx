@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
-import AppVersionLabel from "@/components/AppVersionLabel";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
+import SiteFooter from "@/components/SiteFooter";
 import HomeHero from "@/components/home/HomeHero";
 import HomeNavbar from "@/components/home/HomeNavbar";
 import SectionHeader from "@/components/home/SectionHeader";
-import { COMMUNITIES, FEATURED_EVENTS } from "@/components/home/homeData";
+import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchPublicHome } from "@/store/slices/publicHomeSlice";
+import { mapEventToFeaturedCard, mapEventToHeroEvent } from "@/utils/mapEventForHome";
 import {
   MapPin,
   Users,
@@ -20,8 +22,6 @@ import {
   Sparkles,
   TrendingUp,
   Star,
-  Rocket,
-  type LucideIcon,
 } from "lucide-react";
 
 const formatStatDisplay = (value: number, suffix = ""): string => {
@@ -238,66 +238,41 @@ const CommunityCard = ({
   </motion.div>
 );
 
-const ChallengeCard = ({
-  title,
-  progress,
-  rewardIcon: RewardIcon,
-  rewardText,
-  progressLabel,
-  rewardLabel,
-  daysRemainingLabel,
-}: {
-  title: string;
-  progress: number;
-  rewardIcon: LucideIcon;
-  rewardText: string;
-  progressLabel: string;
-  rewardLabel: string;
-  daysRemainingLabel: string;
-}) => (
-  <motion.div
-    className="card-sport group p-6 md:p-7 border border-gray-700/50 hover:border-cyan/40"
-    whileHover={{ y: -6 }}
-    transition={{ duration: 0.3 }}
-  >
-    <div className="flex items-start justify-between mb-5">
-      <div>
-        <h3 className="text-lg font-bold text-white group-hover:text-cyan transition-colors mb-1">{title}</h3>
-        <p className="text-xs text-gray-500">{daysRemainingLabel}</p>
-      </div>
-      <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 2, repeat: Infinity }}>
-        <Trophy className="w-5 h-5 text-success" />
-      </motion.div>
-    </div>
-
-    <div className="mb-5">
-      <div className="flex justify-between text-sm text-gray-400 mb-2">
-        <span className="font-medium">{progressLabel}</span>
-        <span className="text-cyan font-semibold">{progress}%</span>
-      </div>
-      <div className="w-full bg-gray-800/50 rounded-full h-2 overflow-hidden">
-        <motion.div
-          className="bg-gradient-to-r from-cyan via-blue-electric to-success h-2 rounded-full"
-          initial={{ width: 0 }}
-          whileInView={{ width: `${progress}%` }}
-          transition={{ duration: 1.5, delay: 0.2 }}
-          viewport={{ once: true }}
-        />
-      </div>
-    </div>
-
-    <div className="flex items-center justify-between pt-3 border-t border-gray-700/40">
-      <div className="text-xs text-gray-500 uppercase tracking-wider">{rewardLabel}</div>
-      <span className="flex items-center gap-2 text-cyan font-bold">
-        <RewardIcon className="w-4 h-4 shrink-0" aria-hidden />
-        {rewardText}
-      </span>
-    </div>
-  </motion.div>
-);
-
 export default function Index() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const dispatch = useAppDispatch();
+  const { data, loading, error } = useAppSelector((s) => s.publicHome);
+
+  useEffect(() => {
+    dispatch(fetchPublicHome());
+  }, [dispatch]);
+
+  const heroEvents = useMemo(
+    () =>
+      (data?.upcoming_events.length
+        ? data.upcoming_events
+        : data?.featured_events ?? []
+      )
+        .slice(0, 3)
+        .map((ev, idx) => mapEventToHeroEvent(ev, idx, i18n.language)),
+    [data, i18n.language],
+  );
+
+  const featuredEvents = useMemo(
+    () =>
+      (data?.featured_events.length
+        ? data.featured_events
+        : data?.upcoming_events ?? []
+      )
+        .slice(0, 4)
+        .map((ev) => mapEventToFeaturedCard(ev, i18n.language)),
+    [data, i18n.language],
+  );
+
+  const stats = data?.stats;
+  const topAthletes = data?.top_athletes ?? [];
+  const topTeams = data?.top_teams ?? [];
+
   const containerVariants = {
     hidden: { opacity: 0 } as const,
     visible: {
@@ -329,9 +304,18 @@ export default function Index() {
       />
       <HomeNavbar />
 
-      <HomeHero />
+      <HomeHero
+        heroEvents={heroEvents}
+        loading={loading}
+        activeAthletes={stats?.active_athletes ?? 0}
+      />
 
-      {/* Live Statistics Section */}
+      <div className="max-w-7xl mx-auto px-4 md:px-6 mt-4">
+        <PortalErrorAlert error={error} onRetry={() => dispatch(fetchPublicHome())} />
+      </div>
+
+      {/* Platform statistics (live from database) */}
+      {stats ? (
       <section id="stats" className="py-20 md:py-28 px-4 md:px-6 relative overflow-hidden bg-surface-dark/30 scroll-mt-[4.5rem]">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan/5 to-transparent opacity-40" />
         <div className="max-w-7xl mx-auto relative z-10">
@@ -348,30 +332,27 @@ export default function Index() {
             className="mx-auto grid max-w-6xl grid-cols-2 items-stretch gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5 lg:gap-5"
           >
             <motion.div variants={itemVariants} className="h-full">
-              <StatCard label={t("home.stats.activeEvents")} value={2847} icon={Calendar} />
+              <StatCard label={t("home.stats.activeEvents")} value={stats.published_events} icon={Calendar} />
             </motion.div>
             <motion.div variants={itemVariants} className="h-full">
-              <StatCard label={t("home.stats.registeredAthletes")} value={185000} icon={Users} />
+              <StatCard label={t("home.stats.registeredAthletes")} value={stats.active_athletes} icon={Users} />
             </motion.div>
             <motion.div variants={itemVariants} className="h-full">
-              <StatCard label={t("home.stats.challengesCompleted")} value={456800} icon={Trophy} />
+              <StatCard label={t("home.stats.confirmedRegistrations")} value={stats.confirmed_registrations} icon={Trophy} />
             </motion.div>
             <motion.div variants={itemVariants} className="h-full">
-              <StatCard
-                label={t("home.stats.kilometersTracked")}
-                value={2500000}
-                icon={Footprints}
-                suffix="+"
-              />
+              <StatCard label={t("home.stats.achievementsEarned")} value={stats.achievements_earned} icon={Star} />
             </motion.div>
             <motion.div variants={itemVariants} className="col-span-2 h-full sm:col-span-1">
-              <StatCard label={t("home.stats.activeCommunities")} value={340} icon={Users} />
+              <StatCard label={t("home.stats.activeCommunities")} value={stats.public_teams} icon={Users} />
             </motion.div>
           </motion.div>
         </div>
       </section>
+      ) : null}
 
       {/* Featured Events Section */}
+      {featuredEvents.length > 0 ? (
       <section id="featured-events" className="py-20 md:py-28 px-4 md:px-6 scroll-mt-[4.5rem]">
         <div className="max-w-7xl mx-auto">
           <SectionHeader
@@ -388,8 +369,8 @@ export default function Index() {
             viewport={{ once: true }}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
           >
-            {FEATURED_EVENTS.map((event) => (
-              <motion.div key={event.title} variants={itemVariants} className="h-full">
+            {featuredEvents.map((event) => (
+              <motion.div key={event.slug} variants={itemVariants} className="h-full">
                 <EventCard
                   {...event}
                   joinLabel={t("home.featured.join")}
@@ -400,8 +381,10 @@ export default function Index() {
           </motion.div>
         </div>
       </section>
+      ) : null}
 
       {/* Tribes & Communities Section */}
+      {topTeams.length > 0 ? (
       <section
         id="communities"
         className="py-20 md:py-28 px-4 md:px-6 bg-gradient-to-b from-surface-dark/20 via-surface-dark/50 to-bg-dark scroll-mt-[4.5rem]"
@@ -421,10 +404,16 @@ export default function Index() {
             viewport={{ once: true }}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
           >
-            {COMMUNITIES.map((community) => (
-              <motion.div key={community.name} variants={itemVariants}>
+            {topTeams.map((team) => (
+              <motion.div key={team.id} variants={itemVariants}>
                 <CommunityCard
-                  {...community}
+                  name={team.name}
+                  members={team.member_count}
+                  activity="—"
+                  imageUrl={
+                    team.avatar_url ||
+                    "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=600&q=80&auto=format&fit=crop"
+                  }
                   membersLabel={t("home.communities.members")}
                   streakLabel={t("home.communities.streak")}
                   joinLabel={t("home.communities.joinTribe")}
@@ -434,60 +423,10 @@ export default function Index() {
           </motion.div>
         </div>
       </section>
-
-      {/* Active Challenges Section */}
-      <section id="challenges" className="py-20 md:py-28 px-4 md:px-6 scroll-mt-[4.5rem]">
-        <div className="max-w-7xl mx-auto">
-          <SectionHeader
-            title={t("home.challenges.title")}
-            subtitle={t("home.challenges.subtitle")}
-          />
-
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-6"
-          >
-            <motion.div variants={itemVariants}>
-              <ChallengeCard
-                title="100 km Challenge"
-                progress={72}
-                rewardIcon={Trophy}
-                rewardText="Gold Badge"
-                progressLabel={t("home.challenges.progress")}
-                rewardLabel={t("home.challenges.reward")}
-                daysRemainingLabel={t("home.challenges.daysRemaining", { count: 8 })}
-              />
-            </motion.div>
-            <motion.div variants={itemVariants}>
-              <ChallengeCard
-                title="7-Day Streak"
-                progress={86}
-                rewardIcon={Star}
-                rewardText="500 XP"
-                progressLabel={t("home.challenges.progress")}
-                rewardLabel={t("home.challenges.reward")}
-                daysRemainingLabel={t("home.challenges.daysRemaining", { count: 1 })}
-              />
-            </motion.div>
-            <motion.div variants={itemVariants}>
-              <ChallengeCard
-                title="Speed Record"
-                progress={45}
-                rewardIcon={Rocket}
-                rewardText="Power-up"
-                progressLabel={t("home.challenges.progress")}
-                rewardLabel={t("home.challenges.reward")}
-                daysRemainingLabel={t("home.challenges.daysRemaining", { count: 15 })}
-              />
-            </motion.div>
-          </motion.div>
-        </div>
-      </section>
+      ) : null}
 
       {/* Rankings Section */}
+      {(topAthletes.length > 0 || topTeams.length > 0) ? (
       <section
         id="leaderboards"
         className="py-20 md:py-28 px-4 md:px-6 bg-gradient-to-b from-bg-dark via-surface-dark/50 to-bg-dark scroll-mt-[4.5rem]"
@@ -518,12 +457,15 @@ export default function Index() {
               </div>
 
               <div className="space-y-3">
-                {[1, 2, 3, 4, 5].map((place) => (
+                {topAthletes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t("home.leaderboards.empty")}</p>
+                ) : (
+                topAthletes.map((athlete) => (
                   <motion.div
-                    key={place}
+                    key={athlete.rank}
                     initial={{ opacity: 0, x: -20 }}
                     whileInView={{ opacity: 1, x: 0 }}
-                    transition={{ delay: place * 0.1 }}
+                    transition={{ delay: athlete.rank * 0.1 }}
                     viewport={{ once: true }}
                     whileHover={{ x: 6 }}
                     className="flex items-center gap-4 p-4 bg-gradient-to-r from-gray-800/30 to-transparent rounded-lg border border-gray-700/50 hover:border-cyan/50 transition-all duration-300"
@@ -531,41 +473,34 @@ export default function Index() {
                     <motion.div
                       whileHover={{ scale: 1.1 }}
                       className={`flex-shrink-0 w-10 h-10 font-bold rounded-full flex items-center justify-center text-white text-sm ${
-                        place === 1
+                        athlete.rank === 1
                           ? "bg-gradient-to-br from-yellow-500 to-orange-500"
-                          : place === 2
+                          : athlete.rank === 2
                           ? "bg-gradient-to-br from-gray-400 to-gray-500"
-                          : place === 3
+                          : athlete.rank === 3
                           ? "bg-gradient-to-br from-orange-500 to-amber-500"
                           : "bg-cyan/30 border border-cyan/50"
                       }`}
                     >
-                      #{place}
+                      #{athlete.rank}
                     </motion.div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-white group-hover:text-cyan transition-colors">
-                        {place === 1
-                          ? "Felix Gómez"
-                          : place === 2
-                          ? "María Rodríguez"
-                          : place === 3
-                          ? "James Mitchell"
-                          : place === 4
-                          ? "Sarah Johnson"
-                          : "David Park"}
+                        {athlete.first_name} {athlete.last_name}
                       </div>
                       <div className="text-sm text-gray-400">
-                        {(50000 - place * 2000).toLocaleString()} XP
+                        {athlete.xp_total.toLocaleString()} XP · {t("home.leaderboards.level", { level: athlete.level })}
                       </div>
                     </div>
                     <motion.div
                       animate={{ rotate: [0, 10, 0] }}
-                      transition={{ duration: 2, repeat: Infinity, delay: place * 0.1 }}
+                      transition={{ duration: 2, repeat: Infinity, delay: athlete.rank * 0.1 }}
                     >
                       <Flame className="w-5 h-5 text-success" />
                     </motion.div>
                   </motion.div>
-                ))}
+                ))
+                )}
               </div>
             </motion.div>
 
@@ -582,15 +517,12 @@ export default function Index() {
               </div>
 
               <div className="space-y-3">
-                {[
-                  { name: "Corredores CDMX", members: 15000 },
-                  { name: "Triatlón México", members: 14200 },
-                  { name: "MTB Sierra Norte", members: 13400 },
-                  { name: "Trail Runners MX", members: 12600 },
-                  { name: "Speed Demons", members: 11800 },
-                ].map((tribe, idx) => (
+                {topTeams.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t("home.leaderboards.emptyTeams")}</p>
+                ) : (
+                topTeams.map((team, idx) => (
                   <motion.div
-                    key={idx}
+                    key={team.id}
                     initial={{ opacity: 0, x: -20 }}
                     whileInView={{ opacity: 1, x: 0 }}
                     transition={{ delay: (idx + 1) * 0.1 }}
@@ -614,10 +546,10 @@ export default function Index() {
                     </motion.div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-white group-hover:text-cyan transition-colors">
-                        {tribe.name}
+                        {team.name}
                       </div>
                       <div className="text-sm text-gray-400">
-                        {tribe.members.toLocaleString()} {t("home.leaderboards.members")}
+                        {team.member_count.toLocaleString()} {t("home.leaderboards.members")}
                       </div>
                     </div>
                     <motion.div
@@ -627,12 +559,14 @@ export default function Index() {
                       <TrendingUp className="w-5 h-5 text-success" />
                     </motion.div>
                   </motion.div>
-                ))}
+                ))
+                )}
               </div>
             </motion.div>
           </motion.div>
         </div>
       </section>
+      ) : null}
 
       {/* Premium CTA Section */}
       <section className="py-24 md:py-32 px-4 md:px-6 relative overflow-hidden">
@@ -720,7 +654,11 @@ export default function Index() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-success rounded-full" />
-                  <span>{t("home.cta.instantAccess")}</span>
+                  <span>
+                    {t("home.cta.instantAccess", {
+                      count: stats?.published_events ?? 0,
+                    })}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-success rounded-full" />
@@ -732,133 +670,7 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-800/50 bg-bg-dark/80 py-20 px-4 md:px-6">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8 }}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 md:gap-12 mb-12">
-              <div className="lg:col-span-1">
-                <div className="text-2xl font-bold text-gradient mb-4">AthleteHub</div>
-                <p className="text-gray-400 text-sm leading-relaxed">
-                  {t("home.footer.tagline")}
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-semibold text-white mb-6 text-sm uppercase tracking-wider">{t("home.footer.product")}</h4>
-                <ul className="space-y-3 text-gray-400 text-sm">
-                  <li>
-                    <Link to="/events" className="hover:text-cyan transition-colors duration-300">
-                      {t("home.navEvents")}
-                    </Link>
-                  </li>
-                  <li>
-                    <a href="#communities" className="hover:text-cyan transition-colors duration-300">
-                      {t("home.navCommunities")}
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#challenges" className="hover:text-cyan transition-colors duration-300">
-                      {t("home.navChallenges")}
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#leaderboards" className="hover:text-cyan transition-colors duration-300">
-                      {t("home.navLeaderboards")}
-                    </a>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="font-semibold text-white mb-6 text-sm uppercase tracking-wider">{t("home.footer.company")}</h4>
-                <ul className="space-y-3 text-gray-400 text-sm">
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      About Us
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      Blog
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      Contact
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      Careers
-                    </a>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="font-semibold text-white mb-6 text-sm uppercase tracking-wider">{t("home.footer.legal")}</h4>
-                <ul className="space-y-3 text-gray-400 text-sm">
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      Privacy Policy
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      Terms of Service
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#" className="hover:text-cyan transition-colors duration-300">
-                      Cookie Policy
-                    </a>
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-800/50 pt-8">
-              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                <p className="text-gray-500 text-sm flex flex-wrap items-center justify-center md:justify-start gap-x-2 gap-y-1">
-                  <span>&copy; {new Date().getFullYear()} AthleteHub. {t("home.rightsReserved")}</span>
-                  <AppVersionLabel className="text-gray-600/60" />
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-                  <LanguageSwitcher variant="ghost" className="border-gray-700/80 bg-bg-dark/60 text-gray-400 hover:text-cyan" />
-                  <Link
-                    to="/staff/login"
-                    className="text-gray-500 hover:text-cyan text-xs transition-colors"
-                  >
-                    {t("home.staffAccess")}
-                  </Link>
-                  {[
-                    { name: "Twitter", url: "#" },
-                    { name: "Instagram", url: "#" },
-                    { name: "LinkedIn", url: "#" },
-                    { name: "Discord", url: "#" },
-                  ].map((social) => (
-                    <motion.a
-                      key={social.name}
-                      href={social.url}
-                      whileHover={{ color: "#00E5FF", y: -2 }}
-                      transition={{ duration: 0.2 }}
-                      className="text-gray-500 hover:text-cyan text-sm transition-colors duration-300"
-                    >
-                      {social.name}
-                    </motion.a>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

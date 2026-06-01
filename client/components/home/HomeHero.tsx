@@ -6,7 +6,7 @@ import HeroEventCard from "./HeroEventCard";
 import HeroSocialProof from "./HeroSocialProof";
 import HeroVideoBackground from "./HeroVideoBackground";
 import { HERO_TITLE_SENTINEL_ID, HOME_NAV_HEIGHT_PX } from "./homeNavConstants";
-import { HERO_EVENTS } from "./homeData";
+import type { HeroEvent } from "./HeroEventCard";
 
 /** Clear fixed navbar + comfortable gap (sync with HOME_NAV_HEIGHT_PX) */
 const MOBILE_HERO_PT = `calc(${HOME_NAV_HEIGHT_PX}px + max(1.5rem, env(safe-area-inset-top, 0px) + 0.75rem))`;
@@ -48,8 +48,15 @@ const TITLE_LINES = [
   { key: "title3", className: "text-white" },
 ] as const;
 
-function HeroCopy({ compact = false }: { compact?: boolean }) {
+function HeroCopy({
+  compact = false,
+  activeAthletes = 0,
+}: {
+  compact?: boolean;
+  activeAthletes?: number;
+}) {
   const { t } = useTranslation();
+  const trustedLabel = t("home.hero.trusted", { count: activeAthletes.toLocaleString() });
 
   return (
     <motion.div
@@ -132,15 +139,18 @@ function HeroCopy({ compact = false }: { compact?: boolean }) {
       </motion.div>
 
       <HeroSocialProof
-        trustedLabel={t("home.hero.trusted")}
+        activeAthletes={activeAthletes}
+        trustedLabel={trustedLabel}
         worldwideLabel={t("home.hero.worldwide")}
       />
     </motion.div>
   );
 }
 
-function HeroMobileCarousel() {
+function HeroMobileCarousel({ heroEvents }: { heroEvents: HeroEvent[] }) {
   const { t } = useTranslation();
+
+  if (heroEvents.length === 0) return null;
 
   return (
     <motion.div
@@ -154,7 +164,7 @@ function HeroMobileCarousel() {
       </p>
       <div className="overflow-x-auto overscroll-x-contain snap-x snap-mandatory pb-1 scrollbar-hide -mx-4 px-4">
         <div className="flex gap-3 w-max items-stretch">
-          {HERO_EVENTS.map((event, idx) => (
+          {heroEvents.map((event, idx) => (
             <div
               key={event.title}
               className="w-[min(78vw,280px)] shrink-0 snap-center"
@@ -168,11 +178,20 @@ function HeroMobileCarousel() {
   );
 }
 
-export default function HomeHero() {
+export default function HomeHero({
+  heroEvents,
+  loading = false,
+  activeAthletes = 0,
+}: {
+  heroEvents: HeroEvent[];
+  loading?: boolean;
+  activeAthletes?: number;
+}) {
   const { t } = useTranslation();
+  const showCarousel = !loading && heroEvents.length > 0;
 
   return (
-    <section className="relative flex flex-col overflow-hidden lg:min-h-[100dvh]">
+    <section className="relative flex flex-col overflow-hidden min-h-[80vh] lg:min-h-[80dvh]">
       <HeroVideoBackground />
 
       {/* Mobile — copy flows into carousel; label sits directly above cards */}
@@ -180,21 +199,22 @@ export default function HomeHero() {
         className="lg:hidden relative z-20 max-w-7xl mx-auto w-full px-4 pb-8"
         style={{ paddingTop: MOBILE_HERO_PT }}
       >
-        <HeroCopy compact />
-        <HeroMobileCarousel />
+        <HeroCopy compact activeAthletes={activeAthletes} />
+        {showCarousel ? <HeroMobileCarousel heroEvents={heroEvents} /> : null}
       </div>
 
       {/* Desktop — two-column viewport-fit layout */}
       <div
-        className="hidden lg:flex relative z-20 flex-1 items-center max-w-7xl mx-auto px-4 md:px-6 w-full pb-10 min-h-[100dvh]"
+        className="hidden lg:flex relative z-20 flex-1 items-center max-w-7xl mx-auto px-4 md:px-6 w-full pb-10 min-h-[80dvh]"
         style={{ paddingTop: DESKTOP_HERO_PT }}
       >
-        <div className="grid grid-cols-2 gap-12 w-full items-stretch">
+        <div className={`grid ${showCarousel ? "grid-cols-2" : "grid-cols-1"} gap-12 w-full items-stretch`}>
           <div className="relative flex flex-col justify-center overflow-hidden pl-6 lg:pl-8 min-w-0">
             <HeroArtOverlay />
-            <HeroCopy />
+            <HeroCopy activeAthletes={activeAthletes} />
           </div>
 
+          {showCarousel ? (
           <motion.div
             initial={{ opacity: 0, x: 48, filter: "blur(12px)" }}
             animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
@@ -221,8 +241,8 @@ export default function HomeHero() {
               className="grid flex-1 min-h-0 gap-3"
               style={{ gridTemplateRows: "repeat(3, minmax(11.25rem, 1fr))" }}
             >
-              {HERO_EVENTS.map((event, idx) => (
-                <div key={event.title} className="min-h-0 flex flex-col">
+              {heroEvents.map((event, idx) => (
+                <div key={event.slug ?? event.title} className="min-h-0 flex flex-col">
                   <HeroEventCard event={event} index={idx} layout="stack" />
                 </div>
               ))}
@@ -239,6 +259,7 @@ export default function HomeHero() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </motion.a>
           </motion.div>
+          ) : null}
         </div>
       </div>
 

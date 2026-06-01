@@ -12,6 +12,7 @@ import {
   Star,
   Flame,
   MapPin,
+  User,
 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
 import OtpInput from "@/components/OtpInput";
@@ -20,17 +21,22 @@ import ClerkOAuthButtons from "@/components/ClerkOAuthButtons";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
+  checkAthleteEmail,
   requestAthleteOtp,
   verifyAthleteOtp,
 } from "@/store/slices/athleteAuthSlice";
+
+type AuthStep = "identify" | "register" | "code";
+type AuthPurpose = "login" | "register";
 
 export default function AthleteLogin() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { requestingOtp, verifyingOtp, error, otpSentTo } =
+  const { requestingOtp, verifyingOtp, checkingEmail, error, otpSentTo } =
     useAppSelector((s) => s.athleteAuth);
-  const [step, setStep] = useState<"identify" | "code">("identify");
+  const [step, setStep] = useState<AuthStep>("identify");
+  const [authPurpose, setAuthPurpose] = useState<AuthPurpose>("login");
 
   const stats = useMemo(
     () => [
@@ -65,6 +71,14 @@ export default function AthleteLogin() {
     [t],
   );
 
+  const sendLoginOtp = async (email: string) => {
+    setAuthPurpose("login");
+    const result = await dispatch(
+      requestAthleteOtp({ email, channel: "email", purpose: "login" }),
+    );
+    if (requestAthleteOtp.fulfilled.match(result)) setStep("code");
+  };
+
   const identifyForm = useFormik({
     initialValues: { email: "" },
     validateOnBlur: false,
@@ -75,11 +89,34 @@ export default function AthleteLogin() {
         .required(t("common.required")),
     }),
     onSubmit: async (values) => {
+      const check = await dispatch(checkAthleteEmail({ email: values.email }));
+      if (checkAthleteEmail.rejected.match(check)) return;
+
+      if (check.payload?.exists) {
+        await sendLoginOtp(values.email);
+      } else {
+        setAuthPurpose("register");
+        setStep("register");
+      }
+    },
+  });
+
+  const registerForm = useFormik({
+    initialValues: { firstName: "", lastName: "" },
+    validateOnBlur: false,
+    validateOnChange: false,
+    validationSchema: Yup.object({
+      firstName: Yup.string().trim().required(t("common.required")),
+      lastName: Yup.string().trim().required(t("common.required")),
+    }),
+    onSubmit: async (values) => {
       const result = await dispatch(
         requestAthleteOtp({
-          email: values.email,
+          email: identifyForm.values.email,
           channel: "email",
-          purpose: "login",
+          purpose: "register",
+          first_name: values.firstName.trim(),
+          last_name: values.lastName.trim(),
         }),
       );
       if (requestAthleteOtp.fulfilled.match(result)) setStep("code");
@@ -101,6 +138,7 @@ export default function AthleteLogin() {
           email: identifyForm.values.email,
           code: values.code,
           channel: "email",
+          purpose: authPurpose,
         }),
       );
       if (verifyAthleteOtp.fulfilled.match(result)) {
@@ -110,6 +148,29 @@ export default function AthleteLogin() {
   });
 
   const destination = otpSentTo || identifyForm.values.email;
+  const busyIdentify = checkingEmail || requestingOtp;
+
+  const heading =
+    step === "identify" ? (
+      <>
+        {t("auth.athlete.titleIdentify")}{" "}
+        <span className="text-gradient">{t("auth.athlete.titleHighlight")}</span>
+      </>
+    ) : step === "register" ? (
+      <>
+        {t("auth.athlete.titleRegister")}{" "}
+        <span className="text-gradient">{t("auth.athlete.titleRegisterHighlight")}</span>
+      </>
+    ) : (
+      t("auth.athlete.titleCode")
+    );
+
+  const subtitle =
+    step === "identify"
+      ? t("auth.athlete.subtitleEmailOnly")
+      : step === "register"
+        ? t("auth.athlete.subtitleRegister")
+        : t("auth.athlete.subtitleCode", { destination });
 
   return (
     <div className="h-[100dvh] overflow-hidden flex w-full max-w-[100vw] bg-background">
@@ -148,23 +209,8 @@ export default function AthleteLogin() {
               <div className="w-16 h-16 bg-gradient-to-br from-cyan to-blue-electric rounded-2xl flex items-center justify-center mb-5 shadow-glow-cyan">
                 <Flame className="w-8 h-8 text-navy-deep" />
               </div>
-              <h1 className="text-2xl font-bold leading-tight mb-2">
-                {step === "identify" ? (
-                  <>
-                    {t("auth.athlete.titleIdentify")}{" "}
-                    <span className="text-gradient">
-                      {t("auth.athlete.titleHighlight")}
-                    </span>
-                  </>
-                ) : (
-                  t("auth.athlete.titleCode")
-                )}
-              </h1>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {step === "identify"
-                  ? t("auth.athlete.subtitleEmailOnly")
-                  : t("auth.athlete.subtitleCode", { destination })}
-              </p>
+              <h1 className="text-2xl font-bold leading-tight mb-2">{heading}</h1>
+              <p className="text-sm text-muted-foreground leading-relaxed">{subtitle}</p>
             </div>
 
             {step === "identify" ? (
@@ -204,16 +250,16 @@ export default function AthleteLogin() {
 
                   <button
                     type="submit"
-                    disabled={requestingOtp}
+                    disabled={busyIdentify}
                     className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
                   >
-                    {requestingOtp ? (
+                    {busyIdentify ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {t("common.sending")}
+                        {checkingEmail ? t("common.loading") : t("common.sending")}
                       </>
                     ) : (
-                      t("common.sendCode")
+                      t("common.continue")
                     )}
                   </button>
                 </form>
@@ -229,8 +275,97 @@ export default function AthleteLogin() {
                   </div>
                 </div>
 
-                <ClerkOAuthButtons mode="athlete" />
+                <ClerkOAuthButtons />
               </div>
+            ) : step === "register" ? (
+              <form onSubmit={registerForm.handleSubmit} className="space-y-4">
+                <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-xs text-muted-foreground truncate">
+                  {identifyForm.values.email}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="athlete-first-name"
+                    className="block text-sm font-medium text-foreground/90"
+                  >
+                    {t("auth.athlete.firstNameLabel")}
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="athlete-first-name"
+                      type="text"
+                      {...registerForm.getFieldProps("firstName")}
+                      className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
+                      placeholder={t("auth.athlete.firstNamePlaceholder")}
+                      autoComplete="given-name"
+                      autoFocus
+                    />
+                  </div>
+                  {registerForm.submitCount > 0 && registerForm.errors.firstName && (
+                    <p className="text-xs text-destructive">
+                      {registerForm.errors.firstName}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="athlete-last-name"
+                    className="block text-sm font-medium text-foreground/90"
+                  >
+                    {t("auth.athlete.lastNameLabel")}
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="athlete-last-name"
+                      type="text"
+                      {...registerForm.getFieldProps("lastName")}
+                      className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
+                      placeholder={t("auth.athlete.lastNamePlaceholder")}
+                      autoComplete="family-name"
+                    />
+                  </div>
+                  {registerForm.submitCount > 0 && registerForm.errors.lastName && (
+                    <p className="text-xs text-destructive">
+                      {registerForm.errors.lastName}
+                    </p>
+                  )}
+                </div>
+
+                {error && (
+                  <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 px-4 py-3 rounded-xl">
+                    {error}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={requestingOtp}
+                  className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
+                >
+                  {requestingOtp ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("common.sending")}
+                    </>
+                  ) : (
+                    t("common.continue")
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep("identify");
+                    registerForm.resetForm();
+                  }}
+                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1"
+                >
+                  ← {t("registrationWizard.auth.changeEmail")}
+                </button>
+              </form>
             ) : (
               <form onSubmit={codeForm.handleSubmit} className="space-y-5">
                 <OtpInput
@@ -266,7 +401,7 @@ export default function AthleteLogin() {
                 <button
                   type="button"
                   onClick={() => {
-                    setStep("identify");
+                    setStep(authPurpose === "register" ? "register" : "identify");
                     codeForm.resetForm();
                   }}
                   className="w-full text-sm text-muted-foreground hover:text-cyan py-1 truncate"

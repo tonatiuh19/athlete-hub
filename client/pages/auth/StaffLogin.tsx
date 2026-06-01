@@ -16,7 +16,6 @@ import {
 import MetaHelmet from "@/components/MetaHelmet";
 import OtpInput from "@/components/OtpInput";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
-import ClerkOAuthButtons from "@/components/ClerkOAuthButtons";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { requestStaffOtp, verifyStaffOtp } from "@/store/slices/staffAuthSlice";
@@ -152,8 +151,7 @@ export default function StaffLogin() {
             </div>
 
             {step === "email" ? (
-              <div className="space-y-5">
-                <form onSubmit={emailForm.handleSubmit} className="space-y-4">
+              <form onSubmit={emailForm.handleSubmit} className="space-y-4">
                   <div className="space-y-1.5">
                     <label
                       htmlFor="staff-email"
@@ -195,24 +193,10 @@ export default function StaffLogin() {
                         {t("common.sending")}
                       </>
                     ) : (
-                      t("common.sendCode")
+                      t("common.continue")
                     )}
                   </button>
-                </form>
-
-                <div className="relative py-1">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-border" />
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="px-3 bg-background text-xs text-muted-foreground">
-                      {t("common.orContinueWith")}
-                    </span>
-                  </div>
-                </div>
-
-                <ClerkOAuthButtons mode="staff" />
-              </div>
+              </form>
             ) : (
               <form onSubmit={codeForm.handleSubmit} className="space-y-5">
                 <OtpInput

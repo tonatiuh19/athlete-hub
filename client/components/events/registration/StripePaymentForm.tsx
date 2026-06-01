@@ -1,39 +1,67 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
-import { CreditCard, Loader2, Lock } from "lucide-react";
+import { Loader2, Lock, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import PaymentMethodCard from "@/components/payments/PaymentMethodCard";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchPaymentMethods } from "@/store/slices/paymentMethodsSlice";
+import { stripePaymentElementOptions } from "@/lib/stripePaymentElementOptions";
 
 interface StripePaymentFormProps {
-  mockMode: boolean;
   amountLabel: string;
   loading: boolean;
-  onMockPay: () => void;
   onStripeSuccess: (paymentIntentId: string) => void;
   onStripeError: (message: string) => void;
+  onPayWithSavedCard?: (paymentMethodId: string) => void | Promise<void>;
 }
 
 function PaymentFormInner({
-  mockMode,
   amountLabel,
   loading,
-  onMockPay,
   onStripeSuccess,
   onStripeError,
+  onPayWithSavedCard,
 }: StripePaymentFormProps) {
   const { t } = useTranslation();
+  const dispatch = useAppDispatch();
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
+  const [useNewCard, setUseNewCard] = useState(false);
+  const { paymentMethods, defaultPaymentMethodId } =
+    useAppSelector((s) => s.paymentMethods);
+  const [selectedPmId, setSelectedPmId] = useState<string | null>(null);
+
+  useEffect(() => {
+    dispatch(fetchPaymentMethods());
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (defaultPaymentMethodId) {
+      setSelectedPmId(defaultPaymentMethodId);
+    } else if (paymentMethods.length > 0) {
+      setSelectedPmId(paymentMethods[0].id);
+    }
+  }, [defaultPaymentMethodId, paymentMethods]);
+
+  const hasSavedCards = paymentMethods.length > 0;
+  const showNewCardForm = !hasSavedCards || useNewCard;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mockMode) {
-      onMockPay();
+
+    if (!showNewCardForm && selectedPmId && onPayWithSavedCard) {
+      setProcessing(true);
+      try {
+        await onPayWithSavedCard(selectedPmId);
+      } finally {
+        setProcessing(false);
+      }
       return;
     }
+
     if (!stripe || !elements) return;
 
     setProcessing(true);
@@ -59,57 +87,54 @@ function PaymentFormInner({
 
   const busy = loading || processing;
 
-  if (mockMode) {
-    return (
-      <div className="space-y-4">
-        <div
-          className={cn(
-            "rounded-xl border border-dashed border-gray-600/80 bg-surface-dark/40 p-5 relative overflow-hidden",
-          )}
-        >
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,229,255,0.06),transparent_60%)]" />
-          <div className="relative flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-cyan/10 border border-cyan/30 flex items-center justify-center">
-              <CreditCard className="w-5 h-5 text-cyan" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">
-                {t("registrationWizard.payment.mockTitle")}
-              </p>
-              <p className="text-xs text-gray-500">{t("registrationWizard.payment.mockHint")}</p>
-            </div>
-          </div>
-          <div className="relative h-10 rounded-lg bg-bg-dark/80 border border-gray-700/60 flex items-center px-3 text-xs text-gray-600 font-mono">
-            •••• •••• •••• 4242
-          </div>
-        </div>
-        <Button
-          type="button"
-          disabled={busy}
-          onClick={onMockPay}
-          className="w-full h-11 bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold"
-        >
-          {busy ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              <Lock className="w-4 h-4 mr-2" />
-              {t("registrationWizard.payment.pay", { amount: amountLabel })}
-            </>
-          )}
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="rounded-xl border border-gray-700/50 bg-surface-dark/30 p-4">
-        <PaymentElement options={{ layout: "tabs" }} />
-      </div>
+      {hasSavedCards && !useNewCard ? (
+        <div className="space-y-2">
+          {paymentMethods.map((method) => (
+            <PaymentMethodCard
+              key={method.id}
+              method={method}
+              selectable
+              selected={selectedPmId === method.id}
+              onSelect={() => setSelectedPmId(method.id)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => setUseNewCard(true)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-gray-600 text-xs text-gray-400 hover:text-cyan hover:border-cyan/40 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            {t("registrationWizard.payment.useNewCard")}
+          </button>
+        </div>
+      ) : null}
+
+      {showNewCardForm ? (
+        <>
+          {hasSavedCards ? (
+            <button
+              type="button"
+              onClick={() => setUseNewCard(false)}
+              className="text-xs text-cyan hover:underline"
+            >
+              {t("registrationWizard.payment.useSavedCard")}
+            </button>
+          ) : null}
+          <div className="rounded-xl border border-gray-700/50 bg-surface-dark/30 p-4">
+            <PaymentElement options={stripePaymentElementOptions} />
+          </div>
+        </>
+      ) : null}
+
       <Button
         type="submit"
-        disabled={!stripe || !elements || busy}
+        disabled={
+          busy ||
+          (showNewCardForm && (!stripe || !elements)) ||
+          (!showNewCardForm && !selectedPmId)
+        }
         className="w-full h-11 bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold"
       >
         {busy ? (
@@ -135,16 +160,10 @@ interface StripeCheckoutProps extends StripePaymentFormProps {
 }
 
 export default function StripeCheckout(props: StripeCheckoutProps) {
-  const { clientSecret, publishableKey, mockMode, ...rest } = props;
-  const [stripePromise] = useState(() =>
-    mockMode ? null : loadStripe(publishableKey),
-  );
+  const { clientSecret, publishableKey, ...rest } = props;
+  const [stripePromise] = useState(() => loadStripe(publishableKey));
 
-  if (mockMode) {
-    return <PaymentFormInner mockMode {...rest} />;
-  }
-
-  if (!stripePromise) return null;
+  if (!stripePromise || !clientSecret) return null;
 
   return (
     <Elements
@@ -176,7 +195,7 @@ export default function StripeCheckout(props: StripeCheckoutProps) {
         },
       }}
     >
-      <PaymentFormInner mockMode={false} {...rest} />
+      <PaymentFormInner {...rest} />
     </Elements>
   );
 }

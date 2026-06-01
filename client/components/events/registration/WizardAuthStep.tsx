@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
-import { Loader2, Mail, ShieldCheck } from "lucide-react";
+import { Loader2, Mail, ShieldCheck, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import OtpInput from "@/components/OtpInput";
 import ClerkOAuthButtons from "@/components/ClerkOAuthButtons";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   clearAthleteError,
+  checkAthleteEmail,
   fetchAthleteMe,
   requestAthleteOtp,
   verifyAthleteOtp,
@@ -22,12 +23,24 @@ interface WizardAuthStepProps {
   onAuthed: () => void;
 }
 
+type AuthPhase = "identify" | "register" | "code";
+type AuthPurpose = "login" | "register";
+
 export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { user, token, requestingOtp, verifyingOtp, syncingClerk, error, otpSentTo } =
-    useAppSelector((s) => s.athleteAuth);
-  const [phase, setPhase] = useState<"identify" | "code">("identify");
+  const {
+    user,
+    token,
+    requestingOtp,
+    verifyingOtp,
+    checkingEmail,
+    syncingClerk,
+    error,
+    otpSentTo,
+  } = useAppSelector((s) => s.athleteAuth);
+  const [phase, setPhase] = useState<AuthPhase>("identify");
+  const [authPurpose, setAuthPurpose] = useState<AuthPurpose>("login");
 
   useEffect(() => {
     dispatch(clearAthleteError());
@@ -49,17 +62,46 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
     }
   }, [user, token, dispatch, onAuthed]);
 
+  const sendLoginOtp = async (email: string) => {
+    setAuthPurpose("login");
+    const result = await dispatch(
+      requestAthleteOtp({ email, channel: "email", purpose: "login" }),
+    );
+    if (requestAthleteOtp.fulfilled.match(result)) setPhase("code");
+  };
+
   const identifyForm = useFormik({
     initialValues: { email: "" },
     validationSchema: Yup.object({
       email: Yup.string().email(t("common.invalidEmail")).required(t("common.required")),
     }),
     onSubmit: async (values) => {
+      const check = await dispatch(checkAthleteEmail({ email: values.email }));
+      if (checkAthleteEmail.rejected.match(check)) return;
+
+      if (check.payload?.exists) {
+        await sendLoginOtp(values.email);
+      } else {
+        setAuthPurpose("register");
+        setPhase("register");
+      }
+    },
+  });
+
+  const registerForm = useFormik({
+    initialValues: { firstName: "", lastName: "" },
+    validationSchema: Yup.object({
+      firstName: Yup.string().trim().required(t("common.required")),
+      lastName: Yup.string().trim().required(t("common.required")),
+    }),
+    onSubmit: async (values) => {
       const result = await dispatch(
         requestAthleteOtp({
-          email: values.email,
+          email: identifyForm.values.email,
           channel: "email",
-          purpose: "login",
+          purpose: "register",
+          first_name: values.firstName.trim(),
+          last_name: values.lastName.trim(),
         }),
       );
       if (requestAthleteOtp.fulfilled.match(result)) setPhase("code");
@@ -79,6 +121,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           email: identifyForm.values.email,
           code: values.code,
           channel: "email",
+          purpose: authPurpose,
         }),
       );
       if (verifyAthleteOtp.fulfilled.match(result)) {
@@ -89,6 +132,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
   });
 
   const destination = otpSentTo || identifyForm.values.email;
+  const busyIdentify = checkingEmail || requestingOtp;
 
   const perks = useMemo(
     () => [
@@ -114,7 +158,11 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
         <ShieldCheck className="w-5 h-5 text-cyan shrink-0 mt-0.5" />
         <div>
           <p className="text-sm font-semibold text-white">{t("registrationWizard.auth.title")}</p>
-          <p className="text-xs text-gray-400 mt-1">{t("registrationWizard.auth.subtitle")}</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {phase === "register"
+              ? t("registrationWizard.auth.registerSubtitle")
+              : t("registrationWizard.auth.subtitle")}
+          </p>
         </div>
       </div>
 
@@ -148,6 +196,52 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           {error && <p className="text-sm text-red-400">{error}</p>}
           <Button
             type="submit"
+            disabled={busyIdentify}
+            className="w-full bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold"
+          >
+            {busyIdentify ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              t("registrationWizard.auth.sendCode")
+            )}
+          </Button>
+        </form>
+      ) : phase === "register" ? (
+        <form onSubmit={registerForm.handleSubmit} className="space-y-4">
+          <div className="rounded-lg border border-gray-700/60 bg-surface-dark/50 px-3 py-2 text-xs text-gray-400 truncate">
+            {identifyForm.values.email}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="wizard-first-name">{t("registrationWizard.auth.firstNameLabel")}</Label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Input
+                id="wizard-first-name"
+                className="pl-10 bg-surface-dark border-gray-700"
+                {...registerForm.getFieldProps("firstName")}
+              />
+            </div>
+            {registerForm.touched.firstName && registerForm.errors.firstName && (
+              <p className="text-xs text-red-400">{registerForm.errors.firstName}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="wizard-last-name">{t("registrationWizard.auth.lastNameLabel")}</Label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Input
+                id="wizard-last-name"
+                className="pl-10 bg-surface-dark border-gray-700"
+                {...registerForm.getFieldProps("lastName")}
+              />
+            </div>
+            {registerForm.touched.lastName && registerForm.errors.lastName && (
+              <p className="text-xs text-red-400">{registerForm.errors.lastName}</p>
+            )}
+          </div>
+          {error && <p className="text-sm text-red-400">{error}</p>}
+          <Button
+            type="submit"
             disabled={requestingOtp}
             className="w-full bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold"
           >
@@ -157,6 +251,16 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
               t("registrationWizard.auth.sendCode")
             )}
           </Button>
+          <button
+            type="button"
+            className="text-xs text-gray-500 hover:text-cyan w-full text-center"
+            onClick={() => {
+              setPhase("identify");
+              registerForm.resetForm();
+            }}
+          >
+            {t("registrationWizard.auth.changeEmail")}
+          </button>
         </form>
       ) : (
         <form onSubmit={codeForm.handleSubmit} className="space-y-4">
@@ -185,7 +289,10 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           <button
             type="button"
             className="text-xs text-gray-500 hover:text-cyan w-full text-center"
-            onClick={() => setPhase("identify")}
+            onClick={() => {
+              setPhase(authPurpose === "register" ? "register" : "identify");
+              codeForm.resetForm();
+            }}
           >
             {t("registrationWizard.auth.changeEmail")}
           </button>
@@ -205,11 +312,8 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
 
       {phase === "identify" && (
         <ClerkOAuthButtons
-          mode="athlete"
           disabled={syncingClerk}
-          onSuccess={async () => {
-            /* Clerk redirect handles SSO; optional inline sync if session exists */
-          }}
+          returnTo={window.location.pathname + window.location.search}
         />
       )}
     </div>
