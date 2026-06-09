@@ -19,7 +19,7 @@ export default function StaffRegistrations() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 min-w-0">
+    <div className="max-w-6xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("staffPortal.registrations.title")}
         description={t("staffPortal.registrations.subtitle")}

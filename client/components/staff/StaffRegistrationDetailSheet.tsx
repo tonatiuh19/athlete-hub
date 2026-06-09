@@ -169,7 +169,39 @@ export default function StaffRegistrationDetailSheet({
               </div>
             ) : null}
 
-            {staffRegistrationDetail?.waiver ? (
+            {staffRegistrationDetail?.waivers?.length ? (
+              <div className="card-sport p-4 space-y-3 text-sm">
+                <h4 className="font-semibold">{t("staffPortal.registrations.waiverSection")}</h4>
+                {staffRegistrationDetail.registration.waiver_signed_at ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.registrations.waiverSignedAt", {
+                      date: format(
+                        new Date(staffRegistrationDetail.registration.waiver_signed_at),
+                        "d MMM yyyy HH:mm",
+                        { locale: dateLocale },
+                      ),
+                    })}
+                  </p>
+                ) : null}
+                <ul className="space-y-2">
+                  {staffRegistrationDetail.waivers.map((w, i) => (
+                    <li key={i} className="rounded-lg bg-secondary/40 px-3 py-2">
+                      <p className="font-medium">{w.waiver_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("staffPortal.registrations.waiverVersion", {
+                          version: w.waiver_version ?? "—",
+                        })}
+                        {" · "}
+                        {format(new Date(w.signed_at), "d MMM yyyy HH:mm", { locale: dateLocale })}
+                      </p>
+                      {w.signature_data ? (
+                        <p className="text-xs mt-1">{w.signature_data}</p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : staffRegistrationDetail?.waiver ? (
               <div className="card-sport p-4 space-y-1 text-sm">
                 <h4 className="font-semibold">{t("staffPortal.registrations.waiverSection")}</h4>
                 <p>{staffRegistrationDetail.waiver.waiver_name}</p>

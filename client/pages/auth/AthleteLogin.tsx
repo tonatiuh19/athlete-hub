@@ -1,42 +1,59 @@
-import { useState, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { useTranslation } from "react-i18next";
 import {
-  ArrowLeft,
   Footprints,
   Mail,
   Loader2,
   CheckCircle,
   Star,
-  Flame,
   MapPin,
   User,
+  Lock,
+  ArrowLeft,
 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
-import OtpInput from "@/components/OtpInput";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
+import AuthPageHeader from "@/components/auth/AuthPageHeader";
+import AuthFormError from "@/components/auth/AuthFormError";
+import PasswordStrengthField from "@/components/auth/PasswordStrengthField";
+import AthleteOnboardingFields from "@/components/auth/AthleteOnboardingFields";
+import { ATHLETE_LOGIN_VIDEO_URL } from "@/constants/tribooBrand";
 import ClerkOAuthButtons from "@/components/ClerkOAuthButtons";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { athletePasswordConfirmSchema } from "@/validation/athletePasswordSchema";
+import {
+  athleteDateOfBirthSchema,
+  athleteGenderSchema,
+} from "@/validation/athleteOnboardingSchema";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   checkAthleteEmail,
-  requestAthleteOtp,
-  verifyAthleteOtp,
+  clearAthleteError,
+  clearPasswordResetSent,
+  forgotAthletePassword,
+  loginAthlete,
+  registerAthlete,
 } from "@/store/slices/athleteAuthSlice";
 
-type AuthStep = "identify" | "register" | "code";
-type AuthPurpose = "login" | "register";
+type AuthStep = "identify" | "login" | "register" | "forgot" | "socialLogin";
 
 export default function AthleteLogin() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { requestingOtp, verifyingOtp, checkingEmail, error, otpSentTo } =
-    useAppSelector((s) => s.athleteAuth);
+  const {
+    checkingEmail,
+    signingIn,
+    registering,
+    resettingPassword,
+    error,
+    passwordResetSent,
+  } = useAppSelector((s) => s.athleteAuth);
   const [step, setStep] = useState<AuthStep>("identify");
-  const [authPurpose, setAuthPurpose] = useState<AuthPurpose>("login");
+  const [email, setEmail] = useState("");
 
   const stats = useMemo(
     () => [
@@ -71,12 +88,10 @@ export default function AthleteLogin() {
     [t],
   );
 
-  const sendLoginOtp = async (email: string) => {
-    setAuthPurpose("login");
-    const result = await dispatch(
-      requestAthleteOtp({ email, channel: "email", purpose: "login" }),
-    );
-    if (requestAthleteOtp.fulfilled.match(result)) setStep("code");
+  const goIdentify = () => {
+    dispatch(clearAthleteError());
+    dispatch(clearPasswordResetSent());
+    setStep("identify");
   };
 
   const identifyForm = useFormik({
@@ -89,66 +104,83 @@ export default function AthleteLogin() {
         .required(t("common.required")),
     }),
     onSubmit: async (values) => {
-      const check = await dispatch(checkAthleteEmail({ email: values.email }));
+      const normalized = values.email.trim().toLowerCase();
+      const check = await dispatch(checkAthleteEmail({ email: normalized }));
       if (checkAthleteEmail.rejected.match(check)) return;
-
-      if (check.payload?.exists) {
-        await sendLoginOtp(values.email);
+      setEmail(normalized);
+      const { exists, hasPassword, hasSocialLogin } = check.payload!;
+      if (exists && hasSocialLogin && !hasPassword) {
+        setStep("socialLogin");
       } else {
-        setAuthPurpose("register");
-        setStep("register");
+        setStep(exists ? "login" : "register");
       }
     },
   });
 
-  const registerForm = useFormik({
-    initialValues: { firstName: "", lastName: "" },
+  const loginForm = useFormik({
+    initialValues: { password: "" },
     validateOnBlur: false,
     validateOnChange: false,
     validationSchema: Yup.object({
-      firstName: Yup.string().trim().required(t("common.required")),
-      lastName: Yup.string().trim().required(t("common.required")),
+      password: Yup.string().required(t("common.required")),
     }),
     onSubmit: async (values) => {
-      const result = await dispatch(
-        requestAthleteOtp({
-          email: identifyForm.values.email,
-          channel: "email",
-          purpose: "register",
-          first_name: values.firstName.trim(),
-          last_name: values.lastName.trim(),
-        }),
-      );
-      if (requestAthleteOtp.fulfilled.match(result)) setStep("code");
-    },
-  });
-
-  const codeForm = useFormik({
-    initialValues: { code: "" },
-    validateOnBlur: false,
-    validateOnChange: false,
-    validationSchema: Yup.object({
-      code: Yup.string()
-        .matches(/^\d{6}$/, t("common.sixDigits"))
-        .required(t("common.required")),
-    }),
-    onSubmit: async (values) => {
-      const result = await dispatch(
-        verifyAthleteOtp({
-          email: identifyForm.values.email,
-          code: values.code,
-          channel: "email",
-          purpose: authPurpose,
-        }),
-      );
-      if (verifyAthleteOtp.fulfilled.match(result)) {
+      const result = await dispatch(loginAthlete({ email, password: values.password }));
+      if (loginAthlete.fulfilled.match(result)) {
         navigate("/portal", { replace: true });
       }
     },
   });
 
-  const destination = otpSentTo || identifyForm.values.email;
-  const busyIdentify = checkingEmail || requestingOtp;
+  const registerForm = useFormik({
+    initialValues: {
+      firstName: "",
+      lastName: "",
+      dateOfBirth: "",
+      gender: "" as "" | "male" | "female" | "other" | "prefer_not_to_say",
+      password: "",
+      confirmPassword: "",
+    },
+    validateOnBlur: false,
+    validateOnChange: false,
+    validationSchema: Yup.object({
+      firstName: Yup.string().trim().required(t("common.required")),
+      lastName: Yup.string().trim().required(t("common.required")),
+      dateOfBirth: athleteDateOfBirthSchema(t),
+      gender: athleteGenderSchema(t),
+      ...athletePasswordConfirmSchema(t).fields,
+    }),
+    onSubmit: async (values) => {
+      const result = await dispatch(
+        registerAthlete({
+          email,
+          firstName: values.firstName.trim(),
+          lastName: values.lastName.trim(),
+          dateOfBirth: values.dateOfBirth,
+          gender: values.gender || null,
+          password: values.password,
+        }),
+      );
+      if (registerAthlete.fulfilled.match(result)) {
+        navigate("/portal", { replace: true });
+      }
+    },
+  });
+
+  const forgotForm = useFormik({
+    initialValues: { email: email || identifyForm.values.email },
+    enableReinitialize: true,
+    validateOnBlur: false,
+    validateOnChange: false,
+    validationSchema: Yup.object({
+      email: Yup.string()
+        .email(t("common.invalidEmail"))
+        .required(t("common.required")),
+    }),
+    onSubmit: async (values) => {
+      await dispatch(forgotAthletePassword({ email: values.email.trim().toLowerCase() }));
+    },
+  });
 
   const heading =
     step === "identify" ? (
@@ -161,19 +193,29 @@ export default function AthleteLogin() {
         {t("auth.athlete.titleRegister")}{" "}
         <span className="text-gradient">{t("auth.athlete.titleRegisterHighlight")}</span>
       </>
+    ) : step === "forgot" ? (
+      t("auth.password.forgotTitle")
+    ) : step === "socialLogin" ? (
+      t("auth.athlete.socialOnlyTitle")
     ) : (
-      t("auth.athlete.titleCode")
+      t("auth.athlete.titleLogin")
     );
 
   const subtitle =
     step === "identify"
       ? t("auth.athlete.subtitleEmailOnly")
       : step === "register"
-        ? t("auth.athlete.subtitleRegister")
-        : t("auth.athlete.subtitleCode", { destination });
+        ? t("auth.athlete.subtitleRegisterPassword")
+        : step === "forgot"
+          ? t("auth.password.forgotSubtitle")
+          : step === "socialLogin"
+            ? t("auth.athlete.socialOnlySubtitle", { email })
+            : t("auth.athlete.subtitleLogin", { email });
+
+  const busyIdentify = checkingEmail;
 
   return (
-    <div className="h-[100dvh] overflow-hidden flex w-full max-w-[100vw] bg-background">
+    <div className="h-[100dvh] overflow-hidden flex w-full max-w-full min-w-0 bg-background">
       <MetaHelmet
         title={t("auth.athlete.metaTitle")}
         description={t("auth.athlete.metaDescription")}
@@ -181,46 +223,20 @@ export default function AthleteLogin() {
       />
 
       <div className="flex-1 lg:max-w-[480px] flex flex-col overflow-y-auto border-r border-border/40">
-        <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border/60 shrink-0">
-          <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-2">
-            <Link to="/" className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan to-blue-electric flex items-center justify-center shrink-0">
-                <Footprints className="w-4 h-4 text-navy-deep" />
-              </div>
-              <span className="font-bold text-gradient text-sm truncate">
-                {t("common.appName")}
-              </span>
-            </Link>
-            <div className="flex items-center gap-2 shrink-0">
-              <Link
-                to="/"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-cyan"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                {t("common.back")}
-              </Link>
-            </div>
-          </div>
-        </header>
+        <AuthPageHeader />
 
         <div className="flex-1 flex flex-col justify-center px-6 sm:px-10 py-6">
           <div className="w-full max-w-[340px] mx-auto animate-slide-up">
             <div className="flex flex-col items-center text-center mb-8">
-              <div className="w-16 h-16 bg-gradient-to-br from-cyan to-blue-electric rounded-2xl flex items-center justify-center mb-5 shadow-glow-cyan">
-                <Flame className="w-8 h-8 text-navy-deep" />
-              </div>
               <h1 className="text-2xl font-bold leading-tight mb-2">{heading}</h1>
               <p className="text-sm text-muted-foreground leading-relaxed">{subtitle}</p>
             </div>
 
-            {step === "identify" ? (
+            {step === "identify" && (
               <div className="space-y-5">
                 <form onSubmit={identifyForm.handleSubmit} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label
-                      htmlFor="athlete-email"
-                      className="block text-sm font-medium text-foreground/90"
-                    >
+                    <label htmlFor="athlete-email" className="block text-sm font-medium">
                       {t("common.email")}
                     </label>
                     <div className="relative">
@@ -236,18 +252,10 @@ export default function AthleteLogin() {
                       />
                     </div>
                     {identifyForm.submitCount > 0 && identifyForm.errors.email && (
-                      <p className="text-xs text-destructive">
-                        {identifyForm.errors.email}
-                      </p>
+                      <p className="text-xs text-destructive">{identifyForm.errors.email}</p>
                     )}
                   </div>
-
-                  {error && (
-                    <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 px-4 py-3 rounded-xl">
-                      {error}
-                    </div>
-                  )}
-
+                  <AuthFormError error={error} />
                   <button
                     type="submit"
                     disabled={busyIdentify}
@@ -256,7 +264,7 @@ export default function AthleteLogin() {
                     {busyIdentify ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {checkingEmail ? t("common.loading") : t("common.sending")}
+                        {t("common.loading")}
                       </>
                     ) : (
                       t("common.continue")
@@ -274,20 +282,74 @@ export default function AthleteLogin() {
                     </span>
                   </div>
                 </div>
-
                 <ClerkOAuthButtons />
               </div>
-            ) : step === "register" ? (
+            )}
+
+            {step === "login" && (
+              <form onSubmit={loginForm.handleSubmit} className="space-y-4">
+                <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-xs text-muted-foreground truncate">
+                  {email}
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="athlete-password" className="block text-sm font-medium">
+                    {t("auth.password.label")}
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
+                    <input
+                      id="athlete-password"
+                      type="password"
+                      {...loginForm.getFieldProps("password")}
+                      className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
+                      placeholder={t("auth.password.placeholder")}
+                      autoComplete="current-password"
+                      autoFocus
+                    />
+                  </div>
+                  {loginForm.submitCount > 0 && loginForm.errors.password && (
+                    <p className="text-xs text-destructive">{loginForm.errors.password}</p>
+                  )}
+                </div>
+                <AuthFormError error={error} />
+                <button
+                  type="submit"
+                  disabled={signingIn}
+                  className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
+                >
+                  {signingIn ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("auth.athlete.signingIn")}
+                    </>
+                  ) : (
+                    t("auth.athlete.enterPortal")
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep("forgot");
+                    dispatch(clearAthleteError());
+                  }}
+                  className="w-full text-sm text-cyan hover:underline"
+                >
+                  {t("auth.password.forgotLink")}
+                </button>
+                <button type="button" onClick={goIdentify} className="w-full text-sm text-muted-foreground hover:text-cyan py-1 flex items-center justify-center gap-1">
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  {t("registrationWizard.auth.changeEmail")}
+                </button>
+              </form>
+            )}
+
+            {step === "register" && (
               <form onSubmit={registerForm.handleSubmit} className="space-y-4">
                 <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-xs text-muted-foreground truncate">
-                  {identifyForm.values.email}
+                  {email}
                 </div>
-
                 <div className="space-y-1.5">
-                  <label
-                    htmlFor="athlete-first-name"
-                    className="block text-sm font-medium text-foreground/90"
-                  >
+                  <label htmlFor="athlete-first-name" className="block text-sm font-medium">
                     {t("auth.athlete.firstNameLabel")}
                   </label>
                   <div className="relative">
@@ -297,23 +359,16 @@ export default function AthleteLogin() {
                       type="text"
                       {...registerForm.getFieldProps("firstName")}
                       className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
-                      placeholder={t("auth.athlete.firstNamePlaceholder")}
                       autoComplete="given-name"
                       autoFocus
                     />
                   </div>
                   {registerForm.submitCount > 0 && registerForm.errors.firstName && (
-                    <p className="text-xs text-destructive">
-                      {registerForm.errors.firstName}
-                    </p>
+                    <p className="text-xs text-destructive">{registerForm.errors.firstName}</p>
                   )}
                 </div>
-
                 <div className="space-y-1.5">
-                  <label
-                    htmlFor="athlete-last-name"
-                    className="block text-sm font-medium text-foreground/90"
-                  >
+                  <label htmlFor="athlete-last-name" className="block text-sm font-medium">
                     {t("auth.athlete.lastNameLabel")}
                   </label>
                   <div className="relative">
@@ -323,90 +378,153 @@ export default function AthleteLogin() {
                       type="text"
                       {...registerForm.getFieldProps("lastName")}
                       className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
-                      placeholder={t("auth.athlete.lastNamePlaceholder")}
                       autoComplete="family-name"
                     />
                   </div>
                   {registerForm.submitCount > 0 && registerForm.errors.lastName && (
+                    <p className="text-xs text-destructive">{registerForm.errors.lastName}</p>
+                  )}
+                </div>
+                <AthleteOnboardingFields
+                  idPrefix="athlete-register"
+                  dateOfBirth={registerForm.values.dateOfBirth}
+                  gender={registerForm.values.gender}
+                  onDateOfBirthChange={(v) => registerForm.setFieldValue("dateOfBirth", v)}
+                  onGenderChange={(v) => registerForm.setFieldValue("gender", v)}
+                  dateOfBirthError={
+                    registerForm.submitCount > 0 && registerForm.errors.dateOfBirth
+                      ? String(registerForm.errors.dateOfBirth)
+                      : undefined
+                  }
+                  genderError={
+                    registerForm.submitCount > 0 && registerForm.errors.gender
+                      ? String(registerForm.errors.gender)
+                      : undefined
+                  }
+                />
+                <div className="space-y-1.5">
+                  <label htmlFor="athlete-register-password" className="block text-sm font-medium">
+                    {t("auth.password.createLabel")}
+                  </label>
+                  <PasswordStrengthField
+                    id="athlete-register-password"
+                    value={registerForm.values.password}
+                    onChange={(v) => registerForm.setFieldValue("password", v)}
+                    onBlur={() => registerForm.setFieldTouched("password", true)}
+                    error={
+                      registerForm.submitCount > 0 && registerForm.errors.password
+                        ? String(registerForm.errors.password)
+                        : undefined
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="athlete-confirm-password" className="block text-sm font-medium">
+                    {t("auth.password.confirmLabel")}
+                  </label>
+                  <input
+                    id="athlete-confirm-password"
+                    type="password"
+                    {...registerForm.getFieldProps("confirmPassword")}
+                    className="w-full h-12 px-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
+                    autoComplete="new-password"
+                  />
+                  {registerForm.submitCount > 0 && registerForm.errors.confirmPassword && (
                     <p className="text-xs text-destructive">
-                      {registerForm.errors.lastName}
+                      {registerForm.errors.confirmPassword}
                     </p>
                   )}
                 </div>
-
-                {error && (
-                  <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 px-4 py-3 rounded-xl">
-                    {error}
-                  </div>
-                )}
-
+                <AuthFormError error={error} />
                 <button
                   type="submit"
-                  disabled={requestingOtp}
+                  disabled={registering}
                   className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
                 >
-                  {requestingOtp ? (
+                  {registering ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      {t("common.sending")}
+                      {t("auth.athlete.creatingAccount")}
                     </>
                   ) : (
-                    t("common.continue")
+                    t("auth.athlete.createAccount")
                   )}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("identify");
-                    registerForm.resetForm();
-                  }}
-                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1"
-                >
+                <button type="button" onClick={goIdentify} className="w-full text-sm text-muted-foreground hover:text-cyan py-1">
                   ← {t("registrationWizard.auth.changeEmail")}
                 </button>
               </form>
-            ) : (
-              <form onSubmit={codeForm.handleSubmit} className="space-y-5">
-                <OtpInput
-                  value={codeForm.values.code}
-                  onChange={(v) => codeForm.setFieldValue("code", v)}
-                  autoFocus
-                  hasError={!!(codeForm.submitCount > 0 && codeForm.errors.code)}
-                />
-                {codeForm.submitCount > 0 && codeForm.errors.code && (
-                  <p className="text-xs text-destructive text-center">
-                    {codeForm.errors.code}
-                  </p>
-                )}
-                {error && (
-                  <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 px-4 py-3 rounded-xl">
-                    {error}
-                  </div>
-                )}
-                <button
-                  type="submit"
-                  disabled={verifyingOtp}
-                  className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-                >
-                  {verifyingOtp ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {t("common.verifying")}
-                    </>
-                  ) : (
-                    t("auth.athlete.enterPortal")
-                  )}
-                </button>
+            )}
+
+            {step === "socialLogin" && (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-xs text-muted-foreground truncate">
+                  {email}
+                </div>
+                <ClerkOAuthButtons />
                 <button
                   type="button"
                   onClick={() => {
-                    setStep(authPurpose === "register" ? "register" : "identify");
-                    codeForm.resetForm();
+                    setStep("forgot");
+                    dispatch(clearAthleteError());
                   }}
-                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1 truncate"
+                  className="w-full text-sm text-cyan hover:underline"
                 >
-                  ← {destination}
+                  {t("auth.athlete.setPasswordViaEmail")}
+                </button>
+                <button
+                  type="button"
+                  onClick={goIdentify}
+                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1 flex items-center justify-center gap-1"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  {t("registrationWizard.auth.changeEmail")}
+                </button>
+              </div>
+            )}
+
+            {step === "forgot" && (
+              <form onSubmit={forgotForm.handleSubmit} className="space-y-4">
+                {passwordResetSent ? (
+                  <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 text-sm text-foreground/90">
+                    {t("auth.password.resetEmailSent")}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label htmlFor="forgot-email" className="block text-sm font-medium">
+                      {t("common.email")}
+                    </label>
+                    <input
+                      id="forgot-email"
+                      type="email"
+                      {...forgotForm.getFieldProps("email")}
+                      className="w-full h-12 px-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
+                      autoComplete="email"
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <AuthFormError error={error} />
+                {!passwordResetSent && (
+                  <button
+                    type="submit"
+                    disabled={resettingPassword}
+                    className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
+                  >
+                    {resettingPassword ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      t("auth.password.sendReset")
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setStep(email ? "login" : "identify")}
+                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1 flex items-center justify-center gap-1"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  {t("common.back")}
                 </button>
               </form>
             )}
@@ -417,7 +535,7 @@ export default function AthleteLogin() {
           <div className="flex justify-center gap-4 text-xs text-muted-foreground mb-3">
             <span className="flex items-center gap-1">
               <CheckCircle className="w-3.5 h-3.5 text-cyan" />
-              {t("common.noPassword")}
+              {t("auth.athlete.trustSecure")}
             </span>
             <span className="flex items-center gap-1">
               <CheckCircle className="w-3.5 h-3.5 text-cyan" />
@@ -434,11 +552,12 @@ export default function AthleteLogin() {
       </div>
 
       <AuthBrandPanel
-        badge={t("auth.athlete.brandBadge")}
+        videoUrl={ATHLETE_LOGIN_VIDEO_URL}
+        badge=""
         headline={
           <>
             {t("auth.athlete.brandHeadline")}{" "}
-            <span className="text-cyan">{t("auth.athlete.brandHeadlineHighlight")}</span>{" "}
+            <span className="text-primary">{t("auth.athlete.brandHeadlineHighlight")}</span>{" "}
             {t("auth.athlete.brandHeadlineEnd")}
           </>
         }

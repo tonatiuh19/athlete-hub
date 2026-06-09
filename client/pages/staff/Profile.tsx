@@ -104,7 +104,7 @@ export default function StaffProfile() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 min-w-0">
+    <div className="max-w-2xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("staffPortal.profile.title")}
         description={t("staffPortal.profile.subtitle")}

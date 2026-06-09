@@ -5,10 +5,12 @@ import type {
   AthleteResultVisualization,
   AthleteWaitlistResponse,
   EventListItem,
+  EventWaiverPublic,
   RegistrationItem,
   RegistrationTransferRequest,
   RegistrationTransferResponse,
   WaitlistEntry,
+  WaiverSignatureInput,
 } from "@shared/api";
 
 interface AthletePortalState {
@@ -21,6 +23,7 @@ interface AthletePortalState {
   loadingEvents: boolean;
   loadingResults: boolean;
   transferringRegistration: boolean;
+  resigningWaiver: boolean;
   registrationsError: string | null;
   waitlistError: string | null;
   transferError: string | null;
@@ -41,6 +44,7 @@ const initialState: AthletePortalState = {
   loadingEvents: false,
   loadingResults: false,
   transferringRegistration: false,
+  resigningWaiver: false,
   registrationsError: null,
   waitlistError: null,
   transferError: null,
@@ -137,6 +141,34 @@ export const transferRegistration = createAsyncThunk<
   }
 });
 
+export const fetchRegistrationWaivers = createAsyncThunk<
+  { waivers: EventWaiverPublic[]; requiresResign: boolean },
+  string,
+  { rejectValue: string }
+>("athletePortal/fetchRegistrationWaivers", async (publicUuid, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get(`/athlete/registrations/${publicUuid}/waivers`);
+    return data as { waivers: EventWaiverPublic[]; requiresResign: boolean };
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load waivers"));
+  }
+});
+
+export const resignRegistrationWaivers = createAsyncThunk<
+  { ok: boolean },
+  { publicUuid: string; signatures: WaiverSignatureInput[] },
+  { rejectValue: string }
+>("athletePortal/resignWaivers", async ({ publicUuid, signatures }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post(`/athlete/registrations/${publicUuid}/waivers/resign`, {
+      waiverSignatures: signatures,
+    });
+    return data as { ok: boolean };
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not update waiver"));
+  }
+});
+
 const slice = createSlice({
   name: "athletePortal",
   initialState,
@@ -204,6 +236,16 @@ const slice = createSlice({
     b.addCase(transferRegistration.rejected, (s, a) => {
       s.transferringRegistration = false;
       s.transferError = a.payload || "Error transferring registration";
+    });
+
+    b.addCase(resignRegistrationWaivers.pending, (s) => {
+      s.resigningWaiver = true;
+    });
+    b.addCase(resignRegistrationWaivers.fulfilled, (s) => {
+      s.resigningWaiver = false;
+    });
+    b.addCase(resignRegistrationWaivers.rejected, (s) => {
+      s.resigningWaiver = false;
     });
 
     b.addCase(fetchResultVisualization.pending, (s) => {

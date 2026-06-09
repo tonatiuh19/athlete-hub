@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
-import { Calendar, Clock, Loader2, QrCode, ArrowRightLeft, Sparkles } from "lucide-react";
+import { Calendar, Clock, Loader2, QrCode, ArrowRightLeft, Sparkles, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import RegistrationQrDialog from "@/components/athlete/RegistrationQrDialog";
+import AthleteWaiverResignDialog from "@/components/athlete/AthleteWaiverResignDialog";
 import TransferRegistrationDialog from "@/components/athlete/TransferRegistrationDialog";
 import WaitlistOfferCountdown from "@/components/athlete/WaitlistOfferCountdown";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,8 @@ export default function AthleteRegistrations() {
     null,
   );
   const [transferRegistration, setTransferRegistration] =
+    useState<RegistrationItem | null>(null);
+  const [resignRegistration, setResignRegistration] =
     useState<RegistrationItem | null>(null);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const dateLocale = getDateFnsLocale(i18n.language);
@@ -95,7 +98,7 @@ export default function AthleteRegistrations() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("athletePortal.registrations.title")}
         description={t("athletePortal.registrations.subtitle")}
@@ -215,6 +218,12 @@ export default function AthleteRegistrations() {
                       defaultValue: r.status,
                     })}
                   </Badge>
+                  {r.waiver_outdated ? (
+                    <Badge variant="destructive" className="gap-1">
+                      <ShieldAlert className="w-3 h-3" />
+                      {t("athletePortal.registrations.waiverOutdated")}
+                    </Badge>
+                  ) : null}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
                   {r.category_name} · {t("athletePortal.registrations.folio")}{" "}
@@ -235,6 +244,18 @@ export default function AthleteRegistrations() {
                   ${(r.total_cents / 100).toLocaleString(numLocale)} MXN
                 </div>
                 <div className="flex flex-wrap gap-2 justify-end">
+                  {r.waiver_outdated ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setResignRegistration(r)}
+                      className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 mr-1.5" />
+                      {t("athletePortal.registrations.resignAction")}
+                    </Button>
+                  ) : null}
                   {r.status === "confirmed" && Boolean(r.allows_transfers) ? (
                     <Button
                       type="button"
@@ -277,6 +298,14 @@ export default function AthleteRegistrations() {
         open={transferRegistration != null}
         onOpenChange={(open) => {
           if (!open) setTransferRegistration(null);
+        }}
+      />
+
+      <AthleteWaiverResignDialog
+        registration={resignRegistration}
+        open={resignRegistration != null}
+        onOpenChange={(open) => {
+          if (!open) setResignRegistration(null);
         }}
       />
     </div>

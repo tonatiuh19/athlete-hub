@@ -23,7 +23,7 @@ export default function StaffSettings() {
   };
 
   return (
-    <div className="max-w-lg mx-auto space-y-6">
+    <div className="max-w-lg mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("staffPortal.settings.title")}
         description={t("staffPortal.settings.subtitle")}

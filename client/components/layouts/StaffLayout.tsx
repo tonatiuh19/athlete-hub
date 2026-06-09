@@ -77,7 +77,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-background flex overflow-x-clip max-w-[100vw]">
+    <div className="min-h-screen bg-background flex overflow-x-clip w-full max-w-full">
       <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-surface-dark/80 fixed inset-y-0">
         <div className="p-6 border-b border-border">
           <div className="flex items-center gap-2">
@@ -149,8 +149,8 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex-1 lg:ml-64 flex flex-col min-w-0 min-h-screen">
-        <header className="lg:hidden sticky top-0 z-40 bg-background border-b px-4 h-14 flex items-center justify-between">
+      <div className="flex-1 lg:ml-64 flex flex-col min-w-0 min-h-screen w-full max-w-full">
+        <header className="lg:hidden sticky top-0 z-40 bg-background border-b px-4 h-14 flex items-center justify-between gap-2 min-w-0">
           <span className="font-bold text-sm truncate">{t("staffPortal.nav.console")}</span>
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitcher variant="compact" />
@@ -165,7 +165,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         </header>
 
         {mobileOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 bg-background/95 backdrop-blur-md p-4 pt-16 overflow-y-auto">
+          <div className="lg:hidden fixed inset-0 z-50 bg-background/95 backdrop-blur-md p-4 pt-16 overflow-y-auto overscroll-contain">
             <nav className="space-y-1">
               <NavItems mobile />
               <div className="mt-4 pt-4 border-t border-border">
@@ -208,7 +208,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <main className="flex-1 p-4 md:p-8 min-w-0">
+        <main className="flex-1 p-4 md:p-8 min-w-0 w-full max-w-full overflow-x-clip">
           <div className="hidden lg:flex justify-end mb-4">
             <LanguageSwitcher variant="ghost" />
           </div>

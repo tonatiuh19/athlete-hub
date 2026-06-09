@@ -1,15 +1,22 @@
 import { AlertCircle, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { extractApiErrorMessage } from "@/utils/apiError";
 
 interface PortalErrorAlertProps {
-  error: string | null;
+  error: string | unknown | null;
   onRetry?: () => void;
 }
 
 export default function PortalErrorAlert({ error, onRetry }: PortalErrorAlertProps) {
   const { t } = useTranslation();
-  if (!error) return null;
+  const message =
+    typeof error === "string"
+      ? error.trim()
+      : error
+        ? extractApiErrorMessage(error)
+        : "";
+  if (!message) return null;
 
   return (
     <div
@@ -18,7 +25,7 @@ export default function PortalErrorAlert({ error, onRetry }: PortalErrorAlertPro
     >
       <div className="flex items-start gap-2 flex-1 min-w-0">
         <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-        <span>{error}</span>
+        <span>{message}</span>
       </div>
       {onRetry ? (
         <Button

@@ -62,7 +62,7 @@ export default function AthleteDashboard() {
   const dashboardError = registrationsError || eventsError;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 min-w-0">
+    <div className="max-w-6xl mx-auto w-full min-w-0 overflow-x-clip space-y-8">
       <MetaHelmet
         title={t("athletePortal.nav.home")}
         description={t("athletePortal.dashboard.activeRegs", {

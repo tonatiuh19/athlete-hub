@@ -3,7 +3,7 @@ import type { EventListItem } from "@shared/api";
 import type { HeroEvent } from "@/components/home/HeroEventCard";
 import { getDateFnsLocale } from "@/utils/dateLocale";
 
-const ACCENTS: HeroEvent["accent"][] = ["cyan", "blue", "purple"];
+const ACCENTS: HeroEvent["accent"][] = ["orange", "red", "ember"];
 
 export function mapEventToHeroEvent(
   event: EventListItem,

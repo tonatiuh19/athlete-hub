@@ -122,6 +122,28 @@ CREATE TABLE `athlete_otp_codes` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `athlete_password_resets`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `athlete_password_resets` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `athlete_id` int unsigned NOT NULL,
+  `token_hash` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `consumed_at` datetime DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_athlete_password_resets_athlete` (`athlete_id`),
+  KEY `idx_athlete_password_resets_expires` (`expires_at`),
+  KEY `idx_athlete_password_resets_lookup` (`token_hash`,`expires_at`),
+  CONSTRAINT `fk_athlete_password_resets_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `athlete_sessions`
 --
 
@@ -155,6 +177,8 @@ CREATE TABLE `athletes` (
   `public_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email_verified_at` datetime DEFAULT NULL,
+  `password_hash` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'scrypt hash; NULL = must set via reset',
+  `password_set_at` datetime DEFAULT NULL,
   `phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone_verified_at` datetime DEFAULT NULL,
   `first_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -171,6 +195,7 @@ CREATE TABLE `athletes` (
   `google_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `apple_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `facebook_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `clerk_user_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Clerk user id (sub) for SSO linking',
   `stripe_customer_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Stripe Customer ID for saved cards',
   `status` enum('active','suspended','deleted') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `last_login_at` datetime DEFAULT NULL,
@@ -182,6 +207,7 @@ CREATE TABLE `athletes` (
   UNIQUE KEY `uk_athletes_phone` (`phone`),
   KEY `idx_athletes_status` (`status`),
   UNIQUE KEY `uk_athletes_public_uuid` (`public_uuid`),
+  UNIQUE KEY `uk_athletes_clerk_user_id` (`clerk_user_id`),
   KEY `idx_athletes_name` (`last_name`,`first_name`),
   KEY `idx_athletes_city` (`city`,`country`),
   KEY `idx_athletes_stripe_customer` (`stripe_customer_id`),
@@ -453,12 +479,56 @@ CREATE TABLE `event_waivers` (
   `event_id` int unsigned NOT NULL,
   `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `content_html` mediumtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pdf_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'CDN URL for PDF responsiva',
+  `content_type` enum('html','pdf','both') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'html',
   `version` int unsigned NOT NULL DEFAULT '1',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `sort_order` int NOT NULL DEFAULT '0',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   KEY `idx_event_waivers_event` (`event_id`),
   CONSTRAINT `fk_event_waivers_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `geo_states`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `geo_states` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `country` char(2) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MX',
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `code` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` smallint unsigned NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_geo_states_country_code` (`country`,`code`),
+  KEY `idx_geo_states_country_active` (`country`,`is_active`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `geo_cities`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `geo_cities` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `state_id` int unsigned NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `lat` decimal(10,7) DEFAULT NULL,
+  `lng` decimal(10,7) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_geo_cities_state_name` (`state_id`,`name`),
+  KEY `idx_geo_cities_state_active` (`state_id`,`is_active`),
+  CONSTRAINT `fk_geo_cities_state` FOREIGN KEY (`state_id`) REFERENCES `geo_states` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -948,6 +1018,7 @@ CREATE TABLE `registration_waiver_signatures` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `registration_id` int unsigned NOT NULL,
   `waiver_id` int unsigned NOT NULL,
+  `waiver_version_at_sign` int unsigned DEFAULT NULL,
   `signed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -955,6 +1026,7 @@ CREATE TABLE `registration_waiver_signatures` (
   `signature_data` text COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Base64 signature image or typed name',
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   KEY `idx_waiver_sigs_registration` (`registration_id`),
+  UNIQUE KEY `uk_waiver_sig_registration_waiver` (`registration_id`,`waiver_id`),
   KEY `fk_waiver_sigs_waiver` (`waiver_id`),
   CONSTRAINT `fk_waiver_sigs_registration` FOREIGN KEY (`registration_id`) REFERENCES `registrations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_waiver_sigs_waiver` FOREIGN KEY (`waiver_id`) REFERENCES `event_waivers` (`id`)
@@ -1283,6 +1355,51 @@ CREATE TABLE `athlete_gamification` (
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`athlete_id`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_athlete_gamification_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `blog_posts`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `blog_posts` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `public_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(300) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `excerpt` text COLLATE utf8mb4_unicode_ci,
+  `body_html` mediumtext COLLATE utf8mb4_unicode_ci,
+  `cover_image_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('draft','published','archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `featured` tinyint(1) NOT NULL DEFAULT '0',
+  `scope` enum('platform','organizer') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'platform',
+  `organizer_id` int unsigned DEFAULT NULL,
+  `event_id` int unsigned DEFAULT NULL,
+  `author_admin_id` int unsigned DEFAULT NULL,
+  `author_member_id` int unsigned DEFAULT NULL,
+  `author_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `seo_title` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `seo_description` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `og_image_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `read_time_minutes` smallint unsigned NOT NULL DEFAULT '5',
+  `locale` varchar(5) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'es',
+  `published_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_blog_posts_slug` (`slug`),
+  UNIQUE KEY `uk_blog_posts_public_uuid` (`public_uuid`),
+  KEY `idx_blog_posts_status_published` (`status`,`published_at`),
+  KEY `idx_blog_posts_organizer` (`organizer_id`),
+  KEY `idx_blog_posts_event` (`event_id`),
+  KEY `idx_blog_posts_deleted` (`deleted_at`),
+  CONSTRAINT `fk_blog_posts_organizer` FOREIGN KEY (`organizer_id`) REFERENCES `organizers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_blog_posts_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_blog_posts_author_admin` FOREIGN KEY (`author_admin_id`) REFERENCES `admins` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_blog_posts_author_member` FOREIGN KEY (`author_member_id`) REFERENCES `organizer_members` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

@@ -13,7 +13,7 @@ import type {
   TeamMemberRow,
   TeamRow,
   TransferRequest,
-} from "@shared/api";
+} from "../shared/api.js";
 
 type ActorType = "athlete" | "organizer" | "admin";
 

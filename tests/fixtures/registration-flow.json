@@ -1,0 +1,71 @@
+{
+  "validMultiWaiverCheckout": {
+    "categoryId": 10,
+    "categoryName": "10K Elite",
+    "fieldValues": { "shirt_size": "M", "emergency_contact": "Jane Doe" },
+    "waiverSignatures": [
+      { "waiverId": 1, "signature": "ACCEPTED", "waiverVersion": 2 },
+      { "waiverId": 2, "signature": "ACCEPTED", "waiverVersion": 1 }
+    ],
+    "waiverAcceptedAt": "2026-06-04T12:00:00.000Z",
+    "clientIp": "127.0.0.1",
+    "userAgent": "Vitest/smoke",
+    "deviceInfo": "Vitest/smoke",
+    "discountCode": "EARLY10",
+    "discountCodeId": 5,
+    "discountAmountCents": 5000
+  },
+  "legacySingleWaiver": {
+    "categoryId": 10,
+    "categoryName": "10K Elite",
+    "fieldValues": {},
+    "waiverId": 1,
+    "waiverSignature": "ACCEPTED"
+  },
+  "missingCategoryId": {
+    "categoryName": "Broken",
+    "fieldValues": {}
+  },
+  "staleWaiverVersion": {
+    "categoryId": 10,
+    "categoryName": "10K Elite",
+    "fieldValues": {},
+    "waiverSignatures": [
+      { "waiverId": 1, "signature": "ACCEPTED", "waiverVersion": 1 }
+    ]
+  },
+  "pendingCheckoutResponse": {
+    "pending": [
+      {
+        "public_uuid": "pay-mock-uuid-001",
+        "amount_cents": 85000,
+        "currency": "MXN",
+        "status": "pending",
+        "created_at": "2026-06-04T10:00:00.000Z",
+        "event_title": "Mock Marathon",
+        "event_slug": "mock-marathon-2026",
+        "category_name": "10K Elite",
+        "category_id": 10
+      }
+    ]
+  },
+  "confirmRequiresAction": {
+    "success": false,
+    "error": "Additional authentication required",
+    "requiresAction": true,
+    "clientSecret": "pi_mock_secret_requires_action"
+  },
+  "confirmSuccess": {
+    "success": true,
+    "registration": {
+      "public_uuid": "reg-mock-uuid",
+      "registration_number": "EVT-2026-00042",
+      "qr_code_token": "qr-mock-token",
+      "status": "confirmed",
+      "total_cents": 85000,
+      "category_name": "10K Elite",
+      "event_title": "Mock Marathon",
+      "event_slug": "mock-marathon-2026"
+    }
+  }
+}

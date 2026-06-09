@@ -35,7 +35,7 @@ export default function StaffPeople() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 min-w-0">
+    <div className="max-w-6xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("staffPortal.staffManagement.title")}
         description={t("staffPortal.staffManagement.subtitle")}

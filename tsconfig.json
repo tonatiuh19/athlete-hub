@@ -35,8 +35,11 @@
   "include": [
     "client/**/*",
     "api/**/*",
+    "server/**/*",
     "shared/**/*",
-    "vite.config.ts"
+    "tests/**/*",
+    "vite.config.ts",
+    "vitest.config.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,56 +1,104 @@
 import { useFormik } from "formik";
 import * as Yup from "yup";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { ExternalLink, FileText, Loader2, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { EventWaiverPublic } from "@shared/api";
+import type { EventWaiverPublic, WaiverSignatureInput } from "@shared/api";
+import { WAIVER_ACCEPTANCE_SIGNATURE } from "@shared/waiverConstants";
+import { sanitizeHtml } from "@/utils/sanitizeHtml";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 interface WizardWaiverStepProps {
-  waiver: EventWaiverPublic;
-  onAccepted: (payload: { waiverId: number; waiverSignature: string }) => void;
+  waivers: EventWaiverPublic[];
+  onAccepted: (signatures: WaiverSignatureInput[]) => void;
 }
 
-export default function WizardWaiverStep({ waiver, onAccepted }: WizardWaiverStepProps) {
+export default function WizardWaiverStep({ waivers, onAccepted }: WizardWaiverStepProps) {
   const { t } = useTranslation();
+  const multiple = waivers.length > 1;
 
   const formik = useFormik({
     initialValues: {
       accepted: false,
-      signature: "",
     },
     validationSchema: Yup.object({
-      accepted: Yup.boolean().oneOf([true], t("registrationWizard.waiver.mustAccept")),
-      signature: Yup.string()
-        .trim()
-        .min(3, t("registrationWizard.waiver.signatureMin"))
-        .required(t("common.required")),
+      accepted: Yup.boolean().oneOf(
+        [true],
+        multiple
+          ? t("registrationWizard.waiver.mustAcceptAll")
+          : t("registrationWizard.waiver.mustAccept"),
+      ),
     }),
-    onSubmit: (values) => {
-      onAccepted({
-        waiverId: waiver.id,
-        waiverSignature: values.signature.trim(),
-      });
+    onSubmit: () => {
+      onAccepted(
+        waivers.map((w) => ({
+          waiverId: w.id,
+          signature: WAIVER_ACCEPTANCE_SIGNATURE,
+          waiverVersion: w.version,
+        })),
+      );
     },
   });
 
   return (
     <form onSubmit={formik.handleSubmit} className="space-y-4">
       <div className="flex items-center gap-2 text-cyan">
-        <ShieldCheck className="w-5 h-5" />
-        <h3 className="font-semibold text-sm">{waiver.title}</h3>
+        <ShieldCheck className="w-5 h-5 shrink-0" />
+        <h3 className="font-semibold text-sm">
+          {multiple
+            ? t("registrationWizard.waiver.titleMultiple", { count: waivers.length })
+            : waivers[0]?.title}
+        </h3>
       </div>
 
-      <div
-        className="max-h-48 overflow-y-auto rounded-xl border border-gray-700/60 bg-black/20 p-4 text-sm text-gray-300 prose prose-invert prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: waiver.content_html }}
-      />
+      {multiple ? (
+        <p className="text-xs text-gray-500">{t("registrationWizard.waiver.allRequiredHint")}</p>
+      ) : null}
 
-      <p className="text-xs text-gray-500">
-        {t("registrationWizard.waiver.version", { version: waiver.version })}
-      </p>
+      <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
+        {waivers.map((waiver, index) => (
+          <div
+            key={waiver.id}
+            className="rounded-xl border border-gray-700/60 bg-black/20 p-4 space-y-3"
+          >
+            {multiple ? (
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                {t("registrationWizard.waiver.itemLabel", { index: index + 1 })}
+              </p>
+            ) : null}
+            {multiple ? (
+              <h4 className="font-medium text-sm text-gray-200">{waiver.title}</h4>
+            ) : null}
+
+            {(waiver.content_type === "html" || waiver.content_type === "both") &&
+            waiver.content_html?.trim() ? (
+              <div
+                className="max-h-40 overflow-y-auto text-sm text-gray-300 prose prose-invert prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(waiver.content_html) }}
+              />
+            ) : null}
+
+            {(waiver.content_type === "pdf" || waiver.content_type === "both") &&
+            waiver.pdf_url ? (
+              <a
+                href={waiver.pdf_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-cyan hover:underline"
+              >
+                <FileText className="w-4 h-4" />
+                {t("registrationWizard.waiver.viewPdf")}
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            ) : null}
+
+            <p className="text-xs text-gray-500">
+              {t("registrationWizard.waiver.version", { version: waiver.version })}
+            </p>
+          </div>
+        ))}
+      </div>
 
       <div className="flex items-start gap-3">
         <Checkbox
@@ -59,26 +107,14 @@ export default function WizardWaiverStep({ waiver, onAccepted }: WizardWaiverSte
           onCheckedChange={(v) => formik.setFieldValue("accepted", v === true)}
         />
         <Label htmlFor="waiver-accepted" className="text-sm leading-snug cursor-pointer">
-          {t("registrationWizard.waiver.acceptLabel")}
+          {multiple
+            ? t("registrationWizard.waiver.acceptAllLabel")
+            : t("registrationWizard.waiver.acceptLabel")}
         </Label>
       </div>
       {formik.touched.accepted && formik.errors.accepted ? (
         <p className="text-xs text-destructive">{formik.errors.accepted}</p>
       ) : null}
-
-      <div className="space-y-2">
-        <Label htmlFor="waiver-signature">{t("registrationWizard.waiver.signatureLabel")}</Label>
-        <Input
-          id="waiver-signature"
-          value={formik.values.signature}
-          onChange={formik.handleChange}
-          onBlur={formik.handleBlur}
-          placeholder={t("registrationWizard.waiver.signaturePlaceholder")}
-        />
-        {formik.touched.signature && formik.errors.signature ? (
-          <p className="text-xs text-destructive">{formik.errors.signature}</p>
-        ) : null}
-      </div>
 
       <Button type="submit" className="w-full" disabled={formik.isSubmitting}>
         {formik.isSubmitting ? (

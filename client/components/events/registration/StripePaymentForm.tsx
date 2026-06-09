@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Loader2, Lock, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,9 @@ interface StripePaymentFormProps {
   onStripeSuccess: (paymentIntentId: string) => void;
   onStripeError: (message: string) => void;
   onPayWithSavedCard?: (paymentMethodId: string) => void | Promise<void>;
+  /** When saved-card confirm requires 3DS */
+  actionClientSecret?: string | null;
+  publishableKey?: string;
 }
 
 function PaymentFormInner({
@@ -23,6 +26,8 @@ function PaymentFormInner({
   onStripeSuccess,
   onStripeError,
   onPayWithSavedCard,
+  actionClientSecret,
+  publishableKey,
 }: StripePaymentFormProps) {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
@@ -30,6 +35,8 @@ function PaymentFormInner({
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
   const [useNewCard, setUseNewCard] = useState(false);
+  const [actionStripe, setActionStripe] = useState<Stripe | null>(null);
+  const [inlineActionSecret, setInlineActionSecret] = useState<string | null>(null);
   const { paymentMethods, defaultPaymentMethodId } =
     useAppSelector((s) => s.paymentMethods);
   const [selectedPmId, setSelectedPmId] = useState<string | null>(null);
@@ -46,8 +53,25 @@ function PaymentFormInner({
     }
   }, [defaultPaymentMethodId, paymentMethods]);
 
+  const activeActionSecret = actionClientSecret ?? inlineActionSecret;
+
+  useEffect(() => {
+    if (!activeActionSecret || !publishableKey) {
+      setActionStripe(null);
+      return;
+    }
+    let cancelled = false;
+    void loadStripe(publishableKey).then((s) => {
+      if (!cancelled) setActionStripe(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeActionSecret, publishableKey]);
+
   const hasSavedCards = paymentMethods.length > 0;
   const showNewCardForm = !hasSavedCards || useNewCard;
+  const needsAction = Boolean(activeActionSecret && actionStripe);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,12 +104,62 @@ function PaymentFormInner({
     }
     if (paymentIntent?.status === "succeeded") {
       onStripeSuccess(paymentIntent.id);
+    } else if (
+      paymentIntent?.status === "requires_action" &&
+      paymentIntent.client_secret
+    ) {
+      setInlineActionSecret(paymentIntent.client_secret);
+    } else {
+      onStripeError(t("registrationWizard.payment.pending"));
+    }
+  };
+
+  const handleCompleteAuthentication = async () => {
+    if (!actionStripe || !activeActionSecret) return;
+    setProcessing(true);
+    const { error, paymentIntent } = await actionStripe.confirmCardPayment(
+      activeActionSecret,
+      { return_url: window.location.href },
+    );
+    setProcessing(false);
+    if (error) {
+      onStripeError(error.message || t("registrationWizard.payment.failed"));
+      return;
+    }
+    if (paymentIntent?.status === "succeeded") {
+      setInlineActionSecret(null);
+      onStripeSuccess(paymentIntent.id);
     } else {
       onStripeError(t("registrationWizard.payment.pending"));
     }
   };
 
   const busy = loading || processing;
+
+  if (needsAction) {
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-amber-200 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          {t("registrationWizard.payment.authenticationRequired")}
+        </p>
+        <Button
+          type="button"
+          disabled={busy}
+          onClick={() => void handleCompleteAuthentication()}
+          className="w-full h-11 bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold"
+        >
+          {busy ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <>
+              <Lock className="w-4 h-4 mr-2" />
+              {t("registrationWizard.payment.completeAuthentication")}
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -195,7 +269,7 @@ export default function StripeCheckout(props: StripeCheckoutProps) {
         },
       }}
     >
-      <PaymentFormInner {...rest} />
+      <PaymentFormInner {...rest} publishableKey={publishableKey} />
     </Elements>
   );
 }

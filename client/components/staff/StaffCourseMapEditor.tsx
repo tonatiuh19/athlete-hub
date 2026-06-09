@@ -54,7 +54,7 @@ import {
 import { parseGpxFile } from "@/utils/gpxParse";
 import { cn } from "@/lib/utils";
 
-type EditorMode = "route" | "poi" | "pan";
+type EditorMode = "route" | "poi" | "pan" | "start";
 
 const POI_TYPES: CoursePointType[] = [
   "start",
@@ -76,6 +76,7 @@ interface StaffCourseMapEditorProps {
   onChange: (course: StaffEventCoursePayload) => void;
   eventLat?: number | string | null;
   eventLng?: number | string | null;
+  onEventLocationChange?: (lat: number, lng: number) => void;
   /** When false, defer map mount until the parent panel is visible */
   active?: boolean;
   /** Wizard step — shows only the relevant controls */
@@ -142,6 +143,7 @@ export default function StaffCourseMapEditor({
   onChange,
   eventLat,
   eventLng,
+  onEventLocationChange,
   active = true,
   focus = "full",
   mapHeight,
@@ -160,6 +162,8 @@ export default function StaffCourseMapEditor({
   >(null);
   const [selectedPoiIndex, setSelectedPoiIndex] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [startLatInput, setStartLatInput] = useState("");
+  const [startLngInput, setStartLngInput] = useState("");
 
   const mapCenter = useMemo((): [number, number] => {
     const lat = parseCoord(eventLat);
@@ -175,6 +179,13 @@ export default function StaffCourseMapEditor({
     if (focus === "route") setMode("route");
     if (focus === "checkpoints") setMode("poi");
   }, [focus]);
+
+  useEffect(() => {
+    const lat = parseCoord(eventLat);
+    const lng = parseCoord(eventLng);
+    setStartLatInput(lat != null ? String(lat) : "");
+    setStartLngInput(lng != null ? String(lng) : "");
+  }, [eventLat, eventLng]);
 
   useEffect(() => {
     if (!value) {
@@ -211,9 +222,89 @@ export default function StaffCourseMapEditor({
     [onChange, elevationM, elevationProfile],
   );
 
+  const syncStartToEventLocation = useCallback(
+    (lat: number, lng: number) => {
+      onEventLocationChange?.(lat, lng);
+    },
+    [onEventLocationChange],
+  );
+
+  const setCareerStart = useCallback(
+    (lat: number, lng: number) => {
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+
+      setStartLatInput(String(lat));
+      setStartLngInput(String(lng));
+      syncStartToEventLocation(lat, lng);
+
+      const startIdx = points.findIndex((p) => p.type === "start");
+      let nextPoints: CoursePoint[];
+      if (startIdx >= 0) {
+        nextPoints = points.map((p, i) =>
+          i === startIdx ? { ...p, lat, lng } : p,
+        );
+      } else {
+        nextPoints = [
+          {
+            type: "start",
+            name: defaultPoiName("start", t),
+            lat,
+            lng,
+            description: "",
+          },
+          ...points,
+        ];
+      }
+
+      // Start flag is separate from the traced route — moving it never adds extra vertices.
+      const nextRoute =
+        route.length === 0
+          ? []
+          : route.map((pt, idx) => (idx === 0 ? { lat, lng } : pt));
+
+      setPoints(nextPoints);
+      setRoute(nextRoute);
+      emitChange(nextRoute, nextPoints);
+    },
+    [emitChange, points, route, syncStartToEventLocation, t],
+  );
+
+  const applyEventLocationAsStart = useCallback(() => {
+    const lat = parseCoord(eventLat);
+    const lng = parseCoord(eventLng);
+    if (lat == null || lng == null) return;
+    setCareerStart(lat, lng);
+  }, [eventLat, eventLng, setCareerStart]);
+
+  const commitStartFromInputs = useCallback(() => {
+    const lat = Number(startLatInput);
+    const lng = Number(startLngInput);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    setCareerStart(lat, lng);
+  }, [setCareerStart, startLatInput, startLngInput]);
+
   const handleMapClick = (lat: number, lng: number) => {
+    if (mode === "start") {
+      setCareerStart(lat, lng);
+      setMode("route");
+      return;
+    }
     if (mode === "route") {
-      const next = [...route, { lat, lng }];
+      const startLat = parseCoord(eventLat) ?? parseCoord(startLatInput);
+      const startLng = parseCoord(eventLng) ?? parseCoord(startLngInput);
+      const hasStart = startLat != null && startLng != null;
+
+      let next: LatLng[];
+      if (route.length === 0 && hasStart) {
+        // First trace click: line from start flag → clicked point
+        next = [{ lat: startLat, lng: startLng }, { lat, lng }];
+      } else if (route.length === 0) {
+        setCareerStart(lat, lng);
+        setMode("route");
+        return;
+      } else {
+        next = [...route, { lat, lng }];
+      }
       setRoute(next);
       emitChange(next, points);
       return;
@@ -227,6 +318,9 @@ export default function StaffCourseMapEditor({
       setPoints(next);
       emitChange(route, next);
       setSelectedPoiIndex(next.length - 1);
+      if (poiType === "start") {
+        setCareerStart(lat, lng);
+      }
     }
   };
 
@@ -256,6 +350,12 @@ export default function StaffCourseMapEditor({
         parsed.elevationProfile.length > 1 ? parsed.elevationProfile : elevationProfile;
       if (parsed.elevationProfile.length > 1) setElevationProfile(profile);
       emitChange(parsed.route, points, gainStr, profile);
+      if (parsed.route.length > 0) {
+        const first = parsed.route[0];
+        if (parseCoord(eventLat) == null || parseCoord(eventLng) == null) {
+          setCareerStart(first.lat, first.lng);
+        }
+      }
     };
     reader.readAsText(file);
   };
@@ -271,9 +371,28 @@ export default function StaffCourseMapEditor({
     const next = points.map((p, i) => (i === index ? { ...p, ...patch } : p));
     setPoints(next);
     emitChange(route, next);
+    const updated = next[index];
+    if (updated?.type === "start" && updated.lat != null && updated.lng != null) {
+      setCareerStart(updated.lat, updated.lng);
+    }
   };
 
+  const careerStartLat = parseCoord(eventLat) ?? parseCoord(startLatInput);
+  const careerStartLng = parseCoord(eventLng) ?? parseCoord(startLngInput);
+  const hasCareerStart = careerStartLat != null && careerStartLng != null;
+  const routePointCount = route.length;
+  const routeLineReady = routePointCount >= 2;
   const routePositions = route.map((p) => [p.lat, p.lng] as [number, number]);
+
+  const routeStepHint = useMemo(() => {
+    if (!hasCareerStart) {
+      return t("staffPortal.courseEditor.flowNeedStart");
+    }
+    if (!routeLineReady) {
+      return t("staffPortal.courseEditor.flowNeedRoute", { count: routePointCount });
+    }
+    return t("staffPortal.courseEditor.flowRouteReady", { count: routePointCount });
+  }, [hasCareerStart, routeLineReady, routePointCount, t]);
 
   const previewCourse = useMemo(
     () => ({
@@ -296,7 +415,15 @@ export default function StaffCourseMapEditor({
   if (focus === "review") {
     return (
       <div className={cn("space-y-4", className)}>
-        <div className="grid sm:grid-cols-3 gap-3">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="card-sport p-4 text-center">
+            <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.careerStart")}</p>
+            <p className="text-sm font-mono font-semibold text-cyan mt-1">
+              {hasCareerStart
+                ? `${careerStartLat!.toFixed(5)}, ${careerStartLng!.toFixed(5)}`
+                : "—"}
+            </p>
+          </div>
           <div className="card-sport p-4 text-center">
             <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
             <p className="text-2xl font-bold text-cyan mt-1">{distanceKm || "—"} km</p>
@@ -369,24 +496,32 @@ export default function StaffCourseMapEditor({
               </>
             )}
 
-            {route.map((p, i) => (
-              <CircleMarker
-                key={`v-${i}`}
-                center={[p.lat, p.lng]}
-                radius={5}
-                pathOptions={{ color: "#fff", fillColor: "#0891b2", fillOpacity: 1, weight: 2 }}
-                eventHandlers={{
-                  dragend: (e) => {
-                    const ll = (e.target as L.CircleMarker).getLatLng();
-                    const next = route.map((pt, idx) =>
-                      idx === i ? { lat: ll.lat, lng: ll.lng } : pt,
-                    );
-                    setRoute(next);
-                    emitChange(next, points);
-                  },
-                }}
-              />
-            ))}
+            {route.map((p, i) => {
+              const atStart =
+                hasCareerStart &&
+                i === 0 &&
+                Math.abs(p.lat - careerStartLat!) < 0.00005 &&
+                Math.abs(p.lng - careerStartLng!) < 0.00005;
+              if (atStart) return null;
+              return (
+                <CircleMarker
+                  key={`v-${i}`}
+                  center={[p.lat, p.lng]}
+                  radius={6}
+                  pathOptions={{ color: "#fff", fillColor: "#0891b2", fillOpacity: 1, weight: 2 }}
+                  eventHandlers={{
+                    dragend: (e) => {
+                      const ll = (e.target as L.CircleMarker).getLatLng();
+                      const next = route.map((pt, idx) =>
+                        idx === i ? { lat: ll.lat, lng: ll.lng } : pt,
+                      );
+                      setRoute(next);
+                      emitChange(next, points);
+                    },
+                  }}
+                />
+              );
+            })}
 
             {points.map((p, i) => (
               <CircleMarker
@@ -407,26 +542,58 @@ export default function StaffCourseMapEditor({
               </CircleMarker>
             ))}
 
-            {parseCoord(eventLat) != null && parseCoord(eventLng) != null ? (
+            {hasCareerStart ? (
               <Marker
-                position={[parseCoord(eventLat)!, parseCoord(eventLng)!]}
+                position={[careerStartLat!, careerStartLng!]}
+                draggable={mode !== "pan"}
                 icon={L.divIcon({
                   className: "",
-                  html: `<div style="width:14px;height:14px;border-radius:50%;background:#FFD54F;border:2px solid #0A0F1F;box-shadow:0 0 0 2px #FFD54F66"></div>`,
-                  iconSize: [14, 14],
-                  iconAnchor: [7, 7],
+                  html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:28px;height:28px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:14px">🏁</div></div>`,
+                  iconSize: [28, 28],
+                  iconAnchor: [14, 14],
                 })}
-              />
+                eventHandlers={{
+                  dragend: (e) => {
+                    const ll = (e.target as L.Marker).getLatLng();
+                    setCareerStart(ll.lat, ll.lng);
+                  },
+                }}
+              >
+                <Popup>
+                  <strong>{t("staffPortal.courseEditor.careerStart")}</strong>
+                  <div className="text-xs font-mono">
+                    {careerStartLat!.toFixed(5)}, {careerStartLng!.toFixed(5)}
+                  </div>
+                </Popup>
+              </Marker>
             ) : null}
           </MapContainer>
         )}
 
-        <div className="absolute top-3 left-3 z-[1000] px-3 py-1.5 rounded-full bg-bg-dark/90 border border-gray-700/60 text-[10px] text-gray-300 backdrop-blur-sm pointer-events-none">
-          {mode === "route"
-            ? t("staffPortal.courseEditor.hintRoute")
-            : mode === "poi"
-              ? t("staffPortal.courseEditor.hintPoi")
-              : t("staffPortal.courseEditor.hintPan")}
+        <div className="absolute top-3 left-3 right-3 z-[1000] flex flex-col gap-1.5 pointer-events-none">
+          <div className="px-3 py-1.5 rounded-full bg-bg-dark/90 border border-gray-700/60 text-[10px] text-gray-300 backdrop-blur-sm w-fit max-w-full">
+            {mode === "start"
+              ? t("staffPortal.courseEditor.hintStart")
+              : mode === "route"
+                ? hasCareerStart && !routeLineReady
+                  ? t("staffPortal.courseEditor.hintRouteAfterStart")
+                  : t("staffPortal.courseEditor.hintRoute")
+                : mode === "poi"
+                  ? t("staffPortal.courseEditor.hintPoi")
+                  : t("staffPortal.courseEditor.hintPan")}
+          </div>
+          {focus === "route" ? (
+            <div
+              className={cn(
+                "px-3 py-2 rounded-lg border text-[10px] backdrop-blur-sm w-fit max-w-full",
+                routeLineReady
+                  ? "bg-cyan/10 border-cyan/30 text-cyan"
+                  : "bg-bg-dark/90 border-gray-700/60 text-gray-300",
+              )}
+            >
+              {routeStepHint}
+            </div>
+          ) : null}
         </div>
       </div>
   );
@@ -466,6 +633,91 @@ export default function StaffCourseMapEditor({
               </p>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {showRouteTools ? (
+        <div className="card-sport p-3 space-y-2 border-border/60 bg-card/30">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("staffPortal.courseEditor.flowTitle")}
+          </p>
+          <ol className="space-y-1.5 text-xs">
+            <li className={cn("flex items-start gap-2", hasCareerStart && "text-emerald-400")}>
+              <span className="shrink-0 w-4 text-center">{hasCareerStart ? "✓" : "1"}</span>
+              <span>{t("staffPortal.courseEditor.flowStepStart")}</span>
+            </li>
+            <li className={cn("flex items-start gap-2", routeLineReady && "text-cyan")}>
+              <span className="shrink-0 w-4 text-center">{routeLineReady ? "✓" : "2"}</span>
+              <span>{t("staffPortal.courseEditor.flowStepDraw")}</span>
+            </li>
+          </ol>
+        </div>
+      ) : null}
+
+      {showRouteTools ? (
+        <div className="card-sport p-4 space-y-3 border-emerald-500/20 bg-emerald-500/[0.03]">
+          <div className="flex items-center gap-2">
+            <Flag className="w-4 h-4 text-emerald-400 shrink-0" />
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("staffPortal.courseEditor.careerStart")}
+            </p>
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            {t("staffPortal.courseEditor.careerStartHint")}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="career-start-lat" className="text-[10px] uppercase text-muted-foreground">
+                {t("staffPortal.eventEdit.fieldLat")}
+              </Label>
+              <Input
+                id="career-start-lat"
+                type="number"
+                step="any"
+                className="h-8 text-xs font-mono"
+                value={startLatInput}
+                onChange={(e) => setStartLatInput(e.target.value)}
+                onBlur={commitStartFromInputs}
+                placeholder="19.4326"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="career-start-lng" className="text-[10px] uppercase text-muted-foreground">
+                {t("staffPortal.eventEdit.fieldLng")}
+              </Label>
+              <Input
+                id="career-start-lng"
+                type="number"
+                step="any"
+                className="h-8 text-xs font-mono"
+                value={startLngInput}
+                onChange={(e) => setStartLngInput(e.target.value)}
+                onBlur={commitStartFromInputs}
+                placeholder="-99.1332"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "start" ? "default" : "outline"}
+            className={cn("w-full text-xs", mode === "start" && "bg-emerald-600 hover:bg-emerald-600/90")}
+            onClick={() => setMode(mode === "start" ? "route" : "start")}
+          >
+            <MapPin className="w-3.5 h-3.5 mr-1.5" />
+            {mode === "start"
+              ? t("staffPortal.courseEditor.careerStartPlacing")
+              : t("staffPortal.courseEditor.careerStartPlaceOnMap")}
+          </Button>
+          {hasCareerStart ? (
+            <p className="text-[10px] text-muted-foreground font-mono text-center">
+              {careerStartLat!.toFixed(5)}, {careerStartLng!.toFixed(5)}
+            </p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground text-center">
+              {t("staffPortal.courseEditor.careerStartUnset")}
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -509,11 +761,37 @@ export default function StaffCourseMapEditor({
                 </SelectContent>
               </Select>
               <p className="text-[10px] text-muted-foreground">{t("staffPortal.courseEditor.poiHint")}</p>
+              {parseCoord(eventLat) != null && parseCoord(eventLng) != null ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="w-full text-xs"
+                  onClick={applyEventLocationAsStart}
+                >
+                  <MapPin className="w-3.5 h-3.5 mr-1.5" />
+                  {t("staffPortal.courseEditor.useEventLocationAsStart")}
+                </Button>
+              ) : null}
             </div>
           ) : null}
 
           {showRouteTools && mode === "route" ? (
             <div className="space-y-2">
+              <p
+                className={cn(
+                  "text-[10px] rounded-md px-2 py-1.5 border",
+                  routeLineReady
+                    ? "border-cyan/30 bg-cyan/5 text-cyan"
+                    : "border-border bg-muted/30 text-muted-foreground",
+                )}
+              >
+                {routeLineReady
+                  ? t("staffPortal.courseEditor.routeDrawn", { count: routePointCount })
+                  : hasCareerStart
+                    ? t("staffPortal.courseEditor.routeClickToTrace")
+                    : t("staffPortal.courseEditor.routeSetStartFirst")}
+              </p>
               <div className="flex gap-2">
                 <Button type="button" size="sm" variant="outline" className="flex-1" onClick={undoRoute}>
                   <Undo2 className="w-3 h-3 mr-1" />
@@ -620,9 +898,26 @@ export default function StaffCourseMapEditor({
       ) : null}
 
       {focus === "route" ? (
-        <div className="card-sport p-4">
-          <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
-          <p className="text-2xl font-bold text-cyan">{distanceKm || "—"} km</p>
+        <div className="card-sport p-4 space-y-3">
+          <div>
+            <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
+            <p className="text-2xl font-bold text-cyan">
+              {routeLineReady ? `${distanceKm} km` : "—"}
+            </p>
+            {!routeLineReady && hasCareerStart ? (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {t("staffPortal.courseEditor.distanceAfterRoute")}
+              </p>
+            ) : null}
+          </div>
+          {hasCareerStart ? (
+            <div className="pt-2 border-t border-border/60">
+              <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.careerStart")}</p>
+              <p className="text-xs font-mono text-emerald-400 mt-0.5">
+                {careerStartLat!.toFixed(5)}, {careerStartLng!.toFixed(5)}
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </>

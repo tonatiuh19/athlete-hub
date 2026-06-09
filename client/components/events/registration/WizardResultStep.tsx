@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { CheckCircle2, QrCode, XCircle, ArrowRight, RotateCcw, Clock } from "lucide-react";
 import type { WaitlistEntry } from "@shared/api";
 import { useTranslation } from "react-i18next";
@@ -21,6 +21,7 @@ interface WizardResultStepProps {
   };
   onRetry: () => void;
   onClose: () => void;
+  onViewRegistrations: () => void;
 }
 
 export default function WizardResultStep({
@@ -30,8 +31,10 @@ export default function WizardResultStep({
   registration,
   onRetry,
   onClose,
+  onViewRegistrations,
 }: WizardResultStepProps) {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const celebratedRef = useRef(false);
 
   const isWaitlist = Boolean(waitlistJoined);
@@ -166,12 +169,17 @@ export default function WizardResultStep({
         <Button variant="outline" onClick={onClose} className="border-gray-700">
           {t("registrationWizard.result.close")}
         </Button>
-        <Link to="/portal/registrations">
-          <Button className="w-full sm:w-auto bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep">
-            {t("registrationWizard.result.viewRegistrations")}
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        </Link>
+        <Button
+          type="button"
+          onClick={() => {
+            onViewRegistrations();
+            navigate("/portal/registrations", { replace: true });
+          }}
+          className="w-full sm:w-auto bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+        >
+          {t("registrationWizard.result.viewRegistrations")}
+          <ArrowRight className="w-4 h-4 ml-2" />
+        </Button>
       </div>
     </div>
   );

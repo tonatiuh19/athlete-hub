@@ -10,6 +10,7 @@ import type {
   EventSponsorInput,
   EventRegistrationFieldInput,
   EventRegistrationFieldRow,
+  EventWaiverInput,
   EventWaiverRow,
   OrganizerAnalyticsResponse,
   OrganizerMemberRow,
@@ -78,7 +79,7 @@ interface StaffPortalState {
   eventHubRegistrationsPagination: PaginationInfo | null;
   eventSponsors: EventSponsor[];
   registrationFields: EventRegistrationFieldRow[];
-  eventWaiver: EventWaiverRow | null;
+  eventWaivers: EventWaiverRow[];
   scheduleWaves: StaffScheduleWaveRow[];
   eventCourse: StaffEventCoursePayload | null;
   discountCodes: StaffDiscountCodeRow[];
@@ -195,6 +196,7 @@ interface StaffPortalState {
   athleteDetailError: string | null;
   lookupError: string | null;
   checkInError: string | null;
+  checkInErrorCode: string | null;
   teamError: string | null;
 }
 
@@ -214,7 +216,7 @@ const initialState: StaffPortalState = {
   eventHubRegistrationsPagination: null,
   eventSponsors: [],
   registrationFields: [],
-  eventWaiver: null,
+  eventWaivers: [],
   scheduleWaves: [],
   eventCourse: null,
   discountCodes: [],
@@ -331,12 +333,24 @@ const initialState: StaffPortalState = {
   athleteDetailError: null,
   lookupError: null,
   checkInError: null,
+  checkInErrorCode: null,
   teamError: null,
 };
 
 function rejectMessage(e: unknown, fallback: string): string {
   const err = e as { response?: { data?: { error?: string } } };
   return err?.response?.data?.error || fallback;
+}
+
+function rejectStaffAction(
+  e: unknown,
+  fallback: string,
+): { message: string; code?: string } {
+  const err = e as { response?: { data?: { error?: string; code?: string } } };
+  return {
+    message: err?.response?.data?.error || fallback,
+    code: err?.response?.data?.code,
+  };
 }
 
 function eventBasePath(role: StaffRole, eventId?: number): string {
@@ -1042,25 +1056,26 @@ export const lookupRegistration = createAsyncThunk<
 
 export const checkInRegistration = createAsyncThunk<
   CheckInResponse["registration"],
-  { registrationId: number; eventId?: number; role?: StaffRole },
-  { rejectValue: string }
->("staffPortal/checkIn", async ({ registrationId, eventId, role = "organizer" }, { rejectWithValue }) => {
+  { registrationId: number; eventId?: number; role?: StaffRole; force?: boolean },
+  { rejectValue: { message: string; code?: string } }
+>("staffPortal/checkIn", async ({ registrationId, eventId, role = "organizer", force }, { rejectWithValue }) => {
   try {
+    const body = { method: "manual", ...(force ? { force: true } : {}) };
     if (eventId != null) {
       const base = role === "admin" ? "/admin/events" : "/organizer/events";
       const { data } = await api.post(
         `${base}/${eventId}/registrations/${registrationId}/check-in`,
-        { method: "manual" },
+        body,
       );
       return data.registration as CheckInResponse["registration"];
     }
     const { data } = await api.post(
       `/organizer/registrations/${registrationId}/check-in`,
-      { method: "manual" },
+      body,
     );
     return data.registration as CheckInResponse["registration"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Check-in failed"));
+    return rejectWithValue(rejectStaffAction(e, "Check-in failed"));
   }
 });
 
@@ -1154,31 +1169,30 @@ export const updateRegistrationFields = createAsyncThunk<
 });
 
 export const fetchEventWaivers = createAsyncThunk<
-  EventWaiverRow | null,
+  EventWaiverRow[],
   { eventId: number; role?: StaffRole },
   { rejectValue: string }
 >("staffPortal/fetchWaivers", async ({ eventId, role = "organizer" }, { rejectWithValue }) => {
   try {
     const base = role === "admin" ? "/admin/events" : "/organizer/events";
     const { data } = await api.get(`${base}/${eventId}/waivers`);
-    const waivers = data.waivers as EventWaiverRow[];
-    return waivers.find((w) => Boolean(w.is_active)) ?? waivers[0] ?? null;
+    return data.waivers as EventWaiverRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load waiver"));
+    return rejectWithValue(rejectMessage(e, "Could not load waivers"));
   }
 });
 
-export const updateEventWaiver = createAsyncThunk<
-  EventWaiverRow | null,
-  { eventId: number; title: string; content_html: string; role?: StaffRole },
+export const updateEventWaivers = createAsyncThunk<
+  EventWaiverRow[],
+  { eventId: number; waivers: EventWaiverInput[]; role?: StaffRole },
   { rejectValue: string }
->("staffPortal/updateWaiver", async ({ eventId, role = "organizer", ...body }, { rejectWithValue }) => {
+>("staffPortal/updateWaivers", async ({ eventId, role = "organizer", waivers }, { rejectWithValue }) => {
   try {
     const base = role === "admin" ? "/admin/events" : "/organizer/events";
-    const { data } = await api.put(`${base}/${eventId}/waivers`, body);
-    return (data.waiver as EventWaiverRow) ?? null;
+    const { data } = await api.put(`${base}/${eventId}/waivers`, { waivers });
+    return data.waivers as EventWaiverRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save waiver"));
+    return rejectWithValue(rejectMessage(e, "Could not save waivers"));
   }
 });
 
@@ -1477,7 +1491,7 @@ const slice = createSlice({
       state.eventDetail = null;
       state.eventSponsors = [];
       state.registrationFields = [];
-      state.eventWaiver = null;
+      state.eventWaivers = [];
       state.eventDetailError = null;
       state.saveEventError = null;
       state.publishError = null;
@@ -1493,6 +1507,7 @@ const slice = createSlice({
       state.lookupRegistration = null;
       state.lookupError = null;
       state.checkInError = null;
+      state.checkInErrorCode = null;
     },
     clearAthleteDetail(state) {
       state.athleteDetail = null;
@@ -1502,6 +1517,7 @@ const slice = createSlice({
       state.lookupRegistration = null;
       state.lookupError = null;
       state.checkInError = null;
+      state.checkInErrorCode = null;
     },
     clearStaffOrganizerDetail(state) {
       state.staffOrganizerDetail = null;
@@ -1776,6 +1792,7 @@ const slice = createSlice({
     b.addCase(checkInRegistration.pending, (s) => {
       s.checkingIn = true;
       s.checkInError = null;
+      s.checkInErrorCode = null;
     });
     b.addCase(checkInRegistration.fulfilled, (s, a) => {
       s.checkingIn = false;
@@ -1798,7 +1815,8 @@ const slice = createSlice({
     });
     b.addCase(checkInRegistration.rejected, (s, a) => {
       s.checkingIn = false;
-      s.checkInError = a.payload || "Check-in failed";
+      s.checkInError = a.payload?.message || "Check-in failed";
+      s.checkInErrorCode = a.payload?.code ?? null;
     });
 
     b.addCase(fetchOrganizerMembers.pending, (s) => {
@@ -1852,19 +1870,23 @@ const slice = createSlice({
     });
 
     b.addCase(fetchEventWaivers.fulfilled, (s, a) => {
-      s.eventWaiver = a.payload;
+      s.eventWaivers = a.payload;
+      s.waiverError = null;
     });
-    b.addCase(updateEventWaiver.pending, (s) => {
+    b.addCase(fetchEventWaivers.rejected, (s, a) => {
+      s.waiverError = a.payload || "Error loading waivers";
+    });
+    b.addCase(updateEventWaivers.pending, (s) => {
       s.savingWaiver = true;
       s.waiverError = null;
     });
-    b.addCase(updateEventWaiver.fulfilled, (s, a) => {
+    b.addCase(updateEventWaivers.fulfilled, (s, a) => {
       s.savingWaiver = false;
-      s.eventWaiver = a.payload;
+      s.eventWaivers = a.payload;
     });
-    b.addCase(updateEventWaiver.rejected, (s, a) => {
+    b.addCase(updateEventWaivers.rejected, (s, a) => {
       s.savingWaiver = false;
-      s.waiverError = a.payload || "Error saving waiver";
+      s.waiverError = a.payload || "Error saving waivers";
     });
 
     b.addCase(fetchScheduleWaves.pending, (s) => {

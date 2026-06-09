@@ -15,9 +15,11 @@ import {
   Trophy,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useToast } from "@/hooks/use-toast";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,7 +30,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import GeoCitySelector from "@/components/geo/GeoCitySelector";
+import { isCatalogCitySelectionValid } from "@/utils/geoCityValidation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchGeoStates } from "@/store/slices/geoSlice";
 import { fetchSportTypes } from "@/store/slices/marketplaceSlice";
 import {
   createAdminEvent,
@@ -49,6 +54,7 @@ function slugPreview(title: string) {
 
 export default function AdminCreateEventPage() {
   const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { role } = useAppSelector((s) => s.staffAuth);
@@ -67,8 +73,12 @@ export default function AdminCreateEventPage() {
   const [title, setTitle] = useState("");
   const [sportId, setSportId] = useState("1");
   const [startDate, setStartDate] = useState("");
+  const [geoStateId, setGeoStateId] = useState<number | null>(null);
+  const [geoCityId, setGeoCityId] = useState<number | null>(null);
   const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [shortDesc, setShortDesc] = useState("");
+  const [requiresWaiver, setRequiresWaiver] = useState(false);
   const dateLocale = getDateFnsLocale(i18n.language);
 
   useEffect(() => {
@@ -79,6 +89,7 @@ export default function AdminCreateEventPage() {
   useEffect(() => {
     if (role === "admin") {
       dispatch(fetchSportTypes());
+      dispatch(fetchGeoStates("MX"));
       dispatch(fetchAdminOrganizers({ q: debouncedOrgQ }));
     }
   }, [dispatch, role, debouncedOrgQ]);
@@ -93,6 +104,14 @@ export default function AdminCreateEventPage() {
 
   const handleCreate = async () => {
     if (!selectedOrg || !canSubmit) return;
+    if (!isCatalogCitySelectionValid(geoCityId, city)) {
+      toast({
+        title: t("geo.citySelector.invalidSelectionTitle"),
+        description: t("geo.citySelector.supportMessageAdmin"),
+        variant: "destructive",
+      });
+      return;
+    }
     const result = await dispatch(
       createAdminEvent({
         organizer_id: selectedOrg.id,
@@ -100,8 +119,10 @@ export default function AdminCreateEventPage() {
         sport_type_id: Number(sportId) || 1,
         start_date: new Date(startDate).toISOString(),
         short_description: shortDesc.trim() || null,
-        location_city: city.trim() || null,
+        location_city: geoCityId ? city.trim() || null : null,
+        location_state: geoCityId ? state.trim() || null : null,
         visibility: "public",
+        requires_waiver: requiresWaiver,
       }),
     );
     if (createAdminEvent.fulfilled.match(result)) {
@@ -110,7 +131,7 @@ export default function AdminCreateEventPage() {
   };
 
   return (
-    <div className="min-h-full">
+    <div className="min-h-full w-full min-w-0 overflow-x-clip">
       <MetaHelmet
         title={t("staffPortal.adminCreate.title")}
         description={t("staffPortal.adminCreate.subtitle")}
@@ -142,7 +163,7 @@ export default function AdminCreateEventPage() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-5 gap-8">
+      <div className="max-w-6xl mx-auto w-full min-w-0 px-4 py-8 grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -252,12 +273,19 @@ export default function AdminCreateEventPage() {
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="city">{t("staffPortal.eventEdit.fieldCity")}</Label>
-                <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} />
-              </div>
-            </div>
+            <GeoCitySelector
+              stateId={geoStateId}
+              cityId={geoCityId}
+              cityName={city}
+              stateName={state}
+              staffRole="admin"
+              onChange={(sel) => {
+                setGeoStateId(sel.stateId);
+                setGeoCityId(sel.geoCityId);
+                setCity(sel.city);
+                setState(sel.state);
+              }}
+            />
 
             <div className="space-y-2">
               <Label htmlFor="short">{t("staffPortal.eventEdit.fieldShortDesc")}</Label>
@@ -267,6 +295,22 @@ export default function AdminCreateEventPage() {
                 value={shortDesc}
                 onChange={(e) => setShortDesc(e.target.value)}
               />
+            </div>
+
+            <div className="flex items-start gap-3 rounded-xl border border-border/60 p-4">
+              <Checkbox
+                id="requires-waiver"
+                checked={requiresWaiver}
+                onCheckedChange={(v) => setRequiresWaiver(v === true)}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="requires-waiver" className="cursor-pointer">
+                  {t("staffPortal.eventEdit.fieldRequiresWaiver")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("staffPortal.adminCreate.requiresWaiverHint")}
+                </p>
+              </div>
             </div>
 
             {saveEventError ? (

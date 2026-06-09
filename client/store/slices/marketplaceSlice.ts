@@ -3,18 +3,23 @@ import api from "@/lib/api";
 import type {
   EventDetailResponse,
   EventListItem,
-  EventsQueryParams,
   EventsSort,
   FilterCity,
+  SearchSuggestResponse,
   SportType,
 } from "@shared/api";
+import {
+  buildMarketplaceQueryParams,
+  normalizeMarketplaceFilters,
+} from "@/utils/eventsBrowseFilters";
 
-export type EventsViewMode = "grid" | "map" | "split";
+export type EventsViewMode = "grid" | "map" | "split" | "calendar";
 
 export interface MarketplaceFilters {
   q: string;
   sport: string;
   city: string;
+  geoCityId: string;
   featured: boolean;
   dateFrom: string;
   dateTo: string;
@@ -27,6 +32,7 @@ const defaultFilters: MarketplaceFilters = {
   q: "",
   sport: "",
   city: "",
+  geoCityId: "",
   featured: false,
   dateFrom: "",
   dateTo: "",
@@ -49,6 +55,8 @@ interface MarketplaceState {
   loadingDetail: boolean;
   detailError: string | null;
   error: string | null;
+  searchSuggestions: SearchSuggestResponse | null;
+  searchSuggestionsLoading: boolean;
 }
 
 const initialState: MarketplaceState = {
@@ -65,25 +73,11 @@ const initialState: MarketplaceState = {
   loadingDetail: false,
   detailError: null,
   error: null,
+  searchSuggestions: null,
+  searchSuggestionsLoading: false,
 };
 
-function buildQueryParams(filters: MarketplaceFilters): EventsQueryParams {
-  const params: EventsQueryParams = {
-    sort: filters.sort,
-    limit: 48,
-  };
-  if (filters.q.trim()) params.q = filters.q.trim();
-  if (filters.sport) params.sport = filters.sport;
-  if (filters.city) params.city = filters.city;
-  if (filters.featured) params.featured = true;
-  if (filters.dateFrom) params.dateFrom = filters.dateFrom;
-  if (filters.dateTo) params.dateTo = filters.dateTo;
-  const min = Number(filters.minPrice);
-  const max = Number(filters.maxPrice);
-  if (filters.minPrice && !Number.isNaN(min)) params.minPrice = min * 100;
-  if (filters.maxPrice && !Number.isNaN(max)) params.maxPrice = max * 100;
-  return params;
-}
+export { buildMarketplaceQueryParams };
 
 export const fetchSportTypes = createAsyncThunk("marketplace/sportTypes", async () => {
   const { data } = await api.get("/sport-types");
@@ -97,8 +91,11 @@ export const fetchFilterCities = createAsyncThunk("marketplace/cities", async ()
 
 export const fetchMarketplaceEvents = createAsyncThunk(
   "marketplace/events",
-  async (filters: MarketplaceFilters) => {
-    const { data } = await api.get("/events", { params: buildQueryParams(filters) });
+  async (filters: MarketplaceFilters, { signal }) => {
+    const { data } = await api.get("/events", {
+      params: buildMarketplaceQueryParams(filters),
+      signal,
+    });
     return {
       events: data.events as EventListItem[],
       total: data.total as number,
@@ -129,15 +126,30 @@ export const fetchEventDetail = createAsyncThunk(
   },
 );
 
+export const fetchSearchSuggestions = createAsyncThunk(
+  "marketplace/searchSuggest",
+  async (q: string, { signal }) => {
+    const { data } = await api.get<SearchSuggestResponse>("/search/suggest", {
+      params: { q: q.trim() },
+      signal,
+    });
+    return data;
+  },
+);
+
 const marketplaceSlice = createSlice({
   name: "marketplace",
   initialState,
   reducers: {
     setFilters(state, action: PayloadAction<Partial<MarketplaceFilters>>) {
-      state.filters = { ...state.filters, ...action.payload };
+      state.filters = normalizeMarketplaceFilters({
+        ...state.filters,
+        ...action.payload,
+      });
     },
     resetFilters(state) {
-      state.filters = defaultFilters;
+      state.filters = { ...defaultFilters };
+      state.selectedEventSlug = null;
     },
     setViewMode(state, action: PayloadAction<EventsViewMode>) {
       state.viewMode = action.payload;
@@ -148,6 +160,10 @@ const marketplaceSlice = createSlice({
     clearEventDetail(state) {
       state.eventDetail = null;
       state.detailError = null;
+    },
+    clearSearchSuggestions(state) {
+      state.searchSuggestions = null;
+      state.searchSuggestionsLoading = false;
     },
   },
   extraReducers: (b) => {
@@ -170,11 +186,15 @@ const marketplaceSlice = createSlice({
       s.loadingEvents = false;
       s.events = a.payload.events;
       s.total = a.payload.total;
-      if (!s.selectedEventSlug && a.payload.events[0]) {
-        s.selectedEventSlug = a.payload.events[0].slug;
+      const stillSelected = a.payload.events.some(
+        (ev) => ev.slug === s.selectedEventSlug,
+      );
+      if (!stillSelected) {
+        s.selectedEventSlug = a.payload.events[0]?.slug ?? null;
       }
     });
     b.addCase(fetchMarketplaceEvents.rejected, (s, a) => {
+      if (a.meta.aborted) return;
       s.loadingEvents = false;
       s.error = a.error.message || "Failed to load events";
     });
@@ -192,6 +212,19 @@ const marketplaceSlice = createSlice({
       s.detailError = a.error.message || "Event not found";
       s.eventDetail = null;
     });
+
+    b.addCase(fetchSearchSuggestions.pending, (s) => {
+      s.searchSuggestionsLoading = true;
+    });
+    b.addCase(fetchSearchSuggestions.fulfilled, (s, a) => {
+      s.searchSuggestionsLoading = false;
+      s.searchSuggestions = a.payload;
+    });
+    b.addCase(fetchSearchSuggestions.rejected, (s, a) => {
+      if (a.meta.aborted) return;
+      s.searchSuggestionsLoading = false;
+      s.searchSuggestions = null;
+    });
   },
 });
 
@@ -201,6 +234,7 @@ export const {
   setViewMode,
   setSelectedEventSlug,
   clearEventDetail,
+  clearSearchSuggestions,
 } = marketplaceSlice.actions;
 
 export default marketplaceSlice.reducer;

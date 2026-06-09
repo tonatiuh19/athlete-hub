@@ -68,6 +68,8 @@ export interface EventsQueryParams {
   q?: string;
   sport?: string;
   city?: string;
+  /** Canonical geo city id from geo_cities catalog */
+  geoCityId?: number;
   featured?: boolean;
   dateFrom?: string;
   dateTo?: string;
@@ -79,9 +81,66 @@ export interface EventsQueryParams {
 }
 
 export interface FilterCity {
+  id: number;
   city: string;
   state?: string;
   event_count: number;
+}
+
+export interface GeoState {
+  id: number;
+  country: string;
+  name: string;
+  code: string;
+}
+
+export interface GeoCity {
+  id: number;
+  state_id: number;
+  name: string;
+  state_name: string;
+  state_code: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+export interface GeoStatesResponse {
+  states: GeoState[];
+}
+
+export interface GeoCitiesResponse {
+  cities: GeoCity[];
+}
+
+export interface SearchSuggestEvent {
+  slug: string;
+  title: string;
+  start_date: string;
+  location_city?: string;
+  location_state?: string;
+  sport_name: string;
+  sport_slug: string;
+  hero_image_url?: string | null;
+}
+
+export interface SearchSuggestCity {
+  id?: number;
+  city: string;
+  state?: string;
+  event_count: number;
+}
+
+export interface SearchSuggestSport {
+  slug: string;
+  name: string;
+  icon?: string | null;
+}
+
+export interface SearchSuggestResponse {
+  query: string;
+  events: SearchSuggestEvent[];
+  cities: SearchSuggestCity[];
+  sports: SearchSuggestSport[];
 }
 
 export type CoursePointType =
@@ -254,7 +313,10 @@ export interface EventWaiverPublic {
   id: number;
   title: string;
   content_html: string;
+  pdf_url?: string | null;
+  content_type: "html" | "pdf" | "both";
   version: number;
+  sort_order?: number;
 }
 
 export interface EventDetailResponse {
@@ -267,6 +329,9 @@ export interface EventDetailResponse {
   serviceFeePercent: number;
   course: EventCourse | null;
   media: EventMediaAsset[];
+  /** All active waivers, ordered for registration */
+  waivers?: EventWaiverPublic[];
+  /** @deprecated First active waiver — use waivers[] */
   waiver?: EventWaiverPublic | null;
   myRegistration?: EventMyRegistration | null;
 }
@@ -324,6 +389,18 @@ export interface AthleteMeResponse {
   athlete: AthleteProfile;
 }
 
+/** Normalizes API date values (Date objects, ISO strings) to YYYY-MM-DD. */
+export function normalizeApiDateOnly(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : raw;
+}
+
 /** Maps snake_case API athlete row to client AthleteUser. */
 export function mapAthleteApiRow(a: Record<string, unknown>): AthleteUser {
   return {
@@ -332,7 +409,7 @@ export function mapAthleteApiRow(a: Record<string, unknown>): AthleteUser {
     phone: (a.phone as string | null) || undefined,
     firstName: String(a.first_name ?? a.firstName ?? ""),
     lastName: String(a.last_name ?? a.lastName ?? ""),
-    dateOfBirth: (a.date_of_birth as string | null) ?? null,
+    dateOfBirth: normalizeApiDateOnly(a.date_of_birth ?? a.dateOfBirth),
     gender: (a.gender as AthleteGender | null) ?? null,
     shirtSize: (a.shirt_size as AthleteShirtSize | null) ?? null,
     country: (a.country as string | undefined) ?? "MX",
@@ -348,6 +425,14 @@ export function mapAthleteApiRow(a: Record<string, unknown>): AthleteUser {
 
 export interface AthleteCheckEmailResponse {
   exists: boolean;
+  hasPassword?: boolean;
+  hasSocialLogin?: boolean;
+}
+
+export interface AthleteAuthSessionResponse {
+  token: string;
+  athlete: AthleteUser;
+  isNew?: boolean;
 }
 
 export type StaffRole = "admin" | "organizer";
@@ -449,6 +534,7 @@ export interface RegistrationItem {
   start_date: string;
   category_name: string;
   allows_transfers?: boolean | number;
+  waiver_outdated?: boolean;
 }
 
 export type AthleteResultStatus = "finished" | "dnf" | "dns" | "dq";
@@ -508,12 +594,45 @@ export interface PaymentConfigResponse {
   currency: string;
 }
 
+export interface WaiverSignatureInput {
+  waiverId: number;
+  signature: string;
+  /** Client-bound waiver version at acceptance time */
+  waiverVersion?: number;
+}
+
+export interface PendingCheckoutItem {
+  public_uuid: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  created_at: string;
+  event_title: string;
+  event_slug: string;
+  category_name: string | null;
+  category_id: number | null;
+}
+
+export interface PendingCheckoutResponse {
+  pending: PendingCheckoutItem[];
+}
+
+export interface ConfirmRegistrationReject {
+  message: string;
+  requiresAction?: boolean;
+  clientSecret?: string;
+}
+
 export interface RegistrationCheckoutRequest {
   categoryId: number;
   fieldValues: Record<string, string | boolean>;
   idempotencyKey: string;
   discountCode?: string;
+  /** Sign all active waivers */
+  waiverSignatures?: WaiverSignatureInput[];
+  /** @deprecated Use waiverSignatures */
   waiverId?: number;
+  /** @deprecated Use waiverSignatures */
   waiverSignature?: string;
   waitlistEntryId?: number;
 }
@@ -529,6 +648,14 @@ export interface RegistrationCheckoutResponse {
   eventTitle: string;
   discountAmountCents?: number;
   discountCode?: string;
+  fieldValues?: Record<string, string | boolean>;
+}
+
+export interface RegistrationResumeResponse {
+  status: "checkout" | "complete" | "failed" | "expired";
+  checkout?: RegistrationCheckoutResponse;
+  registration?: RegistrationConfirmResponse["registration"];
+  error?: string;
 }
 
 export interface DiscountValidateRequest {
@@ -692,7 +819,9 @@ export interface SetDefaultPaymentMethodRequest {
 
 export interface RegistrationConfirmResponse {
   success: boolean;
-  registration: {
+  requiresAction?: boolean;
+  clientSecret?: string;
+  registration?: {
     public_uuid: string;
     registration_number: string;
     qr_code_token: string;
@@ -720,6 +849,7 @@ export interface StaffEventRow {
   status: string;
   start_date: string;
   registration_count: number;
+  organizer_id?: number;
   sport_name?: string;
   organizer_name?: string;
   location_city?: string;
@@ -761,6 +891,8 @@ export interface OrganizerRegistrationRow {
   total_cents: number;
   created_at: string;
   checked_in_at?: string | null;
+  waiver_signed_at?: string | null;
+  waiver_outdated?: boolean;
   event_id: number;
   event_title: string;
   event_slug: string;
@@ -860,7 +992,9 @@ export interface StaffRegistrationDetailResponse {
   registration: StaffRegistrationDetailRow;
   payment: StaffRegistrationPayment | null;
   field_values: StaffRegistrationFieldValue[];
+  /** @deprecated Use waivers */
   waiver: StaffRegistrationWaiver | null;
+  waivers: StaffRegistrationWaiver[];
   status_history: StaffRegistrationStatusHistoryRow[];
   transfers: StaffRegistrationTransferRow[];
   refunds: StaffPaymentRefundRow[];
@@ -873,6 +1007,8 @@ export interface StaffManualRegistrationRequest {
   comp?: boolean;
   bib_number?: string;
   field_values?: Record<string, string>;
+  /** Staff confirms waiver requirement is waived for this manual entry */
+  waiver_waived?: boolean;
 }
 
 export interface AdminPaymentRow {
@@ -948,6 +1084,7 @@ export interface StaffEventDetail {
   hero_image_url?: string | null;
   registration_count: number;
   max_registrations?: number | null;
+  requires_waiver?: boolean | number;
   sport_name?: string;
   organizer_name?: string;
 }
@@ -958,6 +1095,7 @@ export interface StaffEventCategory {
   name: string;
   description?: string | null;
   distance_km?: number | null;
+  difficulty?: string | null;
   capacity?: number | null;
   sold_count: number;
   price_cents: number;
@@ -1016,16 +1154,27 @@ export interface StaffEventUpsertRequest {
   registration_opens_at?: string | null;
   registration_closes_at?: string | null;
   location_city?: string | null;
+  location_state?: string | null;
   location_name?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
   hero_image_url?: string | null;
+  banner_image_url?: string | null;
   max_registrations?: number | null;
+  requires_waiver?: boolean;
 }
 
 export interface StaffEventCategoryInput {
   name: string;
-  description?: string;
+  description?: string | null;
   price_cents: number;
   capacity?: number | null;
+  distance_km?: number | null;
+  gender_restriction?: string;
+  min_age?: number | null;
+  max_age?: number | null;
+  difficulty?: string | null;
+  waitlist_enabled?: boolean;
   sort_order?: number;
 }
 
@@ -1050,7 +1199,11 @@ export interface AdminAthleteDetailResponse {
 }
 
 export interface RegistrationLookupResponse {
-  registration: OrganizerRegistrationRow & { qr_code_token?: string };
+  registration: OrganizerRegistrationRow & {
+    qr_code_token?: string;
+    requires_waiver?: boolean | number;
+    waiver_outdated?: boolean;
+  };
 }
 
 export interface CheckInResponse {
@@ -1121,11 +1274,24 @@ export interface EventRegistrationFieldInput {
 
 export interface EventWaiverRow {
   id: number;
+  event_id?: number;
   title: string;
   content_html: string;
+  pdf_url?: string | null;
+  content_type: "html" | "pdf" | "both";
   version: number;
   is_active: number | boolean;
+  sort_order?: number;
   created_at: string;
+}
+
+export interface EventWaiverInput {
+  id?: number;
+  title: string;
+  content_html?: string;
+  pdf_url?: string | null;
+  content_type?: "html" | "pdf" | "both";
+  sort_order?: number;
 }
 
 export interface StaffEventResultRow {
@@ -1161,6 +1327,7 @@ export interface StaffEventCategoryPatch {
   price_cents?: number;
   capacity?: number | null;
   distance_km?: number | null;
+  difficulty?: string | null;
   gender_restriction?: string;
   min_age?: number | null;
   max_age?: number | null;
@@ -1506,4 +1673,91 @@ export interface PublicHomeDataResponse {
   upcoming_events: EventListItem[];
   top_athletes: PublicLeaderboardAthlete[];
   top_teams: PublicTeamPreview[];
+}
+
+// ── Blog ────────────────────────────────────────────────────────────────────
+
+export type BlogPostStatus = "draft" | "published" | "archived";
+export type BlogPostScope = "platform" | "organizer";
+
+export interface BlogPostPublic {
+  id: number;
+  publicUuid: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  bodyHtml: string | null;
+  coverImageUrl: string | null;
+  featured: boolean;
+  scope: BlogPostScope;
+  organizerId: number | null;
+  organizerName: string | null;
+  organizerSlug: string | null;
+  eventId: number | null;
+  eventTitle: string | null;
+  eventSlug: string | null;
+  authorName: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  ogImageUrl: string | null;
+  readTimeMinutes: number;
+  locale: string;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+export interface BlogPostStaff extends BlogPostPublic {
+  status: BlogPostStatus;
+  authorAdminId: number | null;
+  authorMemberId: number | null;
+  createdAt: string;
+}
+
+export interface BlogListResponse {
+  posts: BlogPostPublic[];
+  limit: number;
+  offset: number;
+}
+
+export interface BlogPostResponse {
+  post: BlogPostPublic;
+}
+
+export interface BlogStaffListResponse {
+  posts: BlogPostStaff[];
+}
+
+export interface BlogStaffPostResponse {
+  post: BlogPostStaff;
+}
+
+export interface BlogUpsertRequest {
+  title: string;
+  slug?: string;
+  excerpt?: string | null;
+  bodyHtml?: string | null;
+  coverImageUrl?: string | null;
+  status?: BlogPostStatus;
+  featured?: boolean;
+  scope?: BlogPostScope;
+  organizerId?: number | null;
+  eventId?: number | null;
+  authorName?: string | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  ogImageUrl?: string | null;
+  locale?: string;
+  publishedAt?: string | null;
+}
+
+export interface BlogImageUploadResponse {
+  ok: boolean;
+  url: string;
+  path: string;
+}
+
+export interface BlogSlugCheckResponse {
+  slug: string;
+  available: boolean;
+  suggestion?: string;
 }

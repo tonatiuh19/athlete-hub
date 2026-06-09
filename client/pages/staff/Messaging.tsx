@@ -63,7 +63,7 @@ export default function StaffMessaging() {
   });
 
   return (
-    <div className="max-w-xl mx-auto space-y-6">
+    <div className="max-w-xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("staffPortal.messaging.title")}
         description={t("staffPortal.messaging.subtitle")}

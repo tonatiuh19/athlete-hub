@@ -26,6 +26,7 @@ interface StaffCourseWizardDialogProps {
   saving?: boolean;
   eventLat?: number | string | null;
   eventLng?: number | string | null;
+  onEventLocationChange?: (lat: number, lng: number) => void;
 }
 
 export default function StaffCourseWizardDialog({
@@ -36,6 +37,7 @@ export default function StaffCourseWizardDialog({
   saving = false,
   eventLat,
   eventLng,
+  onEventLocationChange,
 }: StaffCourseWizardDialogProps) {
   const { t } = useTranslation();
   const [step, setStep] = useState<WizardStep>("route");
@@ -121,6 +123,7 @@ export default function StaffCourseWizardDialog({
             onChange={setDraft}
             eventLat={eventLat}
             eventLng={eventLng}
+            onEventLocationChange={onEventLocationChange}
             active={open}
             focus={step}
             mapClassName="h-[min(58dvh,640px)] min-h-[320px]"

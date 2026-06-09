@@ -30,6 +30,10 @@ OTP codes are sent via Resend (email) or logged to console in dry-run mode.
 | `carrera-10k-polanco-2026` | published | no |
 | `hyrox-mexico-city-2025` | completed | no (has results) |
 
+All published mock events with `requires_waiver = 1` must have at least one active row in `event_waivers`. The seed migration inserts waivers for every such event; migration `20260604_200000_seed_missing_event_waivers.sql` backfills older databases. Smoke test: `tests/smoke/seed-waiver-integrity.spec.ts`.
+
+**Paid registration in dev:** mock categories use real prices ($650–$2,200 MXN). Set `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` in `.env` to test paid checkout locally.
+
 ## API smoke tests
 
 ```bash

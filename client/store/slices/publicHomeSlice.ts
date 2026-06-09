@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import api from "@/lib/api";
 import type { PublicHomeDataResponse } from "@shared/api";
+import { extractApiErrorMessage } from "@/utils/apiError";
 
 interface PublicHomeState {
   data: PublicHomeDataResponse | null;
@@ -23,8 +24,9 @@ export const fetchPublicHome = createAsyncThunk<
     const { data } = await api.get<PublicHomeDataResponse>("/public/home");
     return data;
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { error?: string } } };
-    return rejectWithValue(err?.response?.data?.error || "Could not load home data");
+    return rejectWithValue(
+      extractApiErrorMessage(e, "Could not load home data"),
+    );
   }
 });
 

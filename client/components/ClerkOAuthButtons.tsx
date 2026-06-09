@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { useAuth, useSignIn } from "@clerk/clerk-react";
+import { useSignIn } from "@clerk/clerk-react";
 import { Loader2 } from "lucide-react";
-import { FaApple, FaGoogle } from "react-icons/fa";
-import { isClerkEnabled } from "@/lib/api";
+import {
+  getClerkOAuthProviders,
+  type ClerkOAuthProviderConfig,
+  type ClerkOAuthProviderId,
+  type ClerkOAuthStrategy,
+} from "@/config/clerkOAuthProviders";
+import { getAthleteToken, isClerkEnabled } from "@/lib/api";
+import { clerkSsoCallbackUrl } from "@/utils/clerkSso";
 import { logger } from "@/utils/logger";
+import { stashSsoReturnTo } from "@/utils/ssoReturnStorage";
+import { markSsoOAuthStarted, ssoTrace } from "@/utils/ssoTrace";
 import { useTranslation } from "react-i18next";
-
-type OAuthProvider = "google" | "apple";
 
 interface ClerkOAuthButtonsProps {
   onSuccess?: () => void;
@@ -15,44 +21,60 @@ interface ClerkOAuthButtonsProps {
   returnTo?: string;
 }
 
-const PROVIDERS: {
-  id: OAuthProvider;
-  label: string;
-  icon: React.ReactNode;
-  strategy: string;
-}[] = [
-  {
-    id: "google",
-    label: "Google",
-    icon: <FaGoogle className="w-4 h-4" />,
-    strategy: "oauth_google",
-  },
-  {
-    id: "apple",
-    label: "Apple",
-    icon: <FaApple className="w-4 h-4" />,
-    strategy: "oauth_apple",
-  },
-];
+function OAuthButtonGrid({
+  providers,
+  loading,
+  disabled,
+  onSelect,
+}: {
+  providers: ClerkOAuthProviderConfig[];
+  loading: ClerkOAuthProviderId | null;
+  disabled?: boolean;
+  onSelect: (provider: ClerkOAuthProviderConfig) => void;
+}) {
+  const gridClass =
+    providers.length === 1 ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2";
+
+  return (
+    <div className={gridClass}>
+      {providers.map((provider) => {
+        const Icon = provider.Icon;
+        return (
+          <button
+            key={provider.id}
+            type="button"
+            disabled={!!loading || disabled}
+            onClick={() => onSelect(provider)}
+            className="flex items-center justify-center gap-2 h-11 rounded-xl border border-border bg-card hover:border-cyan/40 hover:bg-cyan/5 text-sm font-medium transition-all"
+          >
+            {loading === provider.id ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Icon className="w-4 h-4" />
+            )}
+            {provider.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function ClerkOAuthButtonsDisabled() {
   const { t } = useTranslation();
+  const providers = getClerkOAuthProviders();
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-center text-muted-foreground">
         {t("common.clerkDisabled")}
       </p>
-      <div className="grid grid-cols-2 gap-2 opacity-40 pointer-events-none">
-        {PROVIDERS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className="flex items-center justify-center gap-2 h-11 rounded-xl border border-border bg-card text-sm"
-          >
-            {p.icon}
-            {p.label}
-          </button>
-        ))}
+      <div className="opacity-40 pointer-events-none">
+        <OAuthButtonGrid
+          providers={providers}
+          loading={null}
+          onSelect={() => undefined}
+        />
       </div>
     </div>
   );
@@ -64,52 +86,56 @@ function ClerkOAuthButtonsInner({
   returnTo,
 }: ClerkOAuthButtonsProps) {
   const { isLoaded, signIn } = useSignIn();
-  const { isSignedIn } = useAuth();
-  const [loading, setLoading] = useState<OAuthProvider | null>(null);
+  const [loading, setLoading] = useState<ClerkOAuthProviderId | null>(null);
+  const providers = getClerkOAuthProviders();
 
-  if (!isLoaded) return null;
+  if (!isLoaded || providers.length === 0) return null;
 
-  const handleOAuth = async (provider: OAuthProvider, strategy: string) => {
-    if (!signIn || disabled) return;
-    setLoading(provider);
+  // Triboo JWT is the source of truth — Clerk session alone is not enough.
+  if (getAthleteToken()) return null;
+
+  const handleOAuth = async (
+    provider: ClerkOAuthProviderConfig,
+    strategy: ClerkOAuthStrategy,
+  ) => {
+    if (!signIn || disabled || loading) return;
+    setLoading(provider.id);
     try {
-      const returnQuery = returnTo
-        ? `?returnTo=${encodeURIComponent(returnTo)}`
-        : "";
+      const resolvedReturnTo =
+        returnTo ?? `${window.location.pathname}${window.location.search}`;
+      stashSsoReturnTo(resolvedReturnTo);
+      markSsoOAuthStarted();
+
+      const callbackUrl = clerkSsoCallbackUrl();
+      ssoTrace("oauth:start", {
+        provider: provider.id,
+        strategy,
+        redirectUrl: callbackUrl,
+        redirectUrlComplete: callbackUrl,
+        returnTo: resolvedReturnTo,
+      });
+
       await signIn.authenticateWithRedirect({
-        strategy: strategy as "oauth_google" | "oauth_apple",
-        redirectUrl: `/sso-callback${returnQuery}`,
-        redirectUrlComplete: returnTo || "/portal",
+        strategy,
+        redirectUrl: callbackUrl,
+        redirectUrlComplete: callbackUrl,
       });
       onSuccess?.();
     } catch (err) {
+      ssoTrace("oauth:error", { provider: provider.id, strategy, error: String(err) });
       logger.error("Clerk OAuth error", err);
     } finally {
       setLoading(null);
     }
   };
 
-  if (isSignedIn) return null;
-
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {PROVIDERS.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          disabled={!!loading || disabled}
-          onClick={() => handleOAuth(p.id, p.strategy)}
-          className="flex items-center justify-center gap-2 h-11 rounded-xl border border-border bg-card hover:border-cyan/40 hover:bg-cyan/5 text-sm font-medium transition-all"
-        >
-          {loading === p.id ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            p.icon
-          )}
-          {p.label}
-        </button>
-      ))}
-    </div>
+    <OAuthButtonGrid
+      providers={providers}
+      loading={loading}
+      disabled={disabled}
+      onSelect={(provider) => void handleOAuth(provider, provider.strategy)}
+    />
   );
 }
 

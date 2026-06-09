@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { CheckCircle2, Loader2, QrCode, Search } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, QrCode, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import StaffQrScanner from "@/components/staff/StaffQrScanner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -29,9 +39,14 @@ export default function StaffCheckInPanel({ eventId, role = "organizer" }: Staff
     lookupError,
     checkingIn,
     checkInError,
+    checkInErrorCode,
   } = useAppSelector((s) => s.staffPortal);
   const [query, setQuery] = useState("");
+  const [forceDialogOpen, setForceDialogOpen] = useState(false);
   const dateLocale = getDateFnsLocale(i18n.language);
+
+  const waiverBlocked =
+    checkInErrorCode === "waiver_unsigned" || checkInErrorCode === "waiver_outdated";
 
   const handleLookup = () => {
     const q = query.trim();
@@ -39,13 +54,33 @@ export default function StaffCheckInPanel({ eventId, role = "organizer" }: Staff
     dispatch(lookupRegistration({ q, eventId, role }));
   };
 
-  const handleCheckIn = () => {
+  const runCheckIn = (force = false) => {
     if (!found) return;
-    dispatch(checkInRegistration({ registrationId: found.id, eventId, role }));
+    dispatch(
+      checkInRegistration({
+        registrationId: found.id,
+        eventId,
+        role,
+        force,
+      }),
+    ).then((result) => {
+      if (checkInRegistration.fulfilled.match(result)) {
+        setForceDialogOpen(false);
+      } else if (
+        checkInRegistration.rejected.match(result) &&
+        (result.payload?.code === "waiver_unsigned" ||
+          result.payload?.code === "waiver_outdated")
+      ) {
+        setForceDialogOpen(true);
+      }
+    });
   };
+
+  const handleCheckIn = () => runCheckIn(false);
 
   const handleClear = () => {
     setQuery("");
+    setForceDialogOpen(false);
     dispatch(clearLookup());
   };
 
@@ -81,7 +116,25 @@ export default function StaffCheckInPanel({ eventId, role = "organizer" }: Staff
       </div>
 
       {lookupError ? <p className="text-sm text-destructive">{lookupError}</p> : null}
-      {checkInError ? <p className="text-sm text-destructive">{checkInError}</p> : null}
+      {checkInError && !waiverBlocked ? (
+        <p className="text-sm text-destructive">{checkInError}</p>
+      ) : null}
+      {waiverBlocked && checkInError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+          <p className="text-sm text-destructive font-medium flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {checkInError}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-destructive/40 text-destructive"
+            onClick={() => setForceDialogOpen(true)}
+          >
+            {t("staffPortal.checkIn.forceOverride")}
+          </Button>
+        </div>
+      ) : null}
 
       {found ? (
         <div className="rounded-xl border border-cyan/30 bg-cyan/5 p-4 space-y-4">
@@ -109,22 +162,70 @@ export default function StaffCheckInPanel({ eventId, role = "organizer" }: Staff
               })}
             </div>
           ) : (
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button className="flex-1" onClick={handleCheckIn} disabled={checkingIn}>
-                {checkingIn ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                )}
-                {t("staffPortal.checkIn.confirm")}
-              </Button>
-              <Button variant="outline" onClick={handleClear}>
-                {t("staffPortal.checkIn.clear")}
-              </Button>
-            </div>
+            <>
+              {Boolean(found.requires_waiver) ? (
+                <p
+                  className={
+                    found.waiver_outdated
+                      ? "text-xs text-destructive font-medium"
+                      : found.waiver_signed_at
+                        ? "text-xs text-accent"
+                        : "text-xs text-destructive font-medium"
+                  }
+                >
+                  {found.waiver_outdated
+                    ? t("staffPortal.checkIn.waiverOutdated")
+                    : found.waiver_signed_at
+                      ? t("staffPortal.checkIn.waiverSigned")
+                      : t("staffPortal.checkIn.waiverUnsigned")}
+                </p>
+              ) : null}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button className="flex-1" onClick={handleCheckIn} disabled={checkingIn}>
+                  {checkingIn ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                  )}
+                  {t("staffPortal.checkIn.confirm")}
+                </Button>
+                <Button variant="outline" onClick={handleClear}>
+                  {t("staffPortal.checkIn.clear")}
+                </Button>
+              </div>
+            </>
           )}
         </div>
       ) : null}
+
+      <AlertDialog open={forceDialogOpen} onOpenChange={setForceDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("staffPortal.checkIn.forceTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {checkInErrorCode === "waiver_outdated"
+                ? t("staffPortal.checkIn.forceOutdatedDescription")
+                : t("staffPortal.checkIn.forceUnsignedDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={checkingIn}
+              onClick={(e) => {
+                e.preventDefault();
+                runCheckIn(true);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {checkingIn ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              {t("staffPortal.checkIn.forceConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

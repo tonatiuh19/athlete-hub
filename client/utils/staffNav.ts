@@ -3,6 +3,7 @@ import {
   BarChart3,
   Calendar,
   CreditCard,
+  FileText,
   LayoutDashboard,
   Mail,
   Settings,
@@ -36,11 +37,18 @@ function withMessagingNav(items: StaffNavItem[], role: string): StaffNavItem[] {
   return [...items, MESSAGING_NAV];
 }
 
+const BLOG_NAV: StaffNavItem = {
+  to: "/staff/blog",
+  labelKey: "staffPortal.nav.blog",
+  icon: FileText,
+};
+
 const ADMIN_NAV: StaffNavItem[] = [
   { to: "/staff", end: true, labelKey: "staffPortal.nav.dashboard", icon: LayoutDashboard },
   { to: "/staff/athletes", labelKey: "staffPortal.nav.athletes", icon: Users },
   { to: "/staff/people", labelKey: "staffPortal.nav.staffManagement", icon: UserCog },
   { to: "/staff/events", labelKey: "staffPortal.nav.events", icon: Calendar },
+  BLOG_NAV,
   { to: "/staff/payments", labelKey: "staffPortal.nav.payments", icon: CreditCard },
   { to: "/staff/analytics", labelKey: "staffPortal.nav.analytics", icon: BarChart3 },
   { to: "/staff/profile", labelKey: "staffPortal.nav.profile", icon: Settings },
@@ -88,9 +96,9 @@ function organizerNav(role: string): StaffNavItem[] {
     case "timing":
       return withMessagingNav([dashboard, registrations, events], role);
     case "operations":
-      return withMessagingNav([dashboard, events, registrations, settings], role);
+      return withMessagingNav([dashboard, events, BLOG_NAV, registrations, settings], role);
     case "marketing":
-      return withMessagingNav([dashboard, events, analytics, settings], role);
+      return withMessagingNav([dashboard, events, BLOG_NAV, analytics, settings], role);
     case "finance":
       return withMessagingNav([dashboard, registrations, payments, analytics, settings], role);
     case "sponsor":
@@ -99,7 +107,7 @@ function organizerNav(role: string): StaffNavItem[] {
     case "organizer":
     default:
       return withMessagingNav(
-        [dashboard, events, registrations, payments, analytics, team, settings],
+        [dashboard, events, BLOG_NAV, registrations, payments, analytics, team, settings],
         role,
       );
   }

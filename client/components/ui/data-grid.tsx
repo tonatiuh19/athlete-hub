@@ -87,7 +87,7 @@ export function DataGrid<T>({
   emptyMessage = "No data found.",
   mobileCard,
   onRowClick,
-  noBleeding = false,
+  noBleeding = true,
 }: DataGridProps<T>) {
   const paginationFooter = pagination && pagination.totalPages > 1 && (
     <div className="flex items-center justify-between mt-4 px-2 text-sm text-muted-foreground">
@@ -153,7 +153,8 @@ export function DataGrid<T>({
       <div
         className={cn(
           mobileCard ? "hidden sm:block" : "block",
-          noBleeding ? "overflow-x-auto" : "-mx-6 px-0 overflow-x-auto",
+          "max-w-full",
+          noBleeding ? "overflow-x-auto overscroll-x-contain" : "-mx-4 md:-mx-6 px-0 overflow-x-auto overscroll-x-contain",
         )}
       >
         <Table className="w-max min-w-full">

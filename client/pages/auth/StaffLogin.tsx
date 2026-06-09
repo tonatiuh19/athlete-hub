@@ -4,8 +4,6 @@ import { useFormik } from "formik";
 import * as Yup from "yup";
 import { useTranslation } from "react-i18next";
 import {
-  ArrowLeft,
-  ShieldCheck,
   Mail,
   Loader2,
   CheckCircle,
@@ -16,6 +14,10 @@ import {
 import MetaHelmet from "@/components/MetaHelmet";
 import OtpInput from "@/components/OtpInput";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
+import AuthPageHeader from "@/components/auth/AuthPageHeader";
+import AuthFormBrandMark from "@/components/auth/AuthFormBrandMark";
+import AuthFormError from "@/components/auth/AuthFormError";
+import { STAFF_LOGIN_VIDEO_URL } from "@/constants/tribooBrand";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { requestStaffOtp, verifyStaffOtp } from "@/store/slices/staffAuthSlice";
@@ -33,7 +35,11 @@ export default function StaffLogin() {
     () => [
       { value: "2K+", label: t("auth.staff.statEvents"), icon: Calendar },
       { value: "500K+", label: t("auth.staff.statRegistrations"), icon: Users },
-      { value: "98%", label: t("auth.staff.statSatisfaction"), icon: BarChart3 },
+      {
+        value: "98%",
+        label: t("auth.staff.statSatisfaction"),
+        icon: BarChart3,
+      },
     ],
     [t],
   );
@@ -96,7 +102,7 @@ export default function StaffLogin() {
   const email = otpSentTo || emailForm.values.email;
 
   return (
-    <div className="h-[100dvh] overflow-hidden flex w-full max-w-[100vw] bg-background">
+    <div className="h-[100dvh] overflow-hidden flex w-full max-w-full min-w-0 bg-background">
       <MetaHelmet
         title={t("auth.staff.metaTitle")}
         description={t("auth.staff.metaDescription")}
@@ -105,37 +111,17 @@ export default function StaffLogin() {
       />
 
       <div className="flex-1 lg:max-w-[480px] flex flex-col overflow-y-auto border-r border-border/40">
-        <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border/60 shrink-0">
-          <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-2">
-            <Link to="/" className="flex items-center gap-2 min-w-0">
-              <ShieldCheck className="w-5 h-5 text-cyan shrink-0" />
-              <span className="font-bold text-gradient text-sm truncate">
-                {t("staffPortal.nav.console")}
-              </span>
-            </Link>
-            <div className="flex items-center gap-2 shrink-0">
-              <Link
-                to="/"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-cyan"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                {t("common.back")}
-              </Link>
-            </div>
-          </div>
-        </header>
+        <AuthPageHeader />
 
         <div className="flex-1 flex flex-col justify-center px-6 sm:px-10 py-6">
           <div className="w-full max-w-[340px] mx-auto animate-slide-up">
             <div className="flex flex-col items-center text-center mb-8">
-              <div className="w-16 h-16 bg-gradient-to-br from-cyan/90 to-purple-accent rounded-2xl flex items-center justify-center mb-5 shadow-glow-cyan">
-                <ShieldCheck className="w-8 h-8 text-navy-deep" />
-              </div>
+              {/* <AuthFormBrandMark /> */}
               <h1 className="text-2xl font-bold mb-2 leading-tight">
                 {step === "email" ? (
                   <>
                     {t("auth.staff.titleUnified")}{" "}
-                    <span className="text-gradient">
+                    <span className="text-primary">
                       {t("auth.staff.titleUnifiedHighlight")}
                     </span>
                   </>
@@ -152,50 +138,48 @@ export default function StaffLogin() {
 
             {step === "email" ? (
               <form onSubmit={emailForm.handleSubmit} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="staff-email"
-                      className="block text-sm font-medium text-foreground/90"
-                    >
-                      {t("auth.staff.emailLabel")}
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                      <input
-                        id="staff-email"
-                        type="email"
-                        {...emailForm.getFieldProps("email")}
-                        className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
-                        placeholder={t("auth.staff.emailPlaceholder")}
-                        autoComplete="email"
-                        autoFocus
-                      />
-                    </div>
-                    {emailForm.submitCount > 0 && emailForm.errors.email && (
-                      <p className="text-xs text-destructive">{emailForm.errors.email}</p>
-                    )}
-                  </div>
-
-                  {error && (
-                    <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 px-4 py-3 rounded-xl">
-                      {error}
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={requestingOtp}
-                    className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="staff-email"
+                    className="block text-sm font-medium text-foreground/90"
                   >
-                    {requestingOtp ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        {t("common.sending")}
-                      </>
-                    ) : (
-                      t("common.continue")
-                    )}
-                  </button>
+                    {t("auth.staff.emailLabel")}
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      id="staff-email"
+                      type="email"
+                      {...emailForm.getFieldProps("email")}
+                      className="w-full h-12 pl-10 pr-4 rounded-xl border border-input bg-card/80 focus:border-cyan focus:ring-2 focus:ring-cyan/20 outline-none transition-all text-sm"
+                      placeholder={t("auth.staff.emailPlaceholder")}
+                      autoComplete="email"
+                      autoFocus
+                    />
+                  </div>
+                  {emailForm.submitCount > 0 && emailForm.errors.email && (
+                    <p className="text-xs text-destructive">
+                      {emailForm.errors.email}
+                    </p>
+                  )}
+                </div>
+
+                <AuthFormError error={error} />
+
+                <button
+                  type="submit"
+                  disabled={requestingOtp}
+                  className="w-full h-12 btn-primary rounded-xl flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-60"
+                >
+                  {requestingOtp ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("common.sending")}
+                    </>
+                  ) : (
+                    t("common.continue")
+                  )}
+                </button>
               </form>
             ) : (
               <form onSubmit={codeForm.handleSubmit} className="space-y-5">
@@ -203,18 +187,16 @@ export default function StaffLogin() {
                   value={codeForm.values.code}
                   onChange={(v) => codeForm.setFieldValue("code", v)}
                   autoFocus
-                  hasError={!!(codeForm.submitCount > 0 && codeForm.errors.code)}
+                  hasError={
+                    !!(codeForm.submitCount > 0 && codeForm.errors.code)
+                  }
                 />
                 {codeForm.submitCount > 0 && codeForm.errors.code && (
                   <p className="text-xs text-destructive text-center">
                     {codeForm.errors.code}
                   </p>
                 )}
-                {error && (
-                  <div className="text-sm text-destructive bg-destructive/10 px-4 py-3 rounded-xl">
-                    {error}
-                  </div>
-                )}
+                <AuthFormError error={error} />
                 <button
                   type="submit"
                   disabled={verifyingOtp}
@@ -265,11 +247,15 @@ export default function StaffLogin() {
       </div>
 
       <AuthBrandPanel
-        badge={t("auth.staff.brandBadge")}
+        videoUrl={STAFF_LOGIN_VIDEO_URL}
+        badge=""
         headline={
           <>
             {t("auth.staff.brandHeadline")}{" "}
-            <span className="text-cyan">{t("auth.staff.brandHeadlineHighlight")}</span>.
+            <span className="text-primary">
+              {t("auth.staff.brandHeadlineHighlight")}
+            </span>
+            .
           </>
         }
         subheadline={t("auth.staff.brandSub")}

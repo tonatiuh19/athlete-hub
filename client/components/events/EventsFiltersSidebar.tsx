@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { RotateCcw } from "lucide-react";
+import { CalendarDays, RotateCcw } from "lucide-react";
 import type { FilterCity, SportType } from "@shared/api";
 import type { MarketplaceFilters } from "@/store/slices/marketplaceSlice";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import DatePickerField from "@/components/ui/date-picker-field";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 
 interface EventsFiltersSidebarProps {
   filters: MarketplaceFilters;
@@ -37,7 +36,13 @@ export default function EventsFiltersSidebar({
         <h2 className="text-xs font-bold text-white uppercase tracking-widest">
           {t("eventsBrowse.filters")}
         </h2>
-        <Button type="button" variant="ghost" size="sm" onClick={onReset} className="h-8 px-2 text-gray-400 hover:text-cyan -mr-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onReset}
+          className="h-8 px-2 text-gray-400 hover:text-cyan -mr-1"
+        >
           <RotateCcw className="w-3.5 h-3.5 mr-1" />
           {t("eventsBrowse.reset")}
         </Button>
@@ -49,7 +54,7 @@ export default function EventsFiltersSidebar({
           value={filters.sport || "all"}
           onValueChange={(v) => onChange({ sport: v === "all" ? "" : v })}
         >
-          <SelectTrigger className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10">
+          <SelectTrigger className="bg-bg-dark/60 border-gray-700/80 rounded-xl h-11">
             <SelectValue placeholder={t("eventsBrowse.allSports")} />
           </SelectTrigger>
           <SelectContent>
@@ -66,16 +71,21 @@ export default function EventsFiltersSidebar({
       <div className="space-y-2">
         <Label className="text-xs text-gray-400">{t("eventsBrowse.city")}</Label>
         <Select
-          value={filters.city || "all"}
-          onValueChange={(v) => onChange({ city: v === "all" ? "" : v })}
+          value={filters.geoCityId || "all"}
+          onValueChange={(v) =>
+            onChange({
+              geoCityId: v === "all" ? "" : v,
+              city: "",
+            })
+          }
         >
-          <SelectTrigger className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10">
+          <SelectTrigger className="bg-bg-dark/60 border-gray-700/80 rounded-xl h-11">
             <SelectValue placeholder={t("eventsBrowse.allCities")} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("eventsBrowse.allCities")}</SelectItem>
             {cities.map((c) => (
-              <SelectItem key={`${c.city}-${c.state}`} value={c.city}>
+              <SelectItem key={c.id} value={String(c.id)}>
                 {c.city}
                 {c.state ? `, ${c.state}` : ""} ({c.event_count})
               </SelectItem>
@@ -84,77 +94,51 @@ export default function EventsFiltersSidebar({
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label className="text-xs text-gray-400">{t("eventsBrowse.minPrice")}</Label>
-          <Input
-            type="number"
-            min={0}
-            value={filters.minPrice}
-            onChange={(e) => onChange({ minPrice: e.target.value })}
-            className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10"
-            placeholder="0"
-          />
+      <div className="rounded-xl border border-gray-700/50 bg-bg-dark/30 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-700/40 bg-gradient-to-r from-primary/10 to-transparent">
+          <CalendarDays className="w-4 h-4 text-primary shrink-0" />
+          <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+            {t("eventsBrowse.dateRange")}
+          </span>
         </div>
-        <div className="space-y-2">
-          <Label className="text-xs text-gray-400">{t("eventsBrowse.maxPrice")}</Label>
-          <Input
-            type="number"
-            min={0}
-            value={filters.maxPrice}
-            onChange={(e) => onChange({ maxPrice: e.target.value })}
-            className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10"
-            placeholder="5000"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label className="text-xs text-gray-400">{t("eventsBrowse.dateFrom")}</Label>
-          <Input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => onChange({ dateFrom: e.target.value })}
-            className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs text-gray-400">{t("eventsBrowse.dateTo")}</Label>
-          <Input
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => onChange({ dateTo: e.target.value })}
-            className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10"
-          />
+        <div className="p-3 space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-gray-400">{t("eventsBrowse.dateFrom")}</Label>
+            <DatePickerField
+              value={filters.dateFrom}
+              onChange={(v) => onChange({ dateFrom: v })}
+              clearable
+              triggerClassName="h-11 rounded-xl bg-bg-dark/60 border-gray-700/80 text-white hover:border-primary/40"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-gray-400">{t("eventsBrowse.dateTo")}</Label>
+            <DatePickerField
+              value={filters.dateTo}
+              onChange={(v) => onChange({ dateTo: v })}
+              clearable
+              minDate={filters.dateFrom ? new Date(filters.dateFrom + "T12:00:00") : undefined}
+              triggerClassName="h-11 rounded-xl bg-bg-dark/60 border-gray-700/80 text-white hover:border-primary/40"
+            />
+          </div>
         </div>
       </div>
 
       <div className="space-y-2">
         <Label className="text-xs text-gray-400">{t("eventsBrowse.sort")}</Label>
-        <Select value={filters.sort} onValueChange={(v) => onChange({ sort: v as MarketplaceFilters["sort"] })}>
-          <SelectTrigger className="bg-bg-dark/60 border-gray-700/80 rounded-lg h-10">
+        <Select
+          value={filters.sort}
+          onValueChange={(v) => onChange({ sort: v as MarketplaceFilters["sort"] })}
+        >
+          <SelectTrigger className="bg-bg-dark/60 border-gray-700/80 rounded-xl h-11">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="date_asc">{t("eventsBrowse.sortDateAsc")}</SelectItem>
             <SelectItem value="date_desc">{t("eventsBrowse.sortDateDesc")}</SelectItem>
-            <SelectItem value="price_asc">{t("eventsBrowse.sortPriceAsc")}</SelectItem>
-            <SelectItem value="price_desc">{t("eventsBrowse.sortPriceDesc")}</SelectItem>
             <SelectItem value="popular">{t("eventsBrowse.sortPopular")}</SelectItem>
           </SelectContent>
         </Select>
-      </div>
-
-      <div className="flex items-center justify-between py-2 px-1 rounded-lg bg-bg-dark/40 border border-gray-800/60">
-        <Label htmlFor="featured-only" className="text-sm text-gray-300">
-          {t("eventsBrowse.featuredOnly")}
-        </Label>
-        <Switch
-          id="featured-only"
-          checked={filters.featured}
-          onCheckedChange={(featured) => onChange({ featured })}
-        />
       </div>
     </aside>
   );

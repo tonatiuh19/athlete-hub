@@ -43,7 +43,7 @@ export default function AthleteResults() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("athletePortal.results.title")}
         description={t("athletePortal.results.subtitle")}

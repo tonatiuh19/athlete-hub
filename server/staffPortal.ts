@@ -5,7 +5,16 @@ import {
   DISCOUNT_USED_COUNT_SQL,
   EVENT_REGISTRATION_COUNT_SQL,
   WAVE_REGISTERED_COUNT_SQL,
-} from "./registrationCounts";
+} from "./registrationCounts.js";
+import { handleEventAssetUpload } from "./eventAssetUpload.js";
+import {
+  fetchEventWaiversForStaff,
+  getRegistrationWaiverStatus,
+  enrichRegistrationRowsWithWaiverOutdated,
+  markRegistrationWaiverWaivedByStaff,
+  syncEventWaivers,
+  validateEventPublishWaivers,
+} from "./eventWaivers.js";
 
 type ActorType = "athlete" | "organizer" | "admin";
 
@@ -47,6 +56,12 @@ export interface StaffPortalDeps {
     audience: "admin" | "organizer";
     appUrl: string;
   }) => { subject: string; html: string; text: string };
+  sendStaffLoginOtp: (opts: {
+    adminId: number;
+    to: string;
+    firstName: string;
+    preferredLanguage?: unknown;
+  }) => Promise<void>;
 }
 
 function slugify(text: string): string {
@@ -238,7 +253,7 @@ async function fetchStaffEventDetail(
             e.start_date, e.end_date, e.registration_opens_at, e.registration_closes_at,
             e.timezone, e.location_name, e.location_city, e.location_state, e.location_country,
             e.location_lat, e.location_lng,
-            e.hero_image_url, ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count, e.max_registrations,
+            e.hero_image_url, e.requires_waiver, ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count, e.max_registrations,
             st.name AS sport_name, o.name AS organizer_name
      FROM events e
      JOIN sport_types st ON st.id = e.sport_type_id
@@ -251,7 +266,7 @@ async function fetchStaffEventDetail(
 
 async function fetchEventCategories(pool: Pool, eventId: number) {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT id, public_uuid, name, description, distance_km, capacity,
+    `SELECT id, public_uuid, name, description, distance_km, difficulty, capacity,
             ${CATEGORY_SOLD_COUNT_UNALIASED_SQL} AS sold_count,
             price_cents, currency, gender_restriction, min_age, max_age, waitlist_enabled,
             registration_opens_at, registration_closes_at,
@@ -398,7 +413,7 @@ async function listEventHubRegistrations(
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT r.id, r.registration_number, r.bib_number, r.status, r.total_cents, r.created_at,
-            r.checked_in_at,
+            r.checked_in_at, r.waiver_signed_at,
             e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
             ec.name AS category_name,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
@@ -413,7 +428,17 @@ async function listEventHubRegistrations(
     [...params, limit, offset],
   );
 
-  return { registrations: rows, pagination: buildPagination(page, limit, total) };
+  const [[eventRow]] = await pool.query<RowDataPacket[]>(
+    `SELECT requires_waiver FROM events WHERE id = ? LIMIT 1`,
+    [eventId],
+  );
+  const enriched = await enrichRegistrationRowsWithWaiverOutdated(
+    pool,
+    rows,
+    Boolean(eventRow?.requires_waiver),
+  );
+
+  return { registrations: enriched, pagination: buildPagination(page, limit, total) };
 }
 
 const ATHLETE_SORT_COLUMNS: Record<string, string> = {
@@ -777,11 +802,11 @@ async function fetchStaffRegistrationDetail(
   );
 
   const [waiverRows] = await pool.query<RowDataPacket[]>(
-    `SELECT rws.signed_at, rws.signature_data, ew.name AS waiver_name, ew.version AS waiver_version
+    `SELECT rws.signed_at, rws.signature_data, ew.title AS waiver_name, ew.version AS waiver_version
      FROM registration_waiver_signatures rws
      JOIN event_waivers ew ON ew.id = rws.waiver_id
      WHERE rws.registration_id = ?
-     ORDER BY rws.signed_at DESC LIMIT 1`,
+     ORDER BY ew.sort_order ASC, rws.signed_at ASC`,
     [registrationId],
   );
 
@@ -818,6 +843,7 @@ async function fetchStaffRegistrationDetail(
     payment,
     field_values: fieldValues,
     waiver: waiverRows[0] ?? null,
+    waivers: waiverRows,
     status_history: statusHistory,
     transfers,
     refunds,
@@ -872,7 +898,7 @@ export async function listStaffRegistrations(
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT r.id, r.registration_number, r.bib_number, r.status, r.total_cents, r.created_at,
-            r.checked_in_at,
+            r.checked_in_at, r.waiver_signed_at,
             e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
             ec.name AS category_name,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
@@ -897,7 +923,7 @@ async function assertRegistrationInEvent(
 ): Promise<RowDataPacket | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT r.id, r.status, r.event_category_id, r.schedule_wave_id, r.checked_in_at,
-            r.registration_number, r.bib_number, r.qr_code_token
+            r.waiver_signed_at, r.registration_number, r.bib_number, r.qr_code_token
      FROM registrations r
      WHERE r.id = ? AND r.event_id = ? AND r.deleted_at IS NULL LIMIT 1`,
     [registrationId, eventId],
@@ -966,8 +992,8 @@ function mountEventHubRoutes(
 
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT r.id, r.registration_number, r.bib_number, r.status, r.qr_code_token,
-                r.checked_in_at, r.total_cents, r.created_at,
-                e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
+                r.checked_in_at, r.waiver_signed_at, r.total_cents, r.created_at,
+                e.id AS event_id, e.title AS event_title, e.slug AS event_slug, e.requires_waiver,
                 ec.name AS category_name,
                 a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
                 a.email AS athlete_email
@@ -984,7 +1010,13 @@ function mountEventHubRoutes(
       if (rows.length === 0) {
         return res.status(404).json({ error: "Registration not found" });
       }
-      res.json({ registration: rows[0] });
+      const registration = rows[0];
+      let waiver_outdated = false;
+      if (Boolean(registration.requires_waiver)) {
+        const status = await getRegistrationWaiverStatus(pool, registration.id as number);
+        waiver_outdated = status.outdated;
+      }
+      res.json({ registration: { ...registration, waiver_outdated } });
     },
   );
 
@@ -1012,10 +1044,61 @@ function mountEventHubRoutes(
         return res.status(409).json({ error: "Already checked in" });
       }
 
-      await pool.query<ResultSetHeader>(
-        "UPDATE registrations SET checked_in_at = NOW() WHERE id = ? AND checked_in_at IS NULL",
-        [registrationId],
+      const [[eventRow]] = await pool.query<RowDataPacket[]>(
+        "SELECT requires_waiver FROM events WHERE id = ? LIMIT 1",
+        [eventId],
       );
+      const forceCheckIn = Boolean(req.body?.force);
+      const waiverStatus = await getRegistrationWaiverStatus(pool, registrationId);
+      if (Boolean(eventRow?.requires_waiver) && !forceCheckIn) {
+        if (!reg.waiver_signed_at || waiverStatus.outdated) {
+          return res.status(400).json({
+            error: waiverStatus.outdated
+              ? "Waiver updated — athlete must re-sign or use force check-in"
+              : "Waiver not signed — check in blocked",
+            code: waiverStatus.outdated ? "waiver_outdated" : "waiver_unsigned",
+          });
+        }
+      }
+
+      const method = String(req.body?.method ?? "manual");
+      const validMethods = new Set(["qr_scan", "manual", "kiosk", "api"]);
+      const checkMethod = validMethods.has(method) ? method : "manual";
+      const locationLabel = req.body?.location_label
+        ? String(req.body.location_label).slice(0, 100)
+        : null;
+      const deviceInfo = req.headers["user-agent"]
+        ? String(req.headers["user-agent"]).slice(0, 255)
+        : null;
+
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query<ResultSetHeader>(
+          `INSERT INTO check_in_logs (registration_id, event_id, method, operator_type, operator_id, location_label, device_info, metadata_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            registrationId,
+            eventId,
+            checkMethod,
+            req.auth!.actor === "admin" ? "admin" : "organizer_member",
+            req.auth!.id,
+            locationLabel,
+            deviceInfo,
+            forceCheckIn ? JSON.stringify({ force_waiver: true }) : null,
+          ],
+        );
+        await conn.query<ResultSetHeader>(
+          "UPDATE registrations SET checked_in_at = NOW() WHERE id = ? AND checked_in_at IS NULL",
+          [registrationId],
+        );
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
 
       const [updated] = await pool.query<RowDataPacket[]>(
         `SELECT r.id, r.registration_number, r.bib_number, r.status, r.checked_in_at,
@@ -1265,20 +1348,29 @@ function mountEventHubRoutes(
     }
 
     const comp = Boolean(req.body?.comp);
+    const waiverWaived = Boolean(req.body?.waiver_waived);
     const bib_number = req.body?.bib_number
       ? String(req.body.bib_number).trim().slice(0, 20)
       : null;
 
     const [[category]] = await pool.query<RowDataPacket[]>(
-      `SELECT ec.id, ec.price_cents, ec.capacity, ec.sold_count, ec.currency, e.organizer_id
+      `SELECT ec.id, ec.price_cents, ec.capacity, ec.sold_count, ec.currency, e.organizer_id,
+              e.requires_waiver, e.service_fee_percent, o.service_fee_percent AS org_fee_percent
        FROM event_categories ec
        JOIN events e ON e.id = ec.event_id AND e.deleted_at IS NULL
+       JOIN organizers o ON o.id = e.organizer_id
        WHERE ec.id = ? AND ec.event_id = ? AND ec.is_active = 1
        LIMIT 1`,
       [categoryId, eventId],
     );
     if (!category) {
       return res.status(404).json({ error: "Category not found" });
+    }
+
+    if (Boolean(category.requires_waiver) && !waiverWaived) {
+      return res.status(400).json({
+        error: "This event requires a waiver — confirm waiver waived for manual registration",
+      });
     }
 
     const [dupReg] = await pool.query<RowDataPacket[]>(
@@ -1310,8 +1402,20 @@ function mountEventHubRoutes(
     }
 
     const priceCents = comp ? 0 : Number(category.price_cents);
-    const serviceFeeCents = comp ? 0 : Math.round(priceCents * 0.11);
+    const feePercent = Number(
+      category.service_fee_percent ?? category.org_fee_percent ?? 11,
+    );
+    const serviceFeeCents = comp
+      ? 0
+      : Math.round(priceCents * (feePercent / 100));
     const totalCents = priceCents + serviceFeeCents;
+
+    if (!comp && totalCents > 0) {
+      return res.status(400).json({
+        error:
+          "Paid manual registrations require comp mode — athletes must checkout online for paid entries",
+      });
+    }
     const regNumber = await hubHelpers.nextRegistrationNumber(eventId);
     const qrToken = hubHelpers.newQrToken();
     const regUuid = hubHelpers.newPublicUuid();
@@ -1369,10 +1473,15 @@ function mountEventHubRoutes(
         );
       }
 
-      await conn.query<ResultSetHeader>(
-        "UPDATE event_categories SET sold_count = sold_count + 1 WHERE id = ?",
+      const [soldInc] = await conn.query<ResultSetHeader>(
+        `UPDATE event_categories SET sold_count = sold_count + 1
+         WHERE id = ? AND (capacity IS NULL OR sold_count < capacity)`,
         [categoryId],
       );
+      if (soldInc.affectedRows === 0) {
+        await conn.rollback();
+        return res.status(409).json({ error: "Category is sold out" });
+      }
 
       const fieldValues = req.body?.field_values;
       if (fieldValues && typeof fieldValues === "object") {
@@ -1391,6 +1500,10 @@ function mountEventHubRoutes(
             [registrationId, field.id, String(raw).trim()],
           );
         }
+      }
+
+      if (waiverWaived && Boolean(category.requires_waiver)) {
+        await markRegistrationWaiverWaivedByStaff(conn, registrationId, req.auth?.id);
       }
 
       await conn.commit();
@@ -1817,17 +1930,57 @@ async function createEventCategoryRecord(
       ? null
       : Number(capacityRaw);
 
+  const distanceRaw = body?.distance_km;
+  const distance_km =
+    distanceRaw === null || distanceRaw === undefined || distanceRaw === ""
+      ? null
+      : Number(distanceRaw);
+
+  let gender_restriction = "any";
+  if (body?.gender_restriction != null) {
+    const g = String(body.gender_restriction);
+    if (!["any", "male", "female"].includes(g)) {
+      return { status: 400, error: "invalid gender_restriction" };
+    }
+    gender_restriction = g;
+  }
+
+  let difficulty: string | null = null;
+  if (body?.difficulty != null && body.difficulty !== "") {
+    const d = String(body.difficulty);
+    if (!["beginner", "intermediate", "advanced", "expert"].includes(d)) {
+      return { status: 400, error: "invalid difficulty" };
+    }
+    difficulty = d;
+  }
+
+  const min_age =
+    body?.min_age === null || body?.min_age === undefined || body?.min_age === ""
+      ? null
+      : Number(body.min_age);
+  const max_age =
+    body?.max_age === null || body?.max_age === undefined || body?.max_age === ""
+      ? null
+      : Number(body.max_age);
+
   await pool.query<ResultSetHeader>(
     `INSERT INTO event_categories (
-       public_uuid, event_id, name, description, capacity, price_cents, sort_order, is_active
-     ) VALUES (?,?,?,?,?,?,?,1)`,
+       public_uuid, event_id, name, description, distance_km, difficulty, capacity,
+       price_cents, gender_restriction, min_age, max_age, waitlist_enabled, sort_order, is_active
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
     [
       newUuid(),
       eventId,
       name.slice(0, 150),
       body?.description ? String(body.description).slice(0, 2000) : null,
+      distance_km != null && Number.isFinite(distance_km) ? distance_km : null,
+      difficulty,
       capacity,
       Math.round(price_cents),
+      gender_restriction,
+      min_age != null && Number.isFinite(min_age) ? min_age : null,
+      max_age != null && Number.isFinite(max_age) ? max_age : null,
+      body?.waitlist_enabled ? 1 : 0,
       Number(body?.sort_order) || 0,
     ],
   );
@@ -1928,6 +2081,19 @@ async function patchEventCategoryRecord(
     updates.push("max_age = ?");
     params.push(body.max_age == null ? null : Number(body.max_age));
   }
+  if (body.difficulty !== undefined) {
+    if (body.difficulty == null || body.difficulty === "") {
+      updates.push("difficulty = ?");
+      params.push(null);
+    } else {
+      const d = String(body.difficulty);
+      if (!["beginner", "intermediate", "advanced", "expert"].includes(d)) {
+        return { status: 400, error: "invalid difficulty" };
+      }
+      updates.push("difficulty = ?");
+      params.push(d);
+    }
+  }
   if (body.sort_order != null) {
     updates.push("sort_order = ?");
     params.push(Number(body.sort_order) || 0);
@@ -1961,28 +2127,61 @@ async function patchEventCategoryRecord(
   return null;
 }
 
+function parseOptionalCoord(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+type ParsedEventBody = {
+  title: string;
+  slug?: string;
+  sport_type_id: number;
+  short_description: string | null;
+  description: string | null;
+  status: string;
+  visibility: string;
+  featured: boolean;
+  start_date: string;
+  end_date: string | null;
+  registration_opens_at: string | null;
+  registration_closes_at: string | null;
+  location_city: string | null;
+  location_state: string | null;
+  location_name: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  hero_image_url: string | null;
+  banner_image_url: string | null;
+  max_registrations: number | null;
+  requires_waiver: boolean;
+};
+
+function eventBodySqlTail(): string {
+  return `location_name = ?, location_city = ?, location_state = ?, location_lat = ?, location_lng = ?,
+           hero_image_url = ?, banner_image_url = ?, max_registrations = ?`;
+}
+
+function eventBodySqlValues(data: ParsedEventBody): (
+  | string
+  | number
+  | null
+)[] {
+  return [
+    data.location_name,
+    data.location_city,
+    data.location_state,
+    data.location_lat,
+    data.location_lng,
+    data.hero_image_url,
+    data.banner_image_url,
+    data.max_registrations,
+  ];
+}
+
 function parseEventBody(body: Record<string, unknown>):
   | { error: string }
-  | {
-      data: {
-        title: string;
-        slug?: string;
-        sport_type_id: number;
-        short_description: string | null;
-        description: string | null;
-        status: string;
-        visibility: string;
-        featured: boolean;
-        start_date: string;
-        end_date: string | null;
-        registration_opens_at: string | null;
-        registration_closes_at: string | null;
-        location_city: string | null;
-        location_name: string | null;
-        hero_image_url: string | null;
-        max_registrations: number | null;
-      };
-    } {
+  | { data: ParsedEventBody } {
   const title = String(body.title ?? "").trim();
   if (!title || title.length > 255) {
     return { error: "title required (max 255)" };
@@ -2054,13 +2253,22 @@ function parseEventBody(body: Record<string, unknown>):
       location_city: body.location_city
         ? String(body.location_city).trim().slice(0, 100)
         : null,
+      location_state: body.location_state
+        ? String(body.location_state).trim().slice(0, 100)
+        : null,
       location_name: body.location_name
         ? String(body.location_name).trim().slice(0, 255)
         : null,
+      location_lat: parseOptionalCoord(body.location_lat),
+      location_lng: parseOptionalCoord(body.location_lng),
       hero_image_url: body.hero_image_url
         ? String(body.hero_image_url).trim().slice(0, 500)
         : null,
+      banner_image_url: body.banner_image_url
+        ? String(body.banner_image_url).trim().slice(0, 500)
+        : null,
       max_registrations,
+      requires_waiver: body.requires_waiver === false || body.requires_waiver === 0 ? false : true,
     },
   };
 }
@@ -2117,7 +2325,20 @@ export function registerStaffPortalRoutes(
     appUrl,
     processPaymentRefund,
     buildWelcomeStaffEmail,
+    sendStaffLoginOtp,
   } = deps;
+
+  app.post(
+    "/api/admin/events/upload-asset",
+    requireAdmin,
+    (req, res) => void handleEventAssetUpload(req, res),
+  );
+
+  app.post(
+    "/api/organizer/events/upload-asset",
+    requireOrganizer,
+    (req, res) => void handleEventAssetUpload(req, res),
+  );
 
   function sendStaffWelcomeEmail(opts: {
     to: string;
@@ -2252,8 +2473,9 @@ export function registerStaffPortalRoutes(
         `INSERT INTO events (
            public_uuid, organizer_id, sport_type_id, slug, title, short_description, description,
            status, visibility, featured, start_date, end_date, registration_opens_at,
-           registration_closes_at, location_name, location_city, hero_image_url, max_registrations
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           registration_closes_at, location_name, location_city, location_state, location_lat, location_lng,
+           hero_image_url, banner_image_url, max_registrations, requires_waiver
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizerId,
@@ -2269,10 +2491,8 @@ export function registerStaffPortalRoutes(
           data.end_date,
           data.registration_opens_at,
           data.registration_closes_at,
-          data.location_name,
-          data.location_city,
-          data.hero_image_url,
-          data.max_registrations,
+          ...eventBodySqlValues(data),
+          data.requires_waiver ? 1 : 0,
         ],
       );
 
@@ -2315,7 +2535,8 @@ export function registerStaffPortalRoutes(
            short_description = ?, description = ?, status = ?, visibility = ?,
            featured = ?, start_date = ?, end_date = ?,
            registration_opens_at = ?, registration_closes_at = ?,
-           location_name = ?, location_city = ?, hero_image_url = ?, max_registrations = ?
+           requires_waiver = ?,
+           ${eventBodySqlTail()}
          WHERE id = ? AND organizer_id = ?`,
         [
           data.title,
@@ -2330,10 +2551,8 @@ export function registerStaffPortalRoutes(
           data.end_date,
           data.registration_opens_at,
           data.registration_closes_at,
-          data.location_name,
-          data.location_city,
-          data.hero_image_url,
-          data.max_registrations,
+          data.requires_waiver ? 1 : 0,
+          ...eventBodySqlValues(data),
           eventId,
           organizerId,
         ],
@@ -2364,6 +2583,11 @@ export function registerStaffPortalRoutes(
         return res.status(400).json({
           error: "Add at least one active category before publishing",
         });
+      }
+
+      const waiverCheck = await validateEventPublishWaivers(pool, eventId);
+      if ("error" in waiverCheck) {
+        return res.status(400).json({ error: waiverCheck.error });
       }
 
       await pool.query<ResultSetHeader>(
@@ -2582,8 +2806,9 @@ export function registerStaffPortalRoutes(
         return res.status(404).json({ error: "Event not found" });
       }
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, title, content_html, version, is_active, created_at
-         FROM event_waivers WHERE event_id = ? ORDER BY version DESC, id DESC`,
+        `SELECT id, event_id, title, content_html, pdf_url, content_type,
+                version, is_active, sort_order, created_at
+         FROM event_waivers WHERE event_id = ? ORDER BY is_active DESC, sort_order ASC, id ASC`,
         [eventId],
       );
       res.json({ waivers: rows });
@@ -2603,34 +2828,11 @@ export function registerStaffPortalRoutes(
         return res.status(404).json({ error: "Event not found" });
       }
 
-      const title = String(req.body?.title ?? "").trim();
-      const content_html = String(req.body?.content_html ?? "").trim();
-      if (!title || !content_html) {
-        return res.status(400).json({ error: "title and content_html required" });
+      const result = await syncEventWaivers(pool, eventId, req.body);
+      if ("error" in result) {
+        return res.status(result.status).json({ error: result.error });
       }
-
-      const [[prev]] = await pool.query<RowDataPacket[]>(
-        "SELECT COALESCE(MAX(version), 0) AS max_version FROM event_waivers WHERE event_id = ?",
-        [eventId],
-      );
-      const nextVersion = Number(prev?.max_version ?? 0) + 1;
-
-      await pool.query(
-        "UPDATE event_waivers SET is_active = 0 WHERE event_id = ?",
-        [eventId],
-      );
-      await pool.query<ResultSetHeader>(
-        `INSERT INTO event_waivers (event_id, title, content_html, version, is_active)
-         VALUES (?,?,?,?,1)`,
-        [eventId, title.slice(0, 255), content_html, nextVersion],
-      );
-
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, title, content_html, version, is_active, created_at
-         FROM event_waivers WHERE event_id = ? ORDER BY version DESC LIMIT 1`,
-        [eventId],
-      );
-      res.json({ waiver: rows[0] ?? null });
+      res.json({ waivers: result.waivers });
     },
   );
 
@@ -2650,8 +2852,8 @@ export function registerStaffPortalRoutes(
 
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT r.id, r.registration_number, r.bib_number, r.status, r.qr_code_token,
-                r.checked_in_at, r.total_cents, r.created_at,
-                e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
+                r.checked_in_at, r.waiver_signed_at, r.total_cents, r.created_at,
+                e.id AS event_id, e.title AS event_title, e.slug AS event_slug, e.requires_waiver,
                 ec.name AS category_name,
                 a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
                 a.email AS athlete_email
@@ -2668,7 +2870,13 @@ export function registerStaffPortalRoutes(
       if (rows.length === 0) {
         return res.status(404).json({ error: "Registration not found" });
       }
-      res.json({ registration: rows[0] });
+      const registration = rows[0];
+      let waiver_outdated = false;
+      if (Boolean(registration.requires_waiver)) {
+        const status = await getRegistrationWaiverStatus(pool, registration.id as number);
+        waiver_outdated = status.outdated;
+      }
+      res.json({ registration: { ...registration, waiver_outdated } });
     },
   );
 
@@ -2686,7 +2894,7 @@ export function registerStaffPortalRoutes(
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT r.id, r.event_id, r.checked_in_at, r.status
+        `SELECT r.id, r.event_id, r.checked_in_at, r.status, r.waiver_signed_at, e.requires_waiver
          FROM registrations r
          JOIN events e ON e.id = r.event_id AND e.organizer_id = ?
          WHERE r.id = ? AND r.deleted_at IS NULL LIMIT 1`,
@@ -2707,20 +2915,44 @@ export function registerStaffPortalRoutes(
         });
       }
 
+      const forceCheckIn = Boolean(req.body?.force);
+      const waiverStatus = await getRegistrationWaiverStatus(pool, registrationId);
+      if (Boolean(reg.requires_waiver) && !forceCheckIn) {
+        if (!reg.waiver_signed_at || waiverStatus.outdated) {
+          return res.status(400).json({
+            error: waiverStatus.outdated
+              ? "Waiver updated — athlete must re-sign or use force check-in"
+              : "Waiver not signed — check in blocked",
+            code: waiverStatus.outdated ? "waiver_outdated" : "waiver_unsigned",
+          });
+        }
+      }
+
       const method = String(req.body?.method ?? "manual");
       const validMethods = new Set(["qr_scan", "manual", "kiosk", "api"]);
       const checkMethod = validMethods.has(method) ? method : "manual";
       const locationLabel = req.body?.location_label
         ? String(req.body.location_label).slice(0, 100)
         : null;
+      const deviceInfo = req.headers["user-agent"]
+        ? String(req.headers["user-agent"]).slice(0, 255)
+        : null;
 
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
         await conn.query<ResultSetHeader>(
-          `INSERT INTO check_in_logs (registration_id, event_id, method, operator_type, operator_id, location_label)
-           VALUES (?, ?, ?, 'organizer_member', ?, ?)`,
-          [registrationId, reg.event_id, checkMethod, req.auth!.id, locationLabel],
+          `INSERT INTO check_in_logs (registration_id, event_id, method, operator_type, operator_id, location_label, device_info, metadata_json)
+           VALUES (?, ?, ?, 'organizer_member', ?, ?, ?, ?)`,
+          [
+            registrationId,
+            reg.event_id,
+            checkMethod,
+            req.auth!.id,
+            locationLabel,
+            deviceInfo,
+            forceCheckIn ? JSON.stringify({ force_waiver: true }) : null,
+          ],
         );
         await conn.query<ResultSetHeader>(
           "UPDATE registrations SET checked_in_at = NOW() WHERE id = ? AND checked_in_at IS NULL",
@@ -3168,7 +3400,8 @@ export function registerStaffPortalRoutes(
            short_description = ?, description = ?, status = ?, visibility = ?,
            featured = ?, start_date = ?, end_date = ?,
            registration_opens_at = ?, registration_closes_at = ?,
-           location_name = ?, location_city = ?, hero_image_url = ?, max_registrations = ?
+           requires_waiver = ?,
+           ${eventBodySqlTail()}
          WHERE id = ?`,
         [
           data.title,
@@ -3183,10 +3416,8 @@ export function registerStaffPortalRoutes(
           data.end_date,
           data.registration_opens_at,
           data.registration_closes_at,
-          data.location_name,
-          data.location_city,
-          data.hero_image_url,
-          data.max_registrations,
+          data.requires_waiver ? 1 : 0,
+          ...eventBodySqlValues(data),
           eventId,
         ],
       );
@@ -3213,6 +3444,11 @@ export function registerStaffPortalRoutes(
         return res.status(400).json({
           error: "Add at least one active category before publishing",
         });
+      }
+
+      const waiverCheck = await validateEventPublishWaivers(pool, eventId);
+      if ("error" in waiverCheck) {
+        return res.status(400).json({ error: waiverCheck.error });
       }
 
       await pool.query<ResultSetHeader>(
@@ -4684,11 +4920,7 @@ export function registerStaffPortalRoutes(
     if (!(await adminEventExists(eventId))) {
       return res.status(404).json({ error: "Event not found" });
     }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, title, content_html, version, is_active, created_at
-       FROM event_waivers WHERE event_id = ? ORDER BY version DESC, id DESC`,
-      [eventId],
-    );
+    const rows = await fetchEventWaiversForStaff(pool, eventId);
     res.json({ waivers: rows });
   });
 
@@ -4697,30 +4929,11 @@ export function registerStaffPortalRoutes(
     if (!(await adminEventExists(eventId))) {
       return res.status(404).json({ error: "Event not found" });
     }
-    const title = String(req.body?.title ?? "").trim();
-    const content_html = String(req.body?.content_html ?? "").trim();
-    if (!title || !content_html) {
-      return res.status(400).json({ error: "title and content_html required" });
+    const result = await syncEventWaivers(pool, eventId, req.body);
+    if ("error" in result) {
+      return res.status(result.status).json({ error: result.error });
     }
-    const [[prev]] = await pool.query<RowDataPacket[]>(
-      "SELECT COALESCE(MAX(version), 0) AS max_version FROM event_waivers WHERE event_id = ?",
-      [eventId],
-    );
-    const nextVersion = Number(prev?.max_version ?? 0) + 1;
-    await pool.query("UPDATE event_waivers SET is_active = 0 WHERE event_id = ?", [
-      eventId,
-    ]);
-    await pool.query<ResultSetHeader>(
-      `INSERT INTO event_waivers (event_id, title, content_html, version, is_active)
-       VALUES (?,?,?,?,1)`,
-      [eventId, title.slice(0, 255), content_html, nextVersion],
-    );
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, title, content_html, version, is_active, created_at
-       FROM event_waivers WHERE event_id = ? ORDER BY version DESC LIMIT 1`,
-      [eventId],
-    );
-    res.json({ waiver: rows[0] ?? null });
+    res.json({ waivers: result.waivers });
   });
 
   app.post("/api/admin/events/:eventId/discount-codes", requireAdmin, async (req, res) => {
@@ -4896,8 +5109,9 @@ export function registerStaffPortalRoutes(
         `INSERT INTO events (
            public_uuid, organizer_id, sport_type_id, slug, title, short_description, description,
            status, visibility, featured, start_date, end_date, registration_opens_at,
-           registration_closes_at, location_name, location_city, hero_image_url, max_registrations
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           registration_closes_at, location_name, location_city, location_state, location_lat, location_lng,
+           hero_image_url, banner_image_url, max_registrations, requires_waiver
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizer_id,
@@ -4913,10 +5127,8 @@ export function registerStaffPortalRoutes(
           data.end_date,
           data.registration_opens_at,
           data.registration_closes_at,
-          data.location_name,
-          data.location_city,
-          data.hero_image_url,
-          data.max_registrations,
+          ...eventBodySqlValues(data),
+          data.requires_waiver ? 1 : 0,
         ],
       );
 
@@ -5452,7 +5664,7 @@ export function registerStaffPortalRoutes(
     }
 
     const [existing] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM admins WHERE email = ? AND deleted_at IS NULL LIMIT 1",
+      "SELECT id FROM admins WHERE LOWER(TRIM(email)) = ? AND deleted_at IS NULL LIMIT 1",
       [email],
     );
     if (existing.length > 0) {
@@ -5471,6 +5683,13 @@ export function registerStaffPortalRoutes(
       audience: "admin",
       preferredLanguage: req.body?.preferred_language,
     });
+
+    void sendStaffLoginOtp({
+      adminId: result.insertId,
+      to: email,
+      firstName: first_name,
+      preferredLanguage: req.body?.preferred_language,
+    }).catch((err) => console.error("[email:admin-invite-otp]", err));
 
     const [[admin]] = await pool.query<RowDataPacket[]>(
       `SELECT id, email, first_name, last_name, phone, role, status, last_login_at, created_at

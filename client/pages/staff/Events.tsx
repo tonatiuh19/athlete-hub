@@ -82,7 +82,7 @@ export default function StaffEvents() {
   const list = isAdmin ? events : filteredOrganizerEvents;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 min-w-0">
+    <div className="max-w-6xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={isAdmin ? t("staffPortal.events.titleAdmin") : t("staffPortal.events.titleOrganizer")}
         description={t("staffPortal.events.subtitle")}

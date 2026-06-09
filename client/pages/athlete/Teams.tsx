@@ -90,7 +90,7 @@ export default function AthleteTeams() {
     team.my_role === "owner" || team.owner_athlete_id === user?.id;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8 min-w-0">
+    <div className="max-w-3xl mx-auto w-full min-w-0 overflow-x-clip space-y-8">
       <MetaHelmet
         title={t("athletePortal.teams.title")}
         description={t("athletePortal.teams.subtitle")}

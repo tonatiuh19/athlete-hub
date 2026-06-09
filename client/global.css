@@ -1,5 +1,6 @@
 /** @import must precede all other statements */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&display=swap");
+@import "react-day-picker/style.css";
 
 @tailwind base;
 @tailwind components;
@@ -7,78 +8,116 @@
 
 @layer base {
   /**
-   * Tailwind CSS theme for Sports Platform
-   * Dark-first design with cyan/electric blue accents
-  */
+   * Triboo Sport — Manual de Marca
+   * #05070D · #FF5A1F · #F23C35
+   */
   :root {
-    --background: 222 30% 8%;
-    --foreground: 0 0% 95%;
+    --background: 228 46% 4%;
+    --foreground: 0 0% 98%;
 
-    --card: 222 30% 12%;
-    --card-foreground: 0 0% 95%;
+    --card: 228 32% 8%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 222 30% 12%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 228 32% 8%;
+    --popover-foreground: 0 0% 98%;
 
-    --primary: 188 100% 50%;
-    --primary-foreground: 222 30% 8%;
+    --primary: 17 100% 56%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 255 100% 50%;
-    --secondary-foreground: 222 30% 8%;
+    --secondary: 228 22% 14%;
+    --secondary-foreground: 0 0% 95%;
 
-    --muted: 222 15% 40%;
-    --muted-foreground: 0 0% 65%;
+    --muted: 228 18% 22%;
+    --muted-foreground: 228 10% 62%;
 
-    --accent: 188 100% 50%;
-    --accent-foreground: 222 30% 8%;
+    --accent: 3 87% 58%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 95%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 222 25% 18%;
-    --input: 222 25% 18%;
-    --ring: 188 100% 50%;
+    --border: 228 22% 16%;
+    --input: 228 22% 16%;
+    --ring: 17 100% 56%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 222 30% 8%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 188 100% 50%;
-    --sidebar-primary-foreground: 222 30% 8%;
-    --sidebar-accent: 255 100% 50%;
-    --sidebar-accent-foreground: 222 30% 8%;
-    --sidebar-border: 222 25% 18%;
-    --sidebar-ring: 188 100% 50%;
+    --triboo-black: #05070d;
+    --triboo-orange: #ff5a1f;
+    --triboo-red: #f23c35;
+
+    --sidebar-background: 228 46% 4%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 17 100% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 3 87% 58%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 228 22% 16%;
+    --sidebar-ring: 17 100% 56%;
   }
 
   .dark {
-    --background: 222 30% 8%;
-    --foreground: 0 0% 95%;
-    --card: 222 30% 12%;
-    --card-foreground: 0 0% 95%;
-    --popover: 222 30% 12%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 188 100% 50%;
-    --primary-foreground: 222 30% 8%;
-    --secondary: 255 100% 50%;
-    --secondary-foreground: 222 30% 8%;
-    --muted: 222 15% 40%;
-    --muted-foreground: 0 0% 65%;
-    --accent: 188 100% 50%;
-    --accent-foreground: 222 30% 8%;
+    --background: 228 46% 4%;
+    --foreground: 0 0% 98%;
+    --card: 228 32% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 228 32% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 17 100% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 228 22% 14%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 228 18% 22%;
+    --muted-foreground: 228 10% 62%;
+    --accent: 3 87% 58%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 95%;
-    --border: 222 25% 18%;
-    --input: 222 25% 18%;
-    --ring: 188 100% 50%;
-    --sidebar-background: 222 30% 8%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 188 100% 50%;
-    --sidebar-primary-foreground: 222 30% 8%;
-    --sidebar-accent: 255 100% 50%;
-    --sidebar-accent-foreground: 222 30% 8%;
-    --sidebar-border: 222 25% 18%;
-    --sidebar-ring: 188 100% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 228 22% 16%;
+    --input: 228 22% 16%;
+    --ring: 17 100% 56%;
+    --sidebar-background: 228 46% 4%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 17 100% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 3 87% 58%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 228 22% 16%;
+    --sidebar-ring: 17 100% 56%;
+  }
+}
+
+@layer components {
+  /* Align react-day-picker with Triboo primary tokens (default RDP theme uses blue) */
+  .rdp-root {
+    --rdp-accent-color: hsl(var(--primary));
+    --rdp-accent-background-color: hsl(var(--primary) / 0.12);
+    --rdp-today-color: hsl(var(--primary));
+    --rdp-selected-border: 2px solid hsl(var(--primary));
+    --rdp-range_start-date-background-color: hsl(var(--primary));
+    --rdp-range_end-date-background-color: hsl(var(--primary));
+    --rdp-range_start-color: hsl(var(--primary-foreground));
+    --rdp-range_end-color: hsl(var(--primary-foreground));
+  }
+
+  .rdp-root .rdp-day_button[aria-selected="true"] {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-color: hsl(var(--primary));
+    font-weight: 600;
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.35);
+  }
+
+  .rdp-root .rdp-day_button[aria-selected="true"]:hover,
+  .rdp-root .rdp-day_button[aria-selected="true"]:focus-visible {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  .rdp-root .rdp-today:not(.rdp-outside):not(.rdp-selected) .rdp-day_button {
+    color: hsl(var(--primary));
+    background-color: hsl(var(--primary) / 0.1);
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.45);
   }
 }
 
@@ -91,19 +130,23 @@
     @apply dark;
     overflow-x: clip;
     max-width: 100%;
+    overscroll-behavior-x: none;
   }
 
   body {
-    @apply bg-bg-dark text-foreground;
-    font-family: Inter, sans-serif;
+    @apply bg-background text-foreground;
+    font-family: Archivo, system-ui, sans-serif;
+    font-stretch: 100%;
     overflow-x: clip;
     max-width: 100%;
+    overscroll-behavior-x: none;
   }
 
   #root {
     overflow-x: clip;
     max-width: 100%;
     min-height: 100%;
+    width: 100%;
   }
 
   img,
@@ -126,19 +169,23 @@
 
 @layer components {
   .text-gradient {
-    @apply bg-gradient-to-r from-cyan to-blue-electric bg-clip-text text-transparent;
+    @apply bg-triboo-gradient bg-clip-text text-transparent;
+  }
+
+  .bg-triboo-gradient {
+    background-image: linear-gradient(135deg, #ff5a1f 0%, #f23c35 100%);
   }
 
   .btn-primary {
-    @apply px-6 py-3 bg-cyan text-navy-deep font-semibold rounded-lg hover:shadow-glow-cyan transition-all duration-300 hover:scale-105;
+    @apply px-6 py-3 bg-triboo-gradient text-primary-foreground font-semibold rounded-lg shadow-glow-triboo transition-all duration-300 hover:scale-[1.02] hover:brightness-110;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-surface-dark border border-cyan text-cyan font-semibold rounded-lg hover:bg-blue-electric hover:border-blue-electric hover:text-navy-deep transition-all duration-300;
+    @apply px-6 py-3 bg-secondary border border-primary/40 text-primary font-semibold rounded-lg hover:bg-primary/10 hover:border-primary transition-all duration-300;
   }
 
   .card-sport {
-    @apply bg-surface-dark border border-gray-700 rounded-xl overflow-hidden hover:border-cyan transition-all duration-300 hover:shadow-glow-cyan;
+    @apply bg-card border border-border rounded-xl overflow-hidden hover:border-primary/50 transition-all duration-300 hover:shadow-glow-triboo;
   }
 
   .section-title {
@@ -150,7 +197,11 @@
   }
 
   .stat-number {
-    @apply text-2xl sm:text-3xl lg:text-4xl font-bold text-cyan tabular-nums whitespace-nowrap leading-none tracking-tight;
+    @apply text-xl sm:text-3xl lg:text-4xl font-bold text-primary tabular-nums leading-none tracking-tight max-w-full truncate;
+  }
+
+  .page-content {
+    @apply w-full min-w-0 overflow-x-clip;
   }
 
   .stat-label {
@@ -215,15 +266,16 @@
   }
 }
 
-.hero-shimmer-text {
+.hero-shimmer-text,
+.triboo-shimmer-text {
   background: linear-gradient(
     90deg,
-    #00e5ff 0%,
-    #7dd3fc 20%,
-    #ffffff 40%,
-    #00bfff 60%,
-    #7c4dff 80%,
-    #00e5ff 100%
+    #ff5a1f 0%,
+    #ffb199 18%,
+    #ffffff 38%,
+    #f23c35 58%,
+    #ff8a5c 78%,
+    #ff5a1f 100%
   );
   background-size: 200% auto;
   -webkit-background-clip: text;
@@ -263,11 +315,33 @@
 @keyframes hero-badge-glow {
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(0, 229, 255, 0.15), inset 0 0 20px rgba(0, 229, 255, 0.05);
+    box-shadow: 0 0 20px rgba(255, 90, 31, 0.2), inset 0 0 20px rgba(255, 90, 31, 0.06);
   }
   50% {
-    box-shadow: 0 0 28px rgba(0, 229, 255, 0.3), inset 0 0 24px rgba(0, 229, 255, 0.08);
+    box-shadow: 0 0 32px rgba(242, 60, 53, 0.35), inset 0 0 24px rgba(255, 90, 31, 0.1);
   }
+}
+
+@keyframes hero-ken-burns {
+  0% {
+    transform: scale(1.05) translate(0, 0);
+  }
+  100% {
+    transform: scale(1.14) translate(-1.5%, -1%);
+  }
+}
+
+.hero-ken-burns {
+  animation: hero-ken-burns 22s ease-in-out infinite alternate;
+}
+
+.cinematic-vignette {
+  background: radial-gradient(
+    ellipse 120% 90% at 50% 40%,
+    transparent 0%,
+    rgba(5, 7, 13, 0.45) 55%,
+    rgba(5, 7, 13, 0.92) 100%
+  );
 }
 
 .hero-badge-glow {
@@ -278,23 +352,23 @@
 .home-nav-glass {
   background: linear-gradient(
     180deg,
-    rgba(10, 15, 31, 0.55) 0%,
-    rgba(10, 15, 31, 0.25) 100%
+    rgba(5, 7, 13, 0.72) 0%,
+    rgba(5, 7, 13, 0.2) 100%
   );
   backdrop-filter: blur(20px) saturate(1.4);
   -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.25);
 }
 
 .home-nav-solid {
-  background: rgba(10, 15, 31, 0.92);
+  background: rgba(5, 7, 13, 0.94);
   backdrop-filter: blur(16px) saturate(1.2);
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  border-bottom: 1px solid rgba(30, 41, 59, 0.8);
+  border-bottom: 1px solid rgba(255, 90, 31, 0.12);
   box-shadow:
-    0 1px 0 rgba(0, 229, 255, 0.06),
-    0 8px 32px rgba(0, 0, 0, 0.35);
+    0 1px 0 rgba(255, 90, 31, 0.08),
+    0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
 .home-nav-link::after {
@@ -305,7 +379,7 @@
   width: 0;
   height: 2px;
   border-radius: 1px;
-  background: linear-gradient(90deg, #00e5ff, #00bfff);
+  background: linear-gradient(90deg, #ff5a1f, #f23c35);
   transition: width 0.3s ease, left 0.3s ease;
 }
 

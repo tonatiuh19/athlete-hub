@@ -18,15 +18,69 @@ import { Resend } from "resend";
 import twilio from "twilio";
 import Stripe from "stripe";
 import { createClerkClient, verifyToken } from "@clerk/backend";
-import { registerStaffPortalRoutes, listAdminAthletes, listStaffRegistrations, listOrganizerMemberEvents } from "./staffPortal.js";
-import { registerPhase2Routes } from "./phase2.js";
+import { registerStaffPortalRoutes, listAdminAthletes, listStaffRegistrations, listOrganizerMemberEvents } from "../server/staffPortal.js";
+import { registerPhase2Routes } from "../server/phase2.js";
+import { registerBlogRoutes } from "../server/blog.js";
 import {
   CATEGORY_SOLD_COUNT_UNALIASED_SQL,
   DISCOUNT_USED_COUNT_SQL,
   EVENT_REGISTRATION_COUNT_SQL,
   TEAM_MEMBER_COUNT_SQL,
   WAVE_REGISTERED_COUNT_SQL,
-} from "./registrationCounts.js";
+} from "../server/registrationCounts.js";
+import {
+  likePatternsForTokens,
+  rankByFuzzy,
+  searchTokens,
+} from "../server/searchFuzzy.js";
+import {
+  fetchActiveEventWaiversPublic,
+  getRegistrationWaiverStatus,
+  insertRegistrationWaiverSignatures,
+  parseWaiverSignatures,
+  resignRegistrationWaivers,
+  validateWaiverSignaturesForEvent,
+  type WaiverSignatureInput,
+} from "../server/eventWaivers.js";
+import { parseCheckoutPaymentMetadata, type CheckoutPaymentMetadata } from "../server/checkoutMetadata.js";
+import {
+  clerkAuthorizedParties,
+  getClerkConfigDiagnostics,
+  resolvePublicAppUrl,
+} from "../server/clerkConfig.js";
+import {
+  checkoutTrace,
+  checkoutTraceError,
+} from "../server/checkoutTrace.js";
+import { parseEventDateRange } from "../server/eventsMarketplaceFilters.js";
+import {
+  appendMarketplaceListFilters,
+  listMarketplaceEventsWithFuzzySearch,
+  type MarketplaceListFilters,
+} from "../server/eventsMarketplaceSearch.js";
+import {
+  eventMatchesGeoCitySql,
+  resolveGeoCityById,
+} from "../server/geo.js";
+import {
+  hashAthletePassword,
+  verifyAthletePassword,
+} from "../server/password.js";
+import { validateAthletePassword } from "../shared/passwordPolicy.js";
+import { evaluateCategoryEligibility } from "../shared/categoryEligibility.js";
+import { normalizeApiDateOnly } from "../shared/api.js";
+import {
+  checkAthleteAuthRateLimit,
+  type AthleteAuthRateLimitScope,
+} from "../server/authRateLimit.js";
+import {
+  getTestAuthBypass,
+  getTestClerkProfileResolver,
+  getTestPoolOverride,
+  getTestResetCodeGenerator,
+  isTestMode,
+  pushCapturedTestEmail,
+} from "./testHooks.js";
 
 const IS_VERCEL = process.env.VERCEL === "1";
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -82,31 +136,35 @@ function resolveLocale(
 // ============================================================================
 
 const EMAIL_BRAND = {
-  navyDeep: "#050816",
-  bgDark: "#0A0F1F",
-  surfaceDark: "#111827",
-  cyan: "#00E5FF",
-  blueElectric: "#00BFFF",
-  purpleAccent: "#7C4DFF",
-  success: "#00E676",
-  textPrimary: "#F2F2F2",
-  textMuted: "#94A3B8",
-  textDim: "#64748B",
-  border: "#1E293B",
+  black: "#05070D",
+  bgDark: "#05070D",
+  surfaceDark: "#12141A",
+  orange: "#FF5A1F",
+  red: "#F23C35",
+  accent: "#FF5A1F",
+  success: "#FF5A1F",
+  textPrimary: "#FFFFFF",
+  textMuted: "#A3A3A3",
+  textDim: "#737373",
+  border: "#262626",
   fontFamily:
     "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 } as const;
 
+const EMAIL_LOGO_URL =
+  "https://disruptinglabs.com/data/triboo/assets/images/logos/triboo_logo_orange_horizontal_white_title.png";
+
 type EmailTemplateKind =
   | "otp"
+  | "passwordReset"
   | "welcomeAthlete"
   | "welcomeStaff"
   | "registrationConfirmed";
 
 type EmailAudience = "athlete" | "admin" | "organizer";
 
-function emailLogoIcon(size = 22, stroke = EMAIL_BRAND.navyDeep): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>`;
+function emailLogoBlock(height = 36): string {
+  return `<img src="${EMAIL_LOGO_URL}" alt="Triboo Sport" width="168" height="${height}" style="display:block;height:${height}px;width:auto;max-width:200px;border:0;outline:none;" />`;
 }
 
 function emailCheckIcon(size = 16, stroke = EMAIL_BRAND.success): string {
@@ -158,20 +216,30 @@ type EmailStrings = {
   sms: {
     otp: string;
   };
+  passwordReset: {
+    preheader: string;
+    title: string;
+    greeting: string;
+    intro: string;
+    expiry: string;
+    security: string;
+    cta: string;
+  };
 };
 
 const EMAIL_STRINGS_ES: EmailStrings = {
   subjects: {
-    otp: "{{code}} es tu código de verificación — Athlete Hub",
-    welcomeAthlete: "¡Bienvenido a Athlete Hub!",
-    welcomeStaff: "Bienvenido al Staff Console — Athlete Hub",
-    registrationConfirmed: "¡Inscripción confirmada! — Athlete Hub",
+    otp: "{{code}} es tu código de verificación — Triboo Sport",
+    passwordReset: "{{code}} — restablece tu contraseña Triboo Sport",
+    welcomeAthlete: "¡Bienvenido a Triboo Sport!",
+    welcomeStaff: "Bienvenido al Staff Console — Triboo Sport",
+    registrationConfirmed: "¡Inscripción confirmada! — Triboo Sport",
   },
   otp: {
     preheader: "Tu código de acceso expira en 10 minutos",
     title: "Código de verificación",
     greeting: "Hola {{name}},",
-    intro: "Usa este código para acceder a tu cuenta de Athlete Hub:",
+    intro: "Usa este código para acceder a tu cuenta de Triboo Sport:",
     expiry: "Expira en {{minutes}} minutos. No lo compartas con nadie.",
     security:
       "Si no solicitaste este código, puedes ignorar este correo de forma segura.",
@@ -195,7 +263,7 @@ const EMAIL_STRINGS_ES: EmailStrings = {
     title: "Bienvenido al Staff Console",
     greeting: "Hola {{name}},",
     introAdmin:
-      "Tienes acceso al panel de administración de Athlete Hub. Gestiona la plataforma, métricas y operaciones globales.",
+      "Tienes acceso al panel de administración de Triboo Sport. Inicia sesión en la consola de staff con tu correo; recibirás un código de verificación para entrar.",
     introOrganizer:
       "Tu hub de organizador está listo. Administra eventos, inscripciones y pagos desde un solo lugar.",
     cta: "Abrir consola",
@@ -214,25 +282,37 @@ const EMAIL_STRINGS_ES: EmailStrings = {
   footer: {
     tagline: "La plataforma de eventos deportivos de México",
     help: "¿Necesitas ayuda? Responde a este correo o visita nuestro centro de soporte.",
-    copyright: "© {{year}} Athlete Hub. Todos los derechos reservados.",
+    copyright: "© {{year}} Triboo Sport. Todos los derechos reservados.",
   },
   sms: {
-    otp: "Athlete Hub: tu código es {{code}}. Expira en {{minutes}} min.",
+    otp: "Triboo Sport: tu código es {{code}}. Expira en {{minutes}} min.",
+  },
+  passwordReset: {
+    preheader: "Enlace para restablecer tu contraseña",
+    title: "Restablecer contraseña",
+    greeting: "Hola {{name}},",
+    intro:
+      "Usa este código para restablecer la contraseña de tu cuenta. También puedes usar el botón de abajo:",
+    expiry: "Este enlace expira en {{minutes}} minutos.",
+    security:
+      "Si no solicitaste este cambio, ignora este correo. Tu contraseña actual seguirá funcionando.",
+    cta: "Restablecer contraseña",
   },
 };
 
 const EMAIL_STRINGS_EN: EmailStrings = {
   subjects: {
-    otp: "{{code}} is your Athlete Hub verification code",
-    welcomeAthlete: "Welcome to Athlete Hub!",
-    welcomeStaff: "Welcome to Staff Console — Athlete Hub",
-    registrationConfirmed: "Registration confirmed! — Athlete Hub",
+    otp: "{{code}} is your Triboo Sport verification code",
+    passwordReset: "{{code}} — reset your Triboo Sport password",
+    welcomeAthlete: "Welcome to Triboo Sport!",
+    welcomeStaff: "Welcome to Staff Console — Triboo Sport",
+    registrationConfirmed: "Registration confirmed! — Triboo Sport",
   },
   otp: {
     preheader: "Your access code expires in 10 minutes",
     title: "Verification code",
     greeting: "Hi {{name}},",
-    intro: "Use this code to sign in to your Athlete Hub account:",
+    intro: "Use this code to sign in to your Triboo Sport account:",
     expiry: "Expires in {{minutes}} minutes. Never share this code.",
     security:
       "If you didn't request this code, you can safely ignore this email.",
@@ -256,7 +336,7 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     title: "Welcome to Staff Console",
     greeting: "Hi {{name}},",
     introAdmin:
-      "You have access to the Athlete Hub admin panel. Manage the platform, metrics, and global operations.",
+      "You have access to the Triboo Sport admin panel. Sign in at the staff console with your email; we'll send you a verification code to get in.",
     introOrganizer:
       "Your organizer hub is ready. Manage events, registrations, and payments in one place.",
     cta: "Open console",
@@ -275,10 +355,21 @@ const EMAIL_STRINGS_EN: EmailStrings = {
   footer: {
     tagline: "Mexico's sports events platform",
     help: "Need help? Reply to this email or visit our support center.",
-    copyright: "© {{year}} Athlete Hub. All rights reserved.",
+    copyright: "© {{year}} Triboo Sport. All rights reserved.",
   },
   sms: {
-    otp: "Athlete Hub: your code is {{code}}. Expires in {{minutes}} min.",
+    otp: "Triboo Sport: your code is {{code}}. Expires in {{minutes}} min.",
+  },
+  passwordReset: {
+    preheader: "Link to reset your password",
+    title: "Reset password",
+    greeting: "Hi {{name}},",
+    intro:
+      "Use this code to reset your account password. You can also tap the button below:",
+    expiry: "This link expires in {{minutes}} minutes.",
+    security:
+      "If you didn't request this change, ignore this email. Your current password will still work.",
+    cta: "Reset password",
   },
 };
 
@@ -332,8 +423,8 @@ function emailShell(opts: BaseEmailOptions): string {
   const ctaBlock = cta
     ? `<tr><td align="center" style="padding:0 32px 28px;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-          <tr><td align="center" bgcolor="${EMAIL_BRAND.cyan}" style="border-radius:12px;background:linear-gradient(135deg,${EMAIL_BRAND.cyan} 0%,${EMAIL_BRAND.blueElectric} 100%);">
-            <a href="${escapeHtml(cta.url)}" target="_blank" style="display:inline-block;padding:14px 32px;color:${EMAIL_BRAND.navyDeep};font-weight:700;font-size:15px;text-decoration:none;border-radius:12px;">${escapeHtml(cta.label)}</a>
+          <tr><td align="center" bgcolor="${EMAIL_BRAND.orange}" style="border-radius:12px;background:linear-gradient(135deg,${EMAIL_BRAND.orange} 0%,${EMAIL_BRAND.red} 100%);">
+            <a href="${escapeHtml(cta.url)}" target="_blank" style="display:inline-block;padding:14px 32px;color:${EMAIL_BRAND.textPrimary};font-weight:700;font-size:15px;text-decoration:none;border-radius:12px;">${escapeHtml(cta.label)}</a>
           </td></tr>
         </table>
       </td></tr>`
@@ -364,21 +455,8 @@ function emailShell(opts: BaseEmailOptions): string {
       <td align="center" valign="top" style="padding:32px 16px;">
         <table role="presentation" class="email-container" width="560" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.surfaceDark}" style="width:560px;max-width:560px;border-radius:16px;border:1px solid ${EMAIL_BRAND.border};">
           <tr>
-            <td class="email-header" bgcolor="${EMAIL_BRAND.navyDeep}" style="padding:28px 32px 20px;border-bottom:2px solid ${EMAIL_BRAND.cyan};">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-                <tr>
-                  <td width="44" valign="middle" style="width:44px;padding-right:12px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                      <tr>
-                        <td align="center" valign="middle" width="40" height="40" bgcolor="${EMAIL_BRAND.cyan}" style="width:40px;height:40px;border-radius:10px;background-color:${EMAIL_BRAND.cyan};">
-                          ${emailLogoIcon(20)}
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                  <td valign="middle" style="font-size:20px;font-weight:800;color:${EMAIL_BRAND.textPrimary};letter-spacing:-0.5px;">Athlete Hub</td>
-                </tr>
-              </table>
+            <td class="email-header" bgcolor="${EMAIL_BRAND.black}" style="padding:28px 32px 20px;border-bottom:2px solid ${EMAIL_BRAND.orange};">
+              ${emailLogoBlock()}
               <h1 style="margin:16px 0 0;font-size:24px;font-weight:800;color:${EMAIL_BRAND.textPrimary};line-height:1.3;">${escapeHtml(title)}</h1>
             </td>
           </tr>
@@ -389,11 +467,11 @@ function emailShell(opts: BaseEmailOptions): string {
           </tr>
           ${ctaBlock}
           <tr>
-            <td class="email-footer" bgcolor="${EMAIL_BRAND.navyDeep}" style="padding:24px 32px 28px;border-top:1px solid ${EMAIL_BRAND.border};">
-              <p style="margin:0 0 8px;font-size:13px;color:${EMAIL_BRAND.cyan};font-weight:600;">${escapeHtml(s.footer.tagline)}</p>
+            <td class="email-footer" bgcolor="${EMAIL_BRAND.black}" style="padding:24px 32px 28px;border-top:1px solid ${EMAIL_BRAND.border};">
+              <p style="margin:0 0 8px;font-size:13px;color:${EMAIL_BRAND.orange};font-weight:600;">${escapeHtml(s.footer.tagline)}</p>
               <p style="margin:0 0 16px;font-size:12px;color:${EMAIL_BRAND.textDim};line-height:1.5;">${escapeHtml(s.footer.help)}</p>
               <p style="margin:0;font-size:11px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(interpolateEmail(s.footer.copyright, { year }))}</p>
-              <p style="margin:12px 0 0;font-size:11px;"><a href="${escapeHtml(appUrl)}" style="color:${EMAIL_BRAND.blueElectric};text-decoration:none;">${escapeHtml(appUrl.replace(/^https?:\/\//, ""))}</a></p>
+              <p style="margin:12px 0 0;font-size:11px;"><a href="${escapeHtml(appUrl)}" style="color:${EMAIL_BRAND.orange};text-decoration:none;">${escapeHtml(appUrl.replace(/^https?:\/\//, ""))}</a></p>
             </td>
           </tr>
         </table>
@@ -408,9 +486,9 @@ function otpCodeBlock(code: string): string {
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
     <tr>
       <td align="center" style="padding:24px 0 0;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.navyDeep}" style="border:2px solid ${EMAIL_BRAND.cyan};border-radius:12px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border:2px solid ${EMAIL_BRAND.orange};border-radius:12px;">
           <tr>
-            <td align="center" style="padding:18px 28px;font-size:32px;font-weight:800;font-family:ui-monospace,'SF Mono',Consolas,monospace;color:${EMAIL_BRAND.cyan};line-height:1.2;letter-spacing:0.08em;">${escapeHtml(code)}</td>
+            <td align="center" style="padding:18px 28px;font-size:32px;font-weight:800;font-family:ui-monospace,'SF Mono',Consolas,monospace;color:${EMAIL_BRAND.orange};line-height:1.2;letter-spacing:0.08em;">${escapeHtml(code)}</td>
           </tr>
         </table>
       </td>
@@ -434,7 +512,7 @@ function buildOtpEmail(params: {
     <p style="margin:16px 0 0;text-align:center;font-size:13px;color:${EMAIL_BRAND.textDim};">${interpolateEmail(escapeHtml(s.otp.expiry), { minutes })}</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:20px;">
       <tr>
-        <td style="padding:16px;background-color:${EMAIL_BRAND.navyDeep};border-radius:10px;border-left:3px solid ${EMAIL_BRAND.purpleAccent};font-size:13px;color:${EMAIL_BRAND.textMuted};line-height:1.5;">${escapeHtml(s.otp.security)}</td>
+        <td style="padding:16px;background-color:${EMAIL_BRAND.black};border-radius:10px;border-left:3px solid ${EMAIL_BRAND.orange};font-size:13px;color:${EMAIL_BRAND.textMuted};line-height:1.5;">${escapeHtml(s.otp.security)}</td>
       </tr>
     </table>`;
 
@@ -475,7 +553,7 @@ function buildWelcomeAthleteEmail(params: {
   const bodyHtml = `
     <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.welcomeAthlete.greeting, { name: firstName }))}</p>
     <p style="margin:0 0 20px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.welcomeAthlete.intro)}</p>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.navyDeep}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.border};">${features}</table>`;
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.border};">${features}</table>`;
 
   const portalUrl = `${appUrl.replace(/\/$/, "")}/portal`;
   return {
@@ -489,6 +567,41 @@ function buildWelcomeAthleteEmail(params: {
       appUrl,
     }),
     text: `${interpolateEmail(s.welcomeAthlete.greeting, { name: firstName })}\n\n${s.welcomeAthlete.intro}\n\n${portalUrl}`,
+  };
+}
+
+function buildPasswordResetEmail(params: {
+  locale: AppLocale;
+  firstName: string;
+  code: string;
+  resetUrl: string;
+  minutes?: number;
+  appUrl: string;
+}): { subject: string; html: string; text: string } {
+  const { locale, firstName, code, resetUrl, minutes = OTP_TTL_MIN, appUrl } = params;
+  const s = emailStrings(locale);
+  const bodyHtml = `
+    <p style="margin:0 0 12px;color:${EMAIL_BRAND.textPrimary};font-size:17px;">${escapeHtml(interpolateEmail(s.passwordReset.greeting, { name: firstName }))}</p>
+    <p style="margin:0 0 8px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.passwordReset.intro)}</p>
+    ${otpCodeBlock(code)}
+    <p style="margin:16px 0 0;text-align:center;font-size:13px;color:${EMAIL_BRAND.textDim};">${interpolateEmail(escapeHtml(s.passwordReset.expiry), { minutes })}</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:20px;">
+      <tr>
+        <td style="padding:16px;background-color:${EMAIL_BRAND.black};border-radius:10px;border-left:3px solid ${EMAIL_BRAND.orange};font-size:13px;color:${EMAIL_BRAND.textMuted};line-height:1.5;">${escapeHtml(s.passwordReset.security)}</td>
+      </tr>
+    </table>`;
+
+  return {
+    subject: interpolateEmail(s.subjects.passwordReset, { code }),
+    html: emailShell({
+      locale,
+      preheader: s.passwordReset.preheader,
+      title: s.passwordReset.title,
+      bodyHtml,
+      cta: { label: s.passwordReset.cta, url: resetUrl },
+      appUrl,
+    }),
+    text: `${interpolateEmail(s.passwordReset.greeting, { name: firstName })}\n\n${s.passwordReset.intro}\n\n${code}\n\n${resetUrl}\n\n${interpolateEmail(s.passwordReset.expiry, { minutes })}`,
   };
 }
 
@@ -548,7 +661,7 @@ function buildRegistrationConfirmedEmail(params: {
   const bodyHtml = `
     <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.registrationConfirmed.greeting, { name: firstName }))}</p>
     <p style="margin:0 0 20px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.registrationConfirmed.intro)}</p>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.navyDeep}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.cyan};">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.orange};">
       ${detailRow(s.registrationConfirmed.eventLabel, eventTitle)}
       ${detailRow(s.registrationConfirmed.categoryLabel, categoryName)}
       ${detailRow(s.registrationConfirmed.folioLabel, registrationNumber)}
@@ -591,7 +704,7 @@ const JWT_SECRET =
     return "default-jwt-secret-CHANGE-THIS-IN-PRODUCTION";
   })();
 
-const APP_URL = process.env.PUBLIC_APP_URL || "http://localhost:8080";
+const APP_URL = resolvePublicAppUrl();
 const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY || "";
 if (CLERK_SECRET_KEY) {
   logDev("[ok] Clerk configured");
@@ -602,28 +715,54 @@ const SESSION_TTL_DAYS = 30;
 const OTP_TTL_MIN = 10;
 
 interface ClerkAthleteProfile {
+  clerkUserId: string;
   email: string;
   firstName: string;
   lastName: string;
   googleId: string | null;
   appleId: string | null;
+  facebookId: string | null;
   avatarUrl: string | null;
 }
 
 async function resolveClerkAthleteProfile(
   sessionToken: string,
-): Promise<ClerkAthleteProfile | null> {
-  if (!CLERK_SECRET_KEY || !sessionToken) return null;
+): Promise<{ profile: ClerkAthleteProfile } | { error: string }> {
+  if (!sessionToken) {
+    return { error: "Clerk is not configured" };
+  }
+  if (isTestMode()) {
+    const testResolver = getTestClerkProfileResolver();
+    if (testResolver) {
+      return (await testResolver(sessionToken)) as
+        | { profile: ClerkAthleteProfile }
+        | { error: string };
+    }
+  }
+  if (!CLERK_SECRET_KEY) {
+    return { error: "Clerk is not configured" };
+  }
   try {
     const clerk = createClerkClient({ secretKey: CLERK_SECRET_KEY });
-    const { sub: userId } = await verifyToken(sessionToken, {
+    const verified = await verifyToken(sessionToken, {
       secretKey: CLERK_SECRET_KEY,
+      authorizedParties: clerkAuthorizedParties({ isProd: IS_PROD }),
     });
+    const userId = verified.sub;
+    if (!userId) return { error: "Invalid Clerk session" };
+
     const user = await clerk.users.getUser(userId);
     const email =
       user.primaryEmailAddress?.emailAddress ||
+      user.emailAddresses.find((a) => a.verification?.status === "verified")
+        ?.emailAddress ||
       user.emailAddresses[0]?.emailAddress;
-    if (!email) return null;
+    if (!email) {
+      return {
+        error:
+          "Your social account has no email. Add an email in your provider settings or sign in with email.",
+      };
+    }
 
     const googleAccount = user.externalAccounts?.find(
       (account) =>
@@ -633,21 +772,30 @@ async function resolveClerkAthleteProfile(
       (account) =>
         account.provider === "oauth_apple" || account.provider === "apple",
     );
+    const facebookAccount = user.externalAccounts?.find(
+      (account) =>
+        account.provider === "oauth_facebook" || account.provider === "facebook",
+    );
 
     const firstName = user.firstName?.trim() || "Atleta";
     const lastName = user.lastName?.trim() || "Athlete";
 
     return {
-      email: email.trim().toLowerCase(),
-      firstName,
-      lastName,
-      googleId: googleAccount?.externalId ?? null,
-      appleId: appleAccount?.externalId ?? null,
-      avatarUrl: user.imageUrl || null,
+      profile: {
+        clerkUserId: userId,
+        email: email.trim().toLowerCase(),
+        firstName,
+        lastName,
+        googleId: googleAccount?.externalId ?? googleAccount?.providerUserId ?? null,
+        appleId: appleAccount?.externalId ?? appleAccount?.providerUserId ?? null,
+        facebookId:
+          facebookAccount?.externalId ?? facebookAccount?.providerUserId ?? null,
+        avatarUrl: user.imageUrl || null,
+      },
     };
   } catch (err) {
     console.error("[clerk] token verification failed:", err);
-    return null;
+    return { error: "Invalid or expired social session. Please try again." };
   }
 }
 
@@ -655,8 +803,8 @@ async function findOrCreateAthleteFromClerk(
   profile: ClerkAthleteProfile,
   locale: AppLocale,
 ): Promise<{ athlete: RowDataPacket; isNew: boolean }> {
-  const conditions: string[] = ["email = ?"];
-  const params: (string | null)[] = [profile.email];
+  const conditions: string[] = ["clerk_user_id = ?", "email = ?"];
+  const params: (string | null)[] = [profile.clerkUserId, profile.email];
 
   if (profile.googleId) {
     conditions.push("google_id = ?");
@@ -666,10 +814,14 @@ async function findOrCreateAthleteFromClerk(
     conditions.push("apple_id = ?");
     params.push(profile.appleId);
   }
+  if (profile.facebookId) {
+    conditions.push("facebook_id = ?");
+    params.push(profile.facebookId);
+  }
 
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT id, email, first_name, last_name, avatar_url, google_id, apple_id,
-            preferred_language, last_login_at
+    `SELECT id, email, first_name, last_name, date_of_birth, gender, avatar_url,
+            google_id, apple_id, facebook_id, preferred_language, last_login_at, password_hash
      FROM athletes
      WHERE status = 'active' AND deleted_at IS NULL
        AND (${conditions.join(" OR ")})
@@ -687,6 +839,8 @@ async function findOrCreateAthleteFromClerk(
          avatar_url = COALESCE(?, avatar_url),
          google_id = COALESCE(?, google_id),
          apple_id = COALESCE(?, apple_id),
+         facebook_id = COALESCE(?, facebook_id),
+         clerk_user_id = COALESCE(clerk_user_id, ?),
          email_verified_at = COALESCE(email_verified_at, NOW()),
          last_login_at = NOW()
        WHERE id = ?`,
@@ -697,11 +851,14 @@ async function findOrCreateAthleteFromClerk(
         profile.avatarUrl,
         profile.googleId,
         profile.appleId,
+        profile.facebookId,
+        profile.clerkUserId,
         athlete.id,
       ],
     );
     const [updated] = await pool.query<RowDataPacket[]>(
-      `SELECT id, email, first_name, last_name, avatar_url, last_login_at
+      `SELECT id, email, first_name, last_name, date_of_birth, gender, avatar_url,
+              preferred_language, last_login_at
        FROM athletes WHERE id = ? LIMIT 1`,
       [athlete.id],
     );
@@ -711,8 +868,8 @@ async function findOrCreateAthleteFromClerk(
   const [ins] = await pool.query<ResultSetHeader>(
     `INSERT INTO athletes (
        public_uuid, email, email_verified_at, first_name, last_name, avatar_url,
-       google_id, apple_id, preferred_language
-     ) VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?)`,
+       google_id, apple_id, facebook_id, clerk_user_id, preferred_language
+     ) VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       newPublicUuid(),
       profile.email,
@@ -721,12 +878,15 @@ async function findOrCreateAthleteFromClerk(
       profile.avatarUrl,
       profile.googleId,
       profile.appleId,
+      profile.facebookId,
+      profile.clerkUserId,
       locale,
     ],
   );
 
   const [created] = await pool.query<RowDataPacket[]>(
-    `SELECT id, email, first_name, last_name, avatar_url, last_login_at
+    `SELECT id, email, first_name, last_name, date_of_birth, gender, avatar_url,
+            preferred_language, last_login_at
      FROM athletes WHERE id = ? LIMIT 1`,
     [ins.insertId],
   );
@@ -734,25 +894,211 @@ async function findOrCreateAthleteFromClerk(
   return { athlete: created[0], isNew: true };
 }
 
+function athleteAuthPayload(athlete: RowDataPacket) {
+  return {
+    id: athlete.id,
+    email: athlete.email,
+    firstName: athlete.first_name,
+    lastName: athlete.last_name,
+    dateOfBirth: normalizeApiDateOnly(athlete.date_of_birth),
+    gender: (athlete.gender as string | null) ?? null,
+    avatarUrl: athlete.avatar_url ?? undefined,
+  };
+}
+
+async function loadAthleteEligibilityProfile(athleteId: number) {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT date_of_birth, gender FROM athletes
+     WHERE id = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1`,
+    [athleteId],
+  );
+  return rows[0] ?? null;
+}
+
+function categoryEligibilityResponse(
+  category: RowDataPacket,
+  athlete: RowDataPacket,
+  eventStartDate: string,
+) {
+  const result = evaluateCategoryEligibility(
+    {
+      min_age: category.min_age as number | null,
+      max_age: category.max_age as number | null,
+      gender_restriction: category.gender_restriction as string | null,
+    },
+    {
+      date_of_birth: athlete.date_of_birth as string | null,
+      gender: athlete.gender as string | null,
+    },
+    String(eventStartDate).slice(0, 10),
+  );
+  if (result.eligible === false) {
+    if (result.reason === "missing_profile") {
+      return {
+        status: 409 as const,
+        body: {
+          error:
+            "Complete your profile (date of birth and gender) before registering for this category",
+          code: "profile_incomplete",
+        },
+      };
+    }
+    if (result.reason === "gender") {
+      return {
+        status: 403 as const,
+        body: {
+          error: "You do not meet the gender requirements for this category",
+          code: "category_gender_ineligible",
+        },
+      };
+    }
+    return {
+      status: 403 as const,
+      body: {
+        error: "You do not meet the age requirements for this category",
+        code: "category_age_ineligible",
+      },
+    };
+  }
+  return null;
+}
+
+async function issueAthleteSession(
+  athlete: RowDataPacket,
+  req: Request,
+  opts?: { welcomeIfFirst?: boolean; locale?: AppLocale },
+) {
+  const isFirstLogin = !athlete.last_login_at;
+  await pool.query<ResultSetHeader>(
+    "UPDATE athletes SET last_login_at = NOW() WHERE id = ?",
+    [athlete.id],
+  );
+
+  if (opts?.welcomeIfFirst && isFirstLogin && athlete.email) {
+    const athleteLocale = normalizeLocale(
+      (athlete.preferred_language as string | undefined) ?? opts.locale,
+    );
+    const welcome = buildWelcomeAthleteEmail({
+      locale: athleteLocale,
+      firstName: athlete.first_name as string,
+      appUrl: APP_URL,
+    });
+    void sendEmail({
+      to: athlete.email as string,
+      subject: welcome.subject,
+      html: welcome.html,
+      text: welcome.text,
+    }).catch((err) => console.error("[email:welcome-athlete]", err));
+  }
+
+  const token = await createSession(
+    "athlete",
+    athlete.id as number,
+    (athlete.email as string) || "",
+    req.ip,
+    req.headers["user-agent"],
+  );
+
+  return {
+    token,
+    athlete: athleteAuthPayload(athlete),
+  };
+}
+
+async function queueAthletePasswordReset(
+  athlete: RowDataPacket,
+  req: Request,
+  locale: AppLocale,
+): Promise<void> {
+  const testGen = isTestMode() ? getTestResetCodeGenerator() : null;
+  const code = testGen ? testGen() : generateOtpCode();
+  const tokenHash = sha256(code);
+  await pool.query<ResultSetHeader>(
+    `UPDATE athlete_password_resets SET consumed_at = NOW()
+     WHERE athlete_id = ? AND consumed_at IS NULL`,
+    [athlete.id],
+  );
+  await pool.query<ResultSetHeader>(
+    `INSERT INTO athlete_password_resets (athlete_id, token_hash, expires_at, ip_address)
+     VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), ?)`,
+    [athlete.id, tokenHash, OTP_TTL_MIN, req.ip?.slice(0, 45) ?? null],
+  );
+  const email = String(athlete.email || "").trim().toLowerCase();
+  const resetUrl = `${APP_URL.replace(/\/$/, "")}/login/reset?email=${encodeURIComponent(email)}`;
+  const mail = buildPasswordResetEmail({
+    locale,
+    firstName: String(athlete.first_name || "Atleta"),
+    code,
+    resetUrl,
+    appUrl: APP_URL,
+  });
+  await sendEmail({
+    to: email,
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+  });
+}
+
 // ============================================================================
 // DATABASE POOL
 // ============================================================================
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT) || 4000,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  ssl: { rejectUnauthorized: true },
-  waitForConnections: true,
-  connectionLimit: IS_VERCEL ? 2 : 10,
-  queueLimit: 0,
-  timezone: "+00:00",
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000,
-  connectTimeout: 60000,
+let prodPool: Pool | null = null;
+
+function initProdPool(): Pool {
+  if (prodPool) return prodPool;
+  prodPool = mysql.createPool({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT) || 4000,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    ssl: { rejectUnauthorized: true },
+    waitForConnections: true,
+    connectionLimit: IS_VERCEL ? 2 : 10,
+    queueLimit: 0,
+    timezone: "+00:00",
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+    connectTimeout: IS_VERCEL ? 15000 : 60000,
+  });
+
+  prodPool.on("connection", (conn) => {
+    conn.on("error", (err) => logPoolError("connection", err));
+  });
+
+  return prodPool;
+}
+
+function resolvePool(): Pool {
+  const override = getTestPoolOverride();
+  if (override) return override;
+  if (isTestMode()) {
+    throw new Error(
+      "Test pool not configured — call setTestPool() before hitting API routes in tests",
+    );
+  }
+  return initProdPool();
+}
+
+const pool: Pool = new Proxy({} as Pool, {
+  get(_target, prop) {
+    const active = resolvePool();
+    const value = (active as unknown as Record<string | symbol, unknown>)[prop];
+    if (typeof value === "function") {
+      return (value as (...args: unknown[]) => unknown).bind(active);
+    }
+    return value;
+  },
 });
+
+export {
+  setTestPool,
+  setTestAuthBypass,
+  resetTestEnvironment,
+  setTestClerkProfileResolver,
+} from "./testHooks.js";
 
 const TRANSIENT_DB_CODES = [
   "ECONNRESET",
@@ -761,22 +1107,29 @@ const TRANSIENT_DB_CODES = [
   "ECONNREFUSED",
 ];
 
-pool.on("connection", (conn) => {
-  conn.on("error", (err: NodeJS.ErrnoException) => {
-    if (!TRANSIENT_DB_CODES.includes(err.code ?? "")) throw err;
-  });
-});
+function logPoolError(scope: string, err: unknown) {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as NodeJS.ErrnoException).code)
+      : "";
+  if (TRANSIENT_DB_CODES.includes(code)) {
+    console.warn(`[db pool ${scope}] transient:`, err);
+    return;
+  }
+  console.error(`[db pool ${scope}]`, err);
+}
 
-(pool as any).on("error", (err: NodeJS.ErrnoException) => {
-  if (!TRANSIENT_DB_CODES.includes(err.code ?? "")) throw err;
-});
+if (!isTestMode()) {
+  const dbPool = initProdPool() as Pool & Pick<NodeJS.EventEmitter, "on">;
+  dbPool.on("error", (err: unknown) => logPoolError("pool", err));
+}
 
 // ============================================================================
 // EXTERNAL CLIENTS (Resend / Twilio) — graceful fallback
 // ============================================================================
 
 const FROM_EMAIL =
-  process.env.SMTP_FROM || "Athlete Hub <no-reply@disruptinglabs.com>";
+  process.env.SMTP_FROM || "Triboo Sport <no-reply@disruptinglabs.com>";
 let resendClient: Resend | null = null;
 if (process.env.RESEND_API_KEY) {
   resendClient = new Resend(process.env.RESEND_API_KEY);
@@ -812,14 +1165,57 @@ function getStripePublishableKey(): string {
   );
 }
 
-const stripeConfigured = !!(
-  process.env.STRIPE_SECRET_KEY?.trim() && getStripePublishableKey()
-);
-let stripeClient: Stripe | null = null;
-if (process.env.STRIPE_SECRET_KEY) {
-  stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
+function isStripeConfigured(): boolean {
+  return !!(
+    process.env.STRIPE_SECRET_KEY?.trim() && getStripePublishableKey()
+  );
 }
-if (stripeConfigured) {
+
+let stripeClient: Stripe | null = null;
+function getStripeClient(): Stripe | null {
+  const secret = process.env.STRIPE_SECRET_KEY?.trim();
+  if (!secret || !getStripePublishableKey()) return null;
+  if (!stripeClient) {
+    stripeClient = new Stripe(secret);
+  }
+  return stripeClient;
+}
+
+const STRIPE_CHECKOUT_BUSINESS_NAME =
+  process.env.STRIPE_CHECKOUT_BUSINESS_NAME?.trim() || "Triboo Sport";
+
+function serializeAthleteRow(row: RowDataPacket): RowDataPacket {
+  return {
+    ...row,
+    date_of_birth: normalizeApiDateOnly(row.date_of_birth),
+  };
+}
+
+function buildRegistrationPaymentIntentParams(opts: {
+  amount: number;
+  currency: string;
+  metadata: Stripe.MetadataParam;
+  eventTitle?: string;
+  customerId?: string | null;
+}): Stripe.PaymentIntentCreateParams {
+  const params: Stripe.PaymentIntentCreateParams = {
+    amount: opts.amount,
+    currency: opts.currency.toLowerCase(),
+    metadata: opts.metadata,
+    automatic_payment_methods: { enabled: true },
+    setup_future_usage: "off_session",
+    description: opts.eventTitle
+      ? `${opts.eventTitle} — ${STRIPE_CHECKOUT_BUSINESS_NAME}`
+      : STRIPE_CHECKOUT_BUSINESS_NAME,
+    statement_descriptor_suffix: "TRIBOO SPORT",
+  };
+  if (opts.customerId) {
+    params.customer = opts.customerId;
+  }
+  return params;
+}
+
+if (isStripeConfigured()) {
   logDev("[ok] Stripe configured (direct payments)");
 } else {
   logDev(
@@ -998,6 +1394,11 @@ function extractToken(req: Request): string | null {
 
 function requireAuth(actor: ActorType) {
   return async (req: AuthedRequest, res: Response, next: NextFunction) => {
+    const bypass = getTestAuthBypass();
+    if (isTestMode() && bypass && bypass.actor === actor) {
+      req.auth = bypass;
+      return next();
+    }
     const token = extractToken(req);
     if (!token) return res.status(401).json({ error: "Unauthorized" });
     const payload = verifySessionToken(token);
@@ -1049,6 +1450,10 @@ async function sendEmail(opts: {
   html: string;
   text?: string;
 }) {
+  if (isTestMode()) {
+    pushCapturedTestEmail(opts);
+    return { id: "test-email" };
+  }
   if (!resendClient) {
     console.log("[email:dry-run]", opts.to, opts.subject);
     return { id: "dry-run" };
@@ -1089,16 +1494,48 @@ function resolveRequestLocale(
   );
 }
 
+function normalizeLookupEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function deliverOtpEmail(opts: {
+  to: string;
+  locale: AppLocale;
+  firstName: string;
+  code: string;
+  logTag: string;
+}): Promise<void> {
+  const otpMail = buildOtpEmail({
+    locale: opts.locale,
+    firstName: opts.firstName || "Staff",
+    code: opts.code,
+    appUrl: APP_URL,
+  });
+  try {
+    await sendEmail({
+      to: opts.to,
+      subject: otpMail.subject,
+      html: otpMail.html,
+      text: otpMail.text,
+    });
+  } catch (err) {
+    console.error(`[email:${opts.logTag}]`, opts.to, err);
+    throw err;
+  }
+}
+
 type StaffAccount =
   | {
       role: "admin";
       actorId: number;
+      email: string;
       firstName: string;
       preferredLanguage: string;
     }
   | {
       role: "organizer";
       actorId: number;
+      email: string;
       firstName: string;
       preferredLanguage: string;
       organizerId: number;
@@ -1107,29 +1544,32 @@ type StaffAccount =
 async function resolveStaffByEmail(
   email: string,
 ): Promise<StaffAccount | null> {
+  const normalized = normalizeLookupEmail(email);
   const [admins] = await pool.query<RowDataPacket[]>(
-    `SELECT id, first_name, preferred_language FROM admins
-     WHERE email = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1`,
-    [email],
+    `SELECT id, email, first_name, preferred_language FROM admins
+     WHERE LOWER(TRIM(email)) = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1`,
+    [normalized],
   );
   if (admins.length > 0) {
     return {
       role: "admin",
       actorId: admins[0].id as number,
+      email: admins[0].email as string,
       firstName: admins[0].first_name as string,
       preferredLanguage: admins[0].preferred_language as string,
     };
   }
   const [members] = await pool.query<RowDataPacket[]>(
-    `SELECT om.id, om.first_name, om.preferred_language, om.organizer_id
+    `SELECT om.id, om.email, om.first_name, om.preferred_language, om.organizer_id
      FROM organizer_members om
-     WHERE om.email = ? AND om.status = 'active' LIMIT 1`,
-    [email],
+     WHERE LOWER(TRIM(om.email)) = ? AND om.status = 'active' LIMIT 1`,
+    [normalized],
   );
   if (members.length > 0) {
     return {
       role: "organizer",
       actorId: members[0].id as number,
+      email: members[0].email as string,
       firstName: members[0].first_name as string,
       preferredLanguage: members[0].preferred_language as string,
       organizerId: members[0].organizer_id as number,
@@ -1321,8 +1761,8 @@ async function processPaymentRefund(opts: {
   const amountCents = Number(pay.amount_cents);
   let stripeRefundId: string | null = null;
 
-  if (pay.stripe_payment_intent_id && stripeClient) {
-    const refund = await stripeClient.refunds.create({
+  if (pay.stripe_payment_intent_id && getStripeClient()) {
+    const refund = await getStripeClient()!.refunds.create({
       payment_intent: String(pay.stripe_payment_intent_id),
     });
     stripeRefundId = refund.id;
@@ -1419,7 +1859,7 @@ function parseFieldOptions(raw: unknown): string[] {
 }
 
 async function ensureStripeCustomer(athleteId: number): Promise<string | null> {
-  if (!stripeClient) return null;
+  if (!getStripeClient()) return null;
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT id, public_uuid, email, first_name, last_name, stripe_customer_id
@@ -1437,7 +1877,7 @@ async function ensureStripeCustomer(athleteId: number): Promise<string | null> {
     `athlete+${athlete.public_uuid}@payments.athlete-hub.app`;
   const name = `${athlete.first_name} ${athlete.last_name}`.trim();
 
-  const customer = await stripeClient.customers.create({
+  const customer = await getStripeClient()!.customers.create({
     email,
     name: name || undefined,
     metadata: {
@@ -1457,8 +1897,8 @@ async function ensureStripeCustomer(athleteId: number): Promise<string | null> {
 async function getStripeDefaultPaymentMethodId(
   customerId: string,
 ): Promise<string | null> {
-  if (!stripeClient) return null;
-  const customer = await stripeClient.customers.retrieve(customerId);
+  if (!getStripeClient()) return null;
+  const customer = await getStripeClient()!.customers.retrieve(customerId);
   if ("deleted" in customer && customer.deleted) return null;
   const activeCustomer = customer as Stripe.Customer;
   const defaultPm = activeCustomer.invoice_settings?.default_payment_method;
@@ -1466,13 +1906,13 @@ async function getStripeDefaultPaymentMethodId(
 }
 
 async function listAthleteStripePaymentMethods(customerId: string) {
-  if (!stripeClient) {
+  if (!getStripeClient()) {
     return { paymentMethods: [], defaultPaymentMethodId: null };
   }
 
   const defaultPaymentMethodId =
     await getStripeDefaultPaymentMethodId(customerId);
-  const listed = await stripeClient.paymentMethods.list({
+  const listed = await getStripeClient()!.paymentMethods.list({
     customer: customerId,
     type: "card",
   });
@@ -1494,16 +1934,16 @@ async function setAthleteDefaultPaymentMethod(
   customerId: string,
   paymentMethodId: string,
 ): Promise<void> {
-  if (!stripeClient) {
+  if (!getStripeClient()) {
     throw new Error("Stripe not configured");
   }
 
-  const pm = await stripeClient.paymentMethods.retrieve(paymentMethodId);
+  const pm = await getStripeClient()!.paymentMethods.retrieve(paymentMethodId);
   if (pm.customer !== customerId) {
     throw new Error("Payment method does not belong to this athlete");
   }
 
-  await stripeClient.customers.update(customerId, {
+  await getStripeClient()!.customers.update(customerId, {
     invoice_settings: { default_payment_method: paymentMethodId },
   });
 }
@@ -1512,25 +1952,25 @@ async function detachAthletePaymentMethod(
   customerId: string,
   paymentMethodId: string,
 ): Promise<void> {
-  if (!stripeClient) {
+  if (!getStripeClient()) {
     throw new Error("Stripe not configured");
   }
 
-  const pm = await stripeClient.paymentMethods.retrieve(paymentMethodId);
+  const pm = await getStripeClient()!.paymentMethods.retrieve(paymentMethodId);
   if (pm.customer !== customerId) {
     throw new Error("Payment method does not belong to this athlete");
   }
 
-  await stripeClient.paymentMethods.detach(paymentMethodId);
+  await getStripeClient()!.paymentMethods.detach(paymentMethodId);
 
   const defaultId = await getStripeDefaultPaymentMethodId(customerId);
   if (defaultId === paymentMethodId || !defaultId) {
-    const listed = await stripeClient.paymentMethods.list({
+    const listed = await getStripeClient()!.paymentMethods.list({
       customer: customerId,
       type: "card",
     });
     const next = listed.data[0]?.id;
-    await stripeClient.customers.update(customerId, {
+    await getStripeClient()!.customers.update(customerId, {
       invoice_settings: {
         default_payment_method: next ?? "",
       },
@@ -1541,7 +1981,7 @@ async function detachAthletePaymentMethod(
 async function ensureDefaultPaymentMethodAfterPay(
   pi: Stripe.PaymentIntent,
 ): Promise<void> {
-  if (!stripeClient || !pi.customer) return;
+  if (!getStripeClient() || !pi.customer) return;
 
   const customerId =
     typeof pi.customer === "string" ? pi.customer : pi.customer.id;
@@ -1554,25 +1994,10 @@ async function ensureDefaultPaymentMethodAfterPay(
       : pi.payment_method?.id;
   if (!pmId) return;
 
-  await stripeClient.customers.update(customerId, {
+  await getStripeClient()!.customers.update(customerId, {
     invoice_settings: { default_payment_method: pmId },
   });
 }
-
-type CheckoutPaymentMetadata = {
-  categoryId: number;
-  fieldValues: Record<string, string | boolean>;
-  categoryName: string;
-  waiverId?: number;
-  waiverSignature?: string;
-  waiverAcceptedAt?: string;
-  clientIp?: string;
-  userAgent?: string;
-  discountCodeId?: number;
-  discountCode?: string;
-  discountAmountCents?: number;
-  waitlistEntryId?: number;
-};
 
 type CheckoutResumePayload = {
   paymentPublicUuid: string;
@@ -1583,55 +2008,10 @@ type CheckoutResumePayload = {
   currency: string;
   categoryName: string;
   eventTitle: string;
+  fieldValues?: Record<string, string | boolean>;
+  discountCode?: string;
+  discountAmountCents?: number;
 };
-
-function parseCheckoutPaymentMetadata(raw: unknown): CheckoutPaymentMetadata | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw as Record<string, unknown>;
-  const categoryId = Number(data.categoryId);
-  if (!Number.isFinite(categoryId)) return null;
-  const fieldValues = (data.fieldValues ?? {}) as Record<string, string | boolean>;
-  const categoryName = String(data.categoryName ?? "");
-  const waiverId =
-    data.waiverId != null && Number.isFinite(Number(data.waiverId))
-      ? Number(data.waiverId)
-      : undefined;
-  const waiverSignature =
-    data.waiverSignature != null ? String(data.waiverSignature).trim() : undefined;
-  const waiverAcceptedAt =
-    data.waiverAcceptedAt != null ? String(data.waiverAcceptedAt) : undefined;
-  const clientIp = data.clientIp != null ? String(data.clientIp) : undefined;
-  const userAgent = data.userAgent != null ? String(data.userAgent) : undefined;
-  const discountCodeId =
-    data.discountCodeId != null && Number.isFinite(Number(data.discountCodeId))
-      ? Number(data.discountCodeId)
-      : undefined;
-  const discountCode =
-    data.discountCode != null ? String(data.discountCode).trim() : undefined;
-  const discountAmountCents =
-    data.discountAmountCents != null &&
-    Number.isFinite(Number(data.discountAmountCents))
-      ? Number(data.discountAmountCents)
-      : undefined;
-  const waitlistEntryId =
-    data.waitlistEntryId != null && Number.isFinite(Number(data.waitlistEntryId))
-      ? Number(data.waitlistEntryId)
-      : undefined;
-  return {
-    categoryId,
-    fieldValues,
-    categoryName,
-    waiverId,
-    waiverSignature,
-    waiverAcceptedAt,
-    clientIp,
-    userAgent,
-    discountCodeId,
-    discountCode,
-    discountAmountCents,
-    waitlistEntryId,
-  };
-}
 
 type DbExecutor = Pool | PoolConnection;
 
@@ -1711,6 +2091,41 @@ function parseElevationProfile(raw: unknown): Array<{ km: number; elevation_m: n
   }
 }
 
+async function cancelStalePendingEventPayments(
+  athleteId: number,
+  eventId: number,
+  keepIdempotencyKey: string,
+): Promise<void> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT id, stripe_payment_intent_id, provider, status
+     FROM payments
+     WHERE athlete_id = ? AND event_id = ? AND registration_id IS NULL
+       AND status IN ('pending', 'processing')
+       AND idempotency_key <> ?`,
+    [athleteId, eventId, keepIdempotencyKey],
+  );
+
+  for (const row of rows) {
+    const piId = row.stripe_payment_intent_id as string | null;
+    if (piId && getStripeClient() && row.provider === "stripe") {
+      try {
+        const pi = await getStripeClient()!.paymentIntents.retrieve(piId);
+        if (pi.status !== "succeeded" && pi.status !== "canceled") {
+          await getStripeClient()!.paymentIntents.cancel(piId);
+        }
+      } catch {
+        /* ignore cancel failures */
+      }
+    }
+    await pool.query<ResultSetHeader>(
+      `UPDATE payments SET status = 'failed', failure_code = 'superseded',
+       failure_message = 'Replaced by a newer checkout attempt'
+       WHERE id = ?`,
+      [row.id],
+    );
+  }
+}
+
 async function buildCheckoutResponseForPayment(
   paymentPublicUuid: string,
   athleteId: number,
@@ -1730,7 +2145,7 @@ async function buildCheckoutResponseForPayment(
   if (pay.provider === "mock") return null;
   if (pay.registration_id) return null;
   if (!["pending", "processing"].includes(pay.status as string)) return null;
-  if (!stripeClient) return null;
+  if (!getStripeClient()) return null;
 
   const meta = parseCheckoutPaymentMetadata(
     typeof pay.metadata_json === "string"
@@ -1743,7 +2158,7 @@ async function buildCheckoutResponseForPayment(
   let piId = pay.stripe_payment_intent_id as string | null;
 
   if (piId) {
-    const pi = await stripeClient.paymentIntents.retrieve(piId);
+    const pi = await getStripeClient()!.paymentIntents.retrieve(piId);
     if (
       pi.status !== "canceled" &&
       pi.client_secret &&
@@ -1759,9 +2174,9 @@ async function buildCheckoutResponseForPayment(
 
   if (!clientSecret) {
     const stripeCustomerId = await ensureStripeCustomer(athleteId);
-    const piParams: Stripe.PaymentIntentCreateParams = {
+    const piParams = buildRegistrationPaymentIntentParams({
       amount: Number(pay.amount_cents),
-      currency: (pay.currency as string)?.toLowerCase() || "mxn",
+      currency: (pay.currency as string) || "mxn",
       metadata: {
         payment_public_uuid: paymentPublicUuid,
         event_slug: pay.event_slug as string,
@@ -1769,13 +2184,12 @@ async function buildCheckoutResponseForPayment(
         category_id: String(meta.categoryId),
         event_id: String(pay.event_id),
       },
-      automatic_payment_methods: { enabled: true },
-      setup_future_usage: "off_session",
-    };
-    if (stripeCustomerId) {
-      piParams.customer = stripeCustomerId;
-    }
-    const pi = await stripeClient.paymentIntents.create(piParams);
+      eventTitle: pay.event_title as string | undefined,
+      customerId: stripeCustomerId,
+    });
+    const pi = await getStripeClient()!.paymentIntents.create(piParams, {
+      idempotencyKey: `pi_${paymentPublicUuid}`,
+    });
     clientSecret = pi.client_secret;
     await pool.query<ResultSetHeader>(
       `UPDATE payments SET stripe_payment_intent_id = ?, status = 'processing' WHERE id = ?`,
@@ -1792,6 +2206,10 @@ async function buildCheckoutResponseForPayment(
     currency: (pay.currency as string) || "MXN",
     categoryName: meta.categoryName,
     eventTitle: pay.event_title as string,
+    fieldValues: meta.fieldValues,
+    ...(meta.discountCode
+      ? { discountCode: meta.discountCode, discountAmountCents: meta.discountAmountCents }
+      : {}),
   };
 }
 
@@ -1832,6 +2250,41 @@ function buildServerPaceSegments(
     ...s,
     intensity: Math.round(((maxPace - s.pacePerKmMs) / span) * 100),
   }));
+}
+
+async function refundOrphanSucceededPayment(
+  pay: RowDataPacket,
+  pi: Stripe.PaymentIntent,
+  reason: string,
+): Promise<void> {
+  if (pi.status !== "succeeded") return;
+  const paymentId = pay.id as number;
+  const amountCents = Number(pay.amount_cents);
+  if (amountCents <= 0 || pay.provider === "mock") {
+    await pool.query<ResultSetHeader>(
+      `UPDATE payments SET status = 'failed', failure_code = 'orphan_void',
+       failure_message = ?
+       WHERE id = ? AND registration_id IS NULL`,
+      [reason, paymentId],
+    );
+    return;
+  }
+  const piId = (pay.stripe_payment_intent_id as string | null) || pi.id;
+  try {
+    if (piId && getStripeClient()) {
+      await getStripeClient()!.refunds.create({ payment_intent: piId });
+      await pool.query<ResultSetHeader>(
+        "UPDATE payments SET status = 'refunded' WHERE id = ? AND registration_id IS NULL",
+        [paymentId],
+      );
+      console.error("[registration] auto-refunded orphan payment", {
+        paymentId,
+        reason,
+      });
+    }
+  } catch (err) {
+    console.error("[registration] orphan payment refund failed:", err, { paymentId, reason });
+  }
 }
 
 async function finalizeRegistrationAfterPayment(
@@ -1875,6 +2328,14 @@ async function finalizeRegistrationAfterPayment(
 
     const pay = payRows[0];
 
+    const failFinalize = async (error: string) => {
+      await conn.rollback();
+      if (pi.status === "succeeded" && !pay.registration_id) {
+        await refundOrphanSucceededPayment(pay, pi, error);
+      }
+      return { success: false as const, error };
+    };
+
     if (pay.registration_id) {
       const [existing] = await conn.query<RowDataPacket[]>(
         `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.status, r.total_cents,
@@ -1892,14 +2353,12 @@ async function finalizeRegistrationAfterPayment(
     }
 
     if (Number(pi.amount) !== Number(pay.amount_cents)) {
-      await conn.rollback();
-      return { success: false, error: "Payment amount mismatch" };
+      return failFinalize("Payment amount mismatch");
     }
 
     const storedPiId = pay.stripe_payment_intent_id as string | null;
     if (storedPiId && storedPiId !== pi.id) {
-      await conn.rollback();
-      return { success: false, error: "Payment intent mismatch" };
+      return failFinalize("Payment intent mismatch");
     }
 
     const meta = parseCheckoutPaymentMetadata(
@@ -1908,12 +2367,36 @@ async function finalizeRegistrationAfterPayment(
         : pay.metadata_json,
     );
     if (!meta) {
-      await conn.rollback();
-      return { success: false, error: "Invalid checkout data" };
+      return failFinalize("Invalid checkout data");
     }
 
     const athleteId = pay.athlete_id as number;
     const eventId = pay.event_id as number;
+
+    const [[eventWaiverRow]] = await conn.query<RowDataPacket[]>(
+      "SELECT requires_waiver FROM events WHERE id = ? LIMIT 1",
+      [eventId],
+    );
+
+    const waiverSignatures =
+      meta.waiverSignatures ??
+      (meta.waiverId && meta.waiverSignature
+        ? [{ waiverId: meta.waiverId, signature: meta.waiverSignature }]
+        : []);
+
+    if (Boolean(eventWaiverRow?.requires_waiver)) {
+      if (waiverSignatures.length === 0) {
+        return failFinalize("Waiver acceptance required");
+      }
+      const waiverValidation = await validateWaiverSignaturesForEvent(
+        conn as unknown as Pool,
+        eventId,
+        waiverSignatures,
+      );
+      if ("error" in waiverValidation) {
+        return failFinalize(waiverValidation.error);
+      }
+    }
 
     const [dupReg] = await conn.query<RowDataPacket[]>(
       `SELECT id FROM registrations
@@ -1922,8 +2405,7 @@ async function finalizeRegistrationAfterPayment(
       [eventId, athleteId],
     );
     if (dupReg.length > 0) {
-      await conn.rollback();
-      return { success: false, error: "Already registered for this event" };
+      return failFinalize("Already registered for this event");
     }
 
     const [catRows] = await conn.query<RowDataPacket[]>(
@@ -1936,8 +2418,7 @@ async function finalizeRegistrationAfterPayment(
       [meta.categoryId, eventId],
     );
     if (catRows.length === 0) {
-      await conn.rollback();
-      return { success: false, error: "Category not found" };
+      return failFinalize("Category not found");
     }
     const category = catRows[0];
 
@@ -1952,8 +2433,7 @@ async function finalizeRegistrationAfterPayment(
       },
     );
     if (windowErr) {
-      await conn.rollback();
-      return { success: false, error: windowErr.error };
+      return failFinalize(windowErr.error);
     }
 
     const waitlistEntryId = meta.waitlistEntryId;
@@ -1970,16 +2450,14 @@ async function finalizeRegistrationAfterPayment(
         [waitlistEntryId, athleteId, eventId, meta.categoryId],
       );
       if (wlRows.length === 0) {
-        await conn.rollback();
-        return { success: false, error: "Waitlist offer is no longer valid" };
+        return failFinalize("Waitlist offer is no longer valid");
       }
       isWaitlistClaim = true;
     } else if (
       category.capacity != null &&
       Number(category.sold_count) >= Number(category.capacity)
     ) {
-      await conn.rollback();
-      return { success: false, error: "Category is sold out" };
+      return failFinalize("Category is sold out");
     }
 
     const regUuid = newPublicUuid();
@@ -2015,10 +2493,14 @@ async function finalizeRegistrationAfterPayment(
     const registrationId = regResult.insertId;
 
     if (meta.discountCodeId) {
-      await conn.query<ResultSetHeader>(
-        `UPDATE discount_codes SET used_count = used_count + 1 WHERE id = ?`,
+      const [discUp] = await conn.query<ResultSetHeader>(
+        `UPDATE discount_codes SET used_count = used_count + 1
+         WHERE id = ? AND (max_uses IS NULL OR used_count < max_uses)`,
         [meta.discountCodeId],
       );
+      if (discUp.affectedRows === 0) {
+        return failFinalize("Discount code is no longer available");
+      }
     }
 
     const [fieldRows] = await conn.query<RowDataPacket[]>(
@@ -2044,22 +2526,16 @@ async function finalizeRegistrationAfterPayment(
       }
     }
 
-    if (meta.waiverId && meta.waiverSignature) {
-      await conn.query<ResultSetHeader>(
-        `INSERT INTO registration_waiver_signatures (
-           registration_id, waiver_id, ip_address, user_agent, signature_data
-         ) VALUES (?,?,?,?,?)`,
-        [
-          registrationId,
-          meta.waiverId,
-          meta.clientIp?.slice(0, 45) ?? null,
-          meta.userAgent?.slice(0, 500) ?? null,
-          meta.waiverSignature.slice(0, 5000),
-        ],
-      );
-      await conn.query<ResultSetHeader>(
-        "UPDATE registrations SET waiver_signed_at = NOW() WHERE id = ?",
-        [registrationId],
+    if (waiverSignatures.length > 0) {
+      await insertRegistrationWaiverSignatures(
+        conn,
+        registrationId,
+        waiverSignatures,
+        {
+          clientIp: meta.clientIp,
+          userAgent: meta.userAgent,
+          deviceInfo: meta.deviceInfo,
+        },
       );
     }
 
@@ -2082,8 +2558,7 @@ async function finalizeRegistrationAfterPayment(
       [category.id],
     );
     if (soldInc.affectedRows === 0) {
-      await conn.rollback();
-      return { success: false, error: "Category is sold out" };
+      return failFinalize("Category is sold out");
     }
 
     if (isWaitlistClaim && waitlistEntryId) {
@@ -2094,8 +2569,7 @@ async function finalizeRegistrationAfterPayment(
         [registrationId, waitlistEntryId, athleteId],
       );
       if (wlUp.affectedRows === 0) {
-        await conn.rollback();
-        return { success: false, error: "Waitlist offer expired" };
+        return failFinalize("Waitlist offer expired");
       }
     }
 
@@ -2148,9 +2622,15 @@ async function confirmRegistrationPayment(
   athleteId: number,
   paymentIntentId?: string,
   paymentMethodId?: string,
-): Promise<{ success: boolean; registration?: RowDataPacket; error?: string }> {
+): Promise<{
+  success: boolean;
+  registration?: RowDataPacket;
+  error?: string;
+  requiresAction?: boolean;
+  clientSecret?: string;
+}> {
   const [payRows] = await pool.query<RowDataPacket[]>(
-    `SELECT p.id, p.registration_id, p.stripe_payment_intent_id, p.provider, p.status
+    `SELECT p.id, p.registration_id, p.stripe_payment_intent_id, p.provider, p.status, p.amount_cents
      FROM payments p
      WHERE p.public_uuid = ? AND p.athlete_id = ? LIMIT 1`,
     [paymentPublicUuid, athleteId],
@@ -2175,15 +2655,24 @@ async function confirmRegistrationPayment(
     }
   }
 
-  if (!stripeConfigured || !stripeClient) {
-    return { success: false, error: "Payment service unavailable" };
-  }
-
   if (pay.provider === "mock") {
+    if (Number(pay.amount_cents) === 0) {
+      const zeroPi = {
+        status: "succeeded",
+        amount: 0,
+        id: `zero_${paymentPublicUuid}`,
+        metadata: { payment_public_uuid: paymentPublicUuid },
+      } as unknown as Stripe.PaymentIntent;
+      return finalizeRegistrationAfterPayment(paymentPublicUuid, zeroPi);
+    }
     return {
       success: false,
       error: "This checkout session is outdated. Please start again.",
     };
+  }
+
+  if (!isStripeConfigured() || !getStripeClient()) {
+    return { success: false, error: "Payment service unavailable" };
   }
 
   const piId = paymentIntentId || (pay.stripe_payment_intent_id as string);
@@ -2191,13 +2680,22 @@ async function confirmRegistrationPayment(
     return { success: false, error: "Payment not initialized" };
   }
 
-  let pi = await stripeClient.paymentIntents.retrieve(piId);
+  let pi = await getStripeClient()!.paymentIntents.retrieve(piId);
 
   if (pi.status !== "succeeded" && paymentMethodId) {
-    await stripeClient.paymentIntents.update(piId, {
+    await getStripeClient()!.paymentIntents.update(piId, {
       payment_method: paymentMethodId,
     });
-    pi = await stripeClient.paymentIntents.confirm(piId);
+    pi = await getStripeClient()!.paymentIntents.confirm(piId);
+  }
+
+  if (pi.status === "requires_action") {
+    return {
+      success: false,
+      error: "Additional authentication required",
+      requiresAction: true,
+      clientSecret: pi.client_secret ?? undefined,
+    };
   }
 
   if (pi.status !== "succeeded") {
@@ -2268,6 +2766,18 @@ function buildApp() {
         audience: params.audience,
         appUrl: params.appUrl,
       }),
+    sendStaffLoginOtp: async ({ adminId, to, firstName, preferredLanguage }) => {
+      const code = await createOtp("admin", adminId, "login");
+      await deliverOtpEmail({
+        to,
+        locale: normalizeLocale(
+          preferredLanguage != null ? String(preferredLanguage) : undefined,
+        ),
+        firstName,
+        code,
+        logTag: "admin-invite-otp",
+      });
+    },
   });
   registerPhase2Routes(app, {
     pool,
@@ -2277,6 +2787,12 @@ function buildApp() {
     newPublicUuid,
     sendEmail,
     appUrl: APP_URL,
+  });
+  registerBlogRoutes(app, {
+    pool,
+    requireAdmin,
+    requireOrganizer,
+    newPublicUuid,
   });
 
   // ── Global JSON error handler (must be last use()) ───────────────────────
@@ -2288,6 +2804,9 @@ function buildApp() {
         ? "An unexpected error occurred."
         : (err?.message ?? String(err));
     console.error(`[Express error handler] ${status}:`, err?.message ?? err);
+    if (err instanceof Error && err.stack) {
+      console.error("[Express error handler] stack:", err.stack);
+    }
     res.status(status).json({ error: message });
   });
 
@@ -2320,8 +2839,12 @@ function registerHealthRoutes(app: express.Express) {
     res.json({ message: "pong" });
   });
 
+  app.get("/api/config/auth", (_req, res) => {
+    res.json(getClerkConfigDiagnostics());
+  });
+
   app.get("/api/config/payments", (_req, res) => {
-    if (!stripeConfigured) {
+    if (!isStripeConfigured()) {
       return res.status(503).json({ error: "Stripe is not configured" });
     }
     res.json({
@@ -2362,8 +2885,27 @@ function registerHealthRoutes(app: express.Express) {
 // ROUTES — AUTH (athlete, organizer, admin)
 // ============================================================================
 
+function respondAthleteAuthRateLimited(
+  req: Request,
+  res: Response,
+  scope: AthleteAuthRateLimitScope,
+): boolean {
+  const check = checkAthleteAuthRateLimit(req, scope);
+  if (check.ok === false) {
+    res.setHeader("Retry-After", String(check.retryAfterSec));
+    res.status(429).json({
+      error: "Too many attempts. Please try again later.",
+      code: "rate_limited",
+      retryAfterSec: check.retryAfterSec,
+    });
+    return true;
+  }
+  return false;
+}
+
 function registerAuthRoutes(app: express.Express) {
   app.post("/api/auth/athlete/check-email", async (req, res) => {
+    if (respondAthleteAuthRateLimited(req, res, "check-email")) return;
     const email = String(req.body?.email || "")
       .trim()
       .toLowerCase();
@@ -2371,191 +2913,286 @@ function registerAuthRoutes(app: express.Express) {
       return res.status(400).json({ error: "Valid email required" });
     }
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM athletes WHERE email = ? AND status = 'active' LIMIT 1",
+      `SELECT id, password_hash, google_id, apple_id, facebook_id, clerk_user_id
+       FROM athletes WHERE email = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1`,
       [email],
     );
-    res.json({ exists: rows.length > 0 });
+    if (rows.length === 0) {
+      return res.json({ exists: false, hasPassword: false, hasSocialLogin: false });
+    }
+    const row = rows[0];
+    res.json({
+      exists: true,
+      hasPassword: Boolean(row.password_hash),
+      hasSocialLogin: Boolean(
+        row.google_id || row.apple_id || row.facebook_id || row.clerk_user_id,
+      ),
+    });
   });
 
-  app.post("/api/auth/athlete/request-otp", async (req, res) => {
-    const channel = String(req.body?.channel || "email") as "email" | "sms";
-    const purpose = String(req.body?.purpose || "login");
+  app.post("/api/auth/athlete/register", async (req, res) => {
+    if (respondAthleteAuthRateLimited(req, res, "register")) return;
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    const firstName = String(req.body?.firstName ?? req.body?.first_name ?? "")
+      .trim();
+    const lastName = String(req.body?.lastName ?? req.body?.last_name ?? "")
+      .trim();
+    const password = String(req.body?.password || "");
+    const dateOfBirth = String(
+      req.body?.dateOfBirth ?? req.body?.date_of_birth ?? "",
+    ).trim();
+    const genderRaw = req.body?.gender;
+    const gender =
+      genderRaw === null || genderRaw === undefined || genderRaw === ""
+        ? null
+        : String(genderRaw);
 
-    if (channel === "email") {
-      const email = String(req.body?.email || "")
-        .trim()
-        .toLowerCase();
-      if (!email || !/.+@.+\..+/.test(email)) {
-        return res.status(400).json({ error: "Valid email required" });
-      }
-      const [rows] = await pool.query<RowDataPacket[]>(
-        "SELECT id, first_name, preferred_language FROM athletes WHERE email = ? AND status = 'active' LIMIT 1",
-        [email],
-      );
-      if (rows.length === 0 && purpose === "login") {
-        return res
-          .status(404)
-          .json({ error: "No account found for that email." });
-      }
-
-      let athleteId = rows[0]?.id as number | undefined;
-      let firstName = rows[0]?.first_name as string | undefined;
-      const locale = resolveRequestLocale(
-        req,
-        rows[0]?.preferred_language as string | undefined,
-        req.body?.locale,
-      );
-
-      if (purpose === "register" && !athleteId) {
-        firstName = String(req.body?.first_name || "Atleta").trim();
-        const lastName = String(req.body?.last_name || "").trim();
-        if (!lastName) {
-          return res
-            .status(400)
-            .json({ error: "last_name required for registration" });
-        }
-        const [ins] = await pool.query<ResultSetHeader>(
-          `INSERT INTO athletes (public_uuid, email, first_name, last_name, preferred_language) VALUES (?,?,?,?,?)`,
-          [newPublicUuid(), email, firstName, lastName, locale],
-        );
-        athleteId = ins.insertId;
-      }
-
-      if (!athleteId) {
-        return res
-          .status(400)
-          .json({ error: "Unable to resolve athlete account" });
-      }
-
-      const code = await createOtp(
-        "athlete",
-        athleteId,
-        purpose,
-        req.ip,
-        "email",
-      );
-      const otpMail = buildOtpEmail({
-        locale,
-        firstName: firstName || "Atleta",
-        code,
-        appUrl: APP_URL,
-      });
-      await sendEmail({
-        to: email,
-        subject: otpMail.subject,
-        html: otpMail.html,
-        text: otpMail.text,
-      });
-      res.json({ ok: true, message: "Verification code sent." });
-      return;
+    if (!email || !/.+@.+\..+/.test(email)) {
+      return res.status(400).json({ error: "Valid email required" });
+    }
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: "First and last name required" });
+    }
+    if (!dateOfBirth || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      return res.status(400).json({ error: "date_of_birth required (YYYY-MM-DD)" });
+    }
+    if (
+      gender &&
+      !["male", "female", "other", "prefer_not_to_say"].includes(gender)
+    ) {
+      return res.status(400).json({ error: "invalid gender" });
+    }
+    const policy = validateAthletePassword(password);
+    if (!policy.valid) {
+      return res.status(400).json({ error: "Password does not meet security requirements" });
     }
 
-    const phone = String(req.body?.phone || "").trim();
-    if (!phone) return res.status(400).json({ error: "Phone required" });
+    const [existing] = await pool.query<RowDataPacket[]>(
+      `SELECT id, password_hash, google_id, apple_id, clerk_user_id, status, deleted_at
+       FROM athletes WHERE email = ? LIMIT 1`,
+      [email],
+    );
+    if (existing.length > 0) {
+      const row = existing[0];
+      const isActiveAccount =
+        row.status === "active" && row.deleted_at == null;
+
+      if (isActiveAccount) {
+        if (
+          !row.password_hash &&
+          (row.google_id || row.apple_id || row.facebook_id || row.clerk_user_id)
+        ) {
+          return res.status(409).json({
+            error:
+              "This email is linked to social sign-in. Use Google, Facebook, or your linked provider, or reset your password to add one.",
+            code: "social_account_exists",
+          });
+        }
+        return res.status(409).json({ error: "An account with this email already exists" });
+      }
+
+      const locale = resolveRequestLocale(req, undefined, req.body?.locale);
+      const passwordHash = await hashAthletePassword(password);
+      await pool.query<ResultSetHeader>(
+        `UPDATE athletes SET
+           status = 'active',
+           deleted_at = NULL,
+           first_name = ?,
+           last_name = ?,
+           password_hash = ?,
+           password_set_at = NOW(),
+           date_of_birth = ?,
+           gender = ?,
+           preferred_language = ?,
+           email_verified_at = COALESCE(email_verified_at, NOW())
+         WHERE id = ?`,
+        [
+          firstName,
+          lastName,
+          passwordHash,
+          dateOfBirth,
+          gender,
+          locale,
+          row.id,
+        ],
+      );
+
+      const [reactivated] = await pool.query<RowDataPacket[]>(
+        `SELECT id, email, first_name, last_name, date_of_birth, gender, avatar_url,
+                preferred_language, last_login_at
+         FROM athletes WHERE id = ? LIMIT 1`,
+        [row.id],
+      );
+      const session = await issueAthleteSession(reactivated[0], req, {
+        welcomeIfFirst: true,
+        locale,
+      });
+      return res.json({ ...session, reactivated: true });
+    }
+
+    const locale = resolveRequestLocale(req, undefined, req.body?.locale);
+    const passwordHash = await hashAthletePassword(password);
+    const [ins] = await pool.query<ResultSetHeader>(
+      `INSERT INTO athletes (
+         public_uuid, email, email_verified_at, password_hash, password_set_at,
+         first_name, last_name, date_of_birth, gender, preferred_language
+       ) VALUES (?, ?, NOW(), ?, NOW(), ?, ?, ?, ?, ?)`,
+      [
+        newPublicUuid(),
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        dateOfBirth,
+        gender,
+        locale,
+      ],
+    );
+
+    const [created] = await pool.query<RowDataPacket[]>(
+      `SELECT id, email, first_name, last_name, date_of_birth, gender, avatar_url,
+              preferred_language, last_login_at
+       FROM athletes WHERE id = ? LIMIT 1`,
+      [ins.insertId],
+    );
+    const session = await issueAthleteSession(created[0], req, {
+      welcomeIfFirst: true,
+      locale,
+    });
+    res.json(session);
+  });
+
+  app.post("/api/auth/athlete/login", async (req, res) => {
+    if (respondAthleteAuthRateLimited(req, res, "login")) return;
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    const password = String(req.body?.password || "");
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password required" });
+    }
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT id, first_name, preferred_language FROM athletes WHERE phone = ? AND status = 'active' LIMIT 1",
-      [phone],
+      `SELECT id, email, first_name, last_name, date_of_birth, gender, avatar_url,
+              preferred_language, last_login_at, password_hash, status
+       FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1`,
+      [email],
     );
-    if (rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: "No account found for that phone." });
+    if (rows.length === 0 || rows[0].status !== "active") {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const athlete = rows[0];
+    if (!athlete.password_hash) {
+      const locale = resolveRequestLocale(
+        req,
+        athlete.preferred_language as string | undefined,
+        req.body?.locale,
+      );
+      try {
+        await queueAthletePasswordReset(athlete, req, locale);
+      } catch (err) {
+        console.error("[auth] password reset queue failed:", err);
+      }
+      return res.status(403).json({
+        error: "Password not set for this account. We sent you an email to create one.",
+        code: "password_not_set",
+      });
     }
 
-    const locale = resolveRequestLocale(
-      req,
-      rows[0].preferred_language as string,
-      req.body?.locale,
-    );
-    const code = await createOtp(
-      "athlete",
-      rows[0].id as number,
-      purpose,
-      req.ip,
-      "sms",
-    );
-    await sendSms({
-      to: phone,
-      body: smsOtpMessage(locale, code, OTP_TTL_MIN),
-    });
-    res.json({ ok: true, message: "Verification code sent via SMS." });
+    const valid = await verifyAthletePassword(password, athlete.password_hash as string);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    const session = await issueAthleteSession(athlete, req, { welcomeIfFirst: true });
+    res.json(session);
   });
 
-  app.post("/api/auth/athlete/verify-otp", async (req, res) => {
-    const channel = String(req.body?.channel || "email") as "email" | "sms";
-    const code = String(req.body?.code || "").trim();
-    const purpose = String(req.body?.purpose || "login");
-    if (!code) return res.status(400).json({ error: "Code required" });
-
-    let athlete: RowDataPacket | undefined;
-
-    if (channel === "email") {
-      const email = String(req.body?.email || "")
-        .trim()
-        .toLowerCase();
-      if (!email) return res.status(400).json({ error: "Email required" });
-      const [rows] = await pool.query<RowDataPacket[]>(
-        "SELECT id, email, first_name, last_name, preferred_language, last_login_at FROM athletes WHERE email = ? LIMIT 1",
-        [email],
-      );
-      athlete = rows[0];
-    } else {
-      const phone = String(req.body?.phone || "").trim();
-      if (!phone) return res.status(400).json({ error: "Phone required" });
-      const [rows] = await pool.query<RowDataPacket[]>(
-        "SELECT id, email, first_name, last_name, preferred_language, last_login_at FROM athletes WHERE phone = ? LIMIT 1",
-        [phone],
-      );
-      athlete = rows[0];
+  app.post("/api/auth/athlete/forgot-password", async (req, res) => {
+    if (respondAthleteAuthRateLimited(req, res, "forgot-password")) return;
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    if (!email || !/.+@.+\..+/.test(email)) {
+      return res.status(400).json({ error: "Valid email required" });
     }
 
-    if (!athlete) return res.status(404).json({ error: "Account not found" });
-
-    const isFirstLogin = !athlete.last_login_at;
-    const athleteLocale = normalizeLocale(athlete.preferred_language as string);
-
-    const ok = await consumeOtp("athlete", athlete.id as number, code, purpose);
-    if (!ok) {
-      return res.status(401).json({ error: "Invalid or expired code" });
-    }
-
-    await pool.query<ResultSetHeader>(
-      "UPDATE athletes SET last_login_at = NOW() WHERE id = ?",
-      [athlete.id],
+    const locale = resolveRequestLocale(req, undefined, req.body?.locale);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT id, email, first_name, preferred_language
+       FROM athletes WHERE email = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1`,
+      [email],
     );
-
-    if (isFirstLogin && athlete.email) {
-      const welcome = buildWelcomeAthleteEmail({
-        locale: athleteLocale,
-        firstName: athlete.first_name as string,
-        appUrl: APP_URL,
-      });
-      sendEmail({
-        to: athlete.email as string,
-        subject: welcome.subject,
-        html: welcome.html,
-        text: welcome.text,
-      }).catch((err) => console.error("[email:welcome-athlete]", err));
+    if (rows.length > 0) {
+      try {
+        await queueAthletePasswordReset(rows[0], req, locale);
+      } catch (err) {
+        console.error("[auth] forgot-password email failed:", err);
+      }
     }
-
-    const token = await createSession(
-      "athlete",
-      athlete.id as number,
-      (athlete.email as string) || String(req.body?.phone || ""),
-      req.ip,
-      req.headers["user-agent"],
-    );
 
     res.json({
-      token,
-      athlete: {
-        id: athlete.id,
-        email: athlete.email,
-        firstName: athlete.first_name,
-        lastName: athlete.last_name,
-      },
+      ok: true,
+      message: "If an account exists for that email, we sent password reset instructions.",
     });
+  });
+
+  app.post("/api/auth/athlete/reset-password", async (req, res) => {
+    if (respondAthleteAuthRateLimited(req, res, "reset-password")) return;
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    const code = String(req.body?.code ?? req.body?.token ?? "").trim();
+    const password = String(req.body?.password || "");
+    if (!email || !/.+@.+\..+/.test(email)) {
+      return res.status(400).json({ error: "Valid email required" });
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: "Valid 6-digit reset code required" });
+    }
+    const policy = validateAthletePassword(password);
+    if (!policy.valid) {
+      return res.status(400).json({ error: "Password does not meet security requirements" });
+    }
+
+    const tokenHash = sha256(code);
+    const [resetRows] = await pool.query<RowDataPacket[]>(
+      `SELECT r.id, r.athlete_id
+       FROM athlete_password_resets r
+       INNER JOIN athletes a ON a.id = r.athlete_id
+       WHERE a.email = ? AND r.token_hash = ? AND r.consumed_at IS NULL AND r.expires_at > NOW()
+       ORDER BY r.id DESC LIMIT 1`,
+      [email, tokenHash],
+    );
+    if (resetRows.length === 0) {
+      return res.status(400).json({ error: "Invalid or expired reset code" });
+    }
+
+    const reset = resetRows[0];
+    const passwordHash = await hashAthletePassword(password);
+    await pool.query<ResultSetHeader>(
+      `UPDATE athletes SET password_hash = ?, password_set_at = NOW(), email_verified_at = COALESCE(email_verified_at, NOW())
+       WHERE id = ?`,
+      [passwordHash, reset.athlete_id],
+    );
+    await pool.query<ResultSetHeader>(
+      `UPDATE athlete_password_resets SET consumed_at = NOW() WHERE id = ?`,
+      [reset.id],
+    );
+
+    const [athleteRows] = await pool.query<RowDataPacket[]>(
+      `SELECT id, email, first_name, last_name, avatar_url, preferred_language, last_login_at
+       FROM athletes WHERE id = ? LIMIT 1`,
+      [reset.athlete_id],
+    );
+    if (athleteRows.length === 0) {
+      return res.json({ ok: true });
+    }
+
+    const session = await issueAthleteSession(athleteRows[0], req);
+    res.json({ ok: true, ...session });
   });
 
   // ============================================================
@@ -2680,9 +3317,7 @@ function registerAuthRoutes(app: express.Express) {
   // AUTH — STAFF (unified admin + organizer)
   // ============================================================
   app.post("/api/auth/staff/request-otp", async (req, res) => {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
+    const email = normalizeLookupEmail(String(req.body?.email || ""));
     if (!email || !/.+@.+\..+/.test(email)) {
       return res.status(400).json({ error: "Valid email required" });
     }
@@ -2703,18 +3338,19 @@ function registerAuthRoutes(app: express.Express) {
       "login",
       req.ip,
     );
-    const otpMail = buildOtpEmail({
-      locale,
-      firstName: account.firstName,
-      code,
-      appUrl: APP_URL,
-    });
-    await sendEmail({
-      to: email,
-      subject: otpMail.subject,
-      html: otpMail.html,
-      text: otpMail.text,
-    });
+    try {
+      await deliverOtpEmail({
+        to: account.email,
+        locale,
+        firstName: account.firstName,
+        code,
+        logTag: "otp-staff",
+      });
+    } catch {
+      return res.status(502).json({
+        error: "Could not send verification email. Please try again.",
+      });
+    }
     res.json({
       ok: true,
       role: account.role,
@@ -2723,9 +3359,7 @@ function registerAuthRoutes(app: express.Express) {
   });
 
   app.post("/api/auth/staff/verify-otp", async (req, res) => {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
+    const email = normalizeLookupEmail(String(req.body?.email || ""));
     const code = String(req.body?.code || "").trim();
     if (!email || !code) {
       return res.status(400).json({ error: "Email and code required" });
@@ -2738,8 +3372,10 @@ function registerAuthRoutes(app: express.Express) {
     if (account.role === "admin") {
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT id, email, first_name, last_name, role, preferred_language, last_login_at
-         FROM admins WHERE email = ? LIMIT 1`,
-        [email],
+         FROM admins
+         WHERE LOWER(TRIM(email)) = ? AND status = 'active' AND deleted_at IS NULL
+         LIMIT 1`,
+        [normalizeLookupEmail(email)],
       );
       if (rows.length === 0) {
         return res.status(404).json({ error: "Account not found" });
@@ -2792,8 +3428,10 @@ function registerAuthRoutes(app: express.Express) {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT om.id, om.email, om.first_name, om.last_name, om.role, om.organizer_id,
               om.preferred_language, om.last_login_at
-       FROM organizer_members om WHERE om.email = ? LIMIT 1`,
-      [email],
+       FROM organizer_members om
+       WHERE LOWER(TRIM(om.email)) = ? AND om.status = 'active'
+       LIMIT 1`,
+      [normalizeLookupEmail(email)],
     );
     if (rows.length === 0) {
       return res.status(404).json({ error: "Account not found" });
@@ -2854,14 +3492,14 @@ function registerAuthRoutes(app: express.Express) {
   // AUTH — ADMIN
   // ============================================================
   app.post("/api/auth/admin/request-otp", async (req, res) => {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
+    const email = normalizeLookupEmail(String(req.body?.email || ""));
     if (!email || !/.+@.+\..+/.test(email)) {
       return res.status(400).json({ error: "Valid email required" });
     }
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT id, first_name, preferred_language FROM admins WHERE email = ? AND status = 'active' LIMIT 1",
+      `SELECT id, email, first_name, preferred_language FROM admins
+       WHERE LOWER(TRIM(email)) = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
       [email],
     );
     if (rows.length === 0) {
@@ -2878,31 +3516,33 @@ function registerAuthRoutes(app: express.Express) {
       "login",
       req.ip,
     );
-    const otpMail = buildOtpEmail({
-      locale,
-      firstName: rows[0].first_name as string,
-      code,
-      appUrl: APP_URL,
-    });
-    await sendEmail({
-      to: email,
-      subject: otpMail.subject,
-      html: otpMail.html,
-      text: otpMail.text,
-    });
+    try {
+      await deliverOtpEmail({
+        to: rows[0].email as string,
+        locale,
+        firstName: rows[0].first_name as string,
+        code,
+        logTag: "otp-admin",
+      });
+    } catch {
+      return res.status(502).json({
+        error: "Could not send verification email. Please try again.",
+      });
+    }
     res.json({ ok: true, message: "Verification code sent." });
   });
 
   app.post("/api/auth/admin/verify-otp", async (req, res) => {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
+    const email = normalizeLookupEmail(String(req.body?.email || ""));
     const code = String(req.body?.code || "").trim();
     if (!email || !code) {
       return res.status(400).json({ error: "Email and code required" });
     }
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT id, email, first_name, last_name, role, preferred_language, last_login_at FROM admins WHERE email = ? LIMIT 1",
+      `SELECT id, email, first_name, last_name, role, preferred_language, last_login_at
+       FROM admins
+       WHERE LOWER(TRIM(email)) = ? AND status = 'active' AND deleted_at IS NULL
+       LIMIT 1`,
       [email],
     );
     if (rows.length === 0) {
@@ -3171,54 +3811,38 @@ function registerAuthRoutes(app: express.Express) {
   );
 
   app.post("/api/auth/clerk/athlete", async (req, res) => {
-    if (!CLERK_SECRET_KEY) {
-      return res.status(503).json({ error: "Clerk is not configured" });
-    }
     const sessionToken = String(req.body?.sessionToken || "").trim();
     if (!sessionToken) {
       return res.status(400).json({ error: "sessionToken required" });
     }
+    if (!CLERK_SECRET_KEY && !(isTestMode() && getTestClerkProfileResolver())) {
+      return res.status(503).json({ error: "Clerk is not configured" });
+    }
 
-    const profile = await resolveClerkAthleteProfile(sessionToken);
-    if (!profile) {
-      return res.status(401).json({ error: "Invalid Clerk session" });
+    const resolved = await resolveClerkAthleteProfile(sessionToken);
+    if ("error" in resolved) {
+      return res.status(401).json({ error: resolved.error });
     }
 
     const locale = resolveRequestLocale(req, undefined, req.body?.locale);
-    const { athlete, isNew } = await findOrCreateAthleteFromClerk(profile, locale);
-
-    if (isNew && athlete.email) {
-      const welcome = buildWelcomeAthleteEmail({
+    try {
+      const { athlete, isNew } = await findOrCreateAthleteFromClerk(
+        resolved.profile,
         locale,
-        firstName: athlete.first_name as string,
-        appUrl: APP_URL,
+      );
+      const session = await issueAthleteSession(athlete, req, {
+        welcomeIfFirst: isNew,
+        locale,
       });
-      sendEmail({
-        to: athlete.email as string,
-        subject: welcome.subject,
-        html: welcome.html,
-        text: welcome.text,
-      }).catch((err) => console.error("[email:welcome-athlete-clerk]", err));
+      res.json({ ...session, isNew });
+    } catch (err) {
+      console.error("[clerk] athlete sync failed:", err);
+      const message =
+        err instanceof Error && err.message.includes("Duplicate")
+          ? "This social account is already linked to another profile."
+          : "Could not link social account. Try email sign-in or contact support.";
+      res.status(409).json({ error: message });
     }
-
-    const token = await createSession(
-      "athlete",
-      athlete.id as number,
-      athlete.email as string,
-      req.ip,
-      req.headers["user-agent"],
-    );
-    res.json({
-      token,
-      isNew,
-      athlete: {
-        id: athlete.id,
-        email: athlete.email,
-        firstName: athlete.first_name,
-        lastName: athlete.last_name,
-        avatarUrl: athlete.avatar_url,
-      },
-    });
   });
 
   app.post("/api/auth/logout", async (req, res) => {
@@ -3231,6 +3855,18 @@ function registerAuthRoutes(app: express.Express) {
 // ============================================================================
 // ROUTES — MARKETPLACE (public event discovery)
 // ============================================================================
+
+function asyncHandler(
+  fn: (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => void | Promise<void>,
+): express.RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
 
 function registerMarketplaceRoutes(app: express.Express) {
   app.get("/api/sport-types", async (_req, res) => {
@@ -3257,81 +3893,209 @@ function registerMarketplaceRoutes(app: express.Express) {
       ) ec_min ON ec_min.event_id = e.id
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL`;
 
-  app.get("/api/public/home", async (_req, res) => {
-    const [[statsRow]] = await pool.query<RowDataPacket[]>(
-      `SELECT
-         (SELECT COUNT(*) FROM events WHERE status = 'published' AND deleted_at IS NULL) AS published_events,
-         (SELECT COUNT(*) FROM athletes WHERE status = 'active' AND deleted_at IS NULL) AS active_athletes,
-         (SELECT COUNT(*) FROM registrations WHERE status = 'confirmed' AND deleted_at IS NULL) AS confirmed_registrations,
-         (SELECT COUNT(*) FROM athlete_teams WHERE is_public = 1) AS public_teams,
-         (SELECT COUNT(*) FROM athlete_achievements) AS achievements_earned`,
-    );
+  app.get(
+    "/api/public/home",
+    asyncHandler(async (_req, res) => {
+      const emptyStats = {
+        published_events: 0,
+        active_athletes: 0,
+        confirmed_registrations: 0,
+        public_teams: 0,
+        achievements_earned: 0,
+      };
 
-    const [featuredEvents] = await pool.query<RowDataPacket[]>(
-      `${publishedEventSelect} AND e.featured = 1 ORDER BY e.start_date ASC LIMIT 4`,
-    );
+      const loadStats = async () => {
+        const [[statsRow]] = await pool.query<RowDataPacket[]>(
+          `SELECT
+             (SELECT COUNT(*) FROM events WHERE status = 'published' AND deleted_at IS NULL) AS published_events,
+             (SELECT COUNT(*) FROM athletes WHERE status = 'active' AND deleted_at IS NULL) AS active_athletes,
+             (SELECT COUNT(*) FROM registrations WHERE status = 'confirmed' AND deleted_at IS NULL) AS confirmed_registrations,
+             (SELECT COUNT(*) FROM athlete_teams WHERE is_public = 1) AS public_teams,
+             (SELECT COUNT(*) FROM athlete_achievements) AS achievements_earned`,
+        );
+        return {
+          published_events: Number(statsRow?.published_events ?? 0),
+          active_athletes: Number(statsRow?.active_athletes ?? 0),
+          confirmed_registrations: Number(
+            statsRow?.confirmed_registrations ?? 0,
+          ),
+          public_teams: Number(statsRow?.public_teams ?? 0),
+          achievements_earned: Number(statsRow?.achievements_earned ?? 0),
+        };
+      };
 
-    const [upcomingEvents] = await pool.query<RowDataPacket[]>(
-      `${publishedEventSelect} AND e.start_date >= CURDATE() ORDER BY e.start_date ASC LIMIT 3`,
-    );
+      const [statsResult, featuredResult, upcomingResult, athletesResult, teamsResult] =
+        await Promise.allSettled([
+          loadStats(),
+          pool.query<RowDataPacket[]>(
+            `${publishedEventSelect} AND e.featured = 1 ORDER BY e.start_date ASC LIMIT 4`,
+          ),
+          pool.query<RowDataPacket[]>(
+            `${publishedEventSelect} AND e.start_date >= CURDATE() ORDER BY e.start_date ASC LIMIT 3`,
+          ),
+          pool.query<RowDataPacket[]>(
+            `SELECT a.first_name, a.last_name, g.xp_total, g.level
+             FROM athlete_gamification g
+             JOIN athletes a ON a.id = g.athlete_id AND a.status = 'active' AND a.deleted_at IS NULL
+             ORDER BY g.xp_total DESC, g.level DESC, a.id ASC
+             LIMIT 5`,
+          ),
+          pool.query<RowDataPacket[]>(
+            `SELECT t.id, t.name, t.slug, t.avatar_url,
+                    ${TEAM_MEMBER_COUNT_SQL} AS live_member_count
+             FROM athlete_teams t
+             WHERE t.is_public = 1
+             ORDER BY live_member_count DESC, t.created_at DESC
+             LIMIT 4`,
+          ),
+        ]);
 
-    const [athleteRows] = await pool.query<RowDataPacket[]>(
-      `SELECT a.first_name, a.last_name, g.xp_total, g.level
-       FROM athlete_gamification g
-       JOIN athletes a ON a.id = g.athlete_id AND a.status = 'active' AND a.deleted_at IS NULL
-       ORDER BY g.xp_total DESC, g.level DESC, a.id ASC
-       LIMIT 5`,
-    );
+      const logSectionFailure = (
+        section: string,
+        result: PromiseSettledResult<unknown>,
+      ) => {
+        if (result.status === "rejected") {
+          console.error(`[GET /api/public/home] ${section}`, result.reason);
+        }
+      };
 
-    const [teamRows] = await pool.query<RowDataPacket[]>(
-      `SELECT t.id, t.name, t.slug, t.avatar_url,
-              ${TEAM_MEMBER_COUNT_SQL} AS member_count
-       FROM athlete_teams t
-       WHERE t.is_public = 1
-       ORDER BY member_count DESC, t.created_at DESC
-       LIMIT 4`,
-    );
+      logSectionFailure("stats", statsResult);
+      logSectionFailure("featured_events", featuredResult);
+      logSectionFailure("upcoming_events", upcomingResult);
+      logSectionFailure("top_athletes", athletesResult);
+      logSectionFailure("top_teams", teamsResult);
 
-    res.json({
-      stats: {
-        published_events: Number(statsRow?.published_events ?? 0),
-        active_athletes: Number(statsRow?.active_athletes ?? 0),
-        confirmed_registrations: Number(statsRow?.confirmed_registrations ?? 0),
-        public_teams: Number(statsRow?.public_teams ?? 0),
-        achievements_earned: Number(statsRow?.achievements_earned ?? 0),
-      },
-      featured_events: featuredEvents,
-      upcoming_events: upcomingEvents,
-      top_athletes: athleteRows.map((row, idx) => ({
-        rank: idx + 1,
-        first_name: row.first_name,
-        last_name: row.last_name,
-        xp_total: Number(row.xp_total ?? 0),
-        level: Number(row.level ?? 1),
-      })),
-      top_teams: teamRows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        slug: row.slug,
-        member_count: Number(row.member_count ?? 0),
-        avatar_url: row.avatar_url ?? null,
-      })),
-    });
+      const stats =
+        statsResult.status === "fulfilled" ? statsResult.value : emptyStats;
+      const featuredEvents =
+        featuredResult.status === "fulfilled" ? featuredResult.value[0] : [];
+      const upcomingEvents =
+        upcomingResult.status === "fulfilled" ? upcomingResult.value[0] : [];
+      const athleteRows =
+        athletesResult.status === "fulfilled" ? athletesResult.value[0] : [];
+      const teamRows =
+        teamsResult.status === "fulfilled" ? teamsResult.value[0] : [];
+
+      res.json({
+        stats,
+        featured_events: featuredEvents,
+        upcoming_events: upcomingEvents,
+        top_athletes: athleteRows.map((row, idx) => ({
+          rank: idx + 1,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          xp_total: Number(row.xp_total ?? 0),
+          level: Number(row.level ?? 1),
+        })),
+        top_teams: teamRows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          member_count: Number(row.live_member_count ?? row.member_count ?? 0),
+          avatar_url: row.avatar_url ?? null,
+        })),
+      });
+    }),
+  );
+
+  app.get("/api/geo/states", async (req, res) => {
+    const country = String(req.query.country ?? "MX").toUpperCase().slice(0, 2);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT id, country, name, code
+       FROM geo_states
+       WHERE country = ? AND is_active = 1
+       ORDER BY sort_order ASC, name ASC`,
+      [country],
+    );
+    res.json({ states: rows });
+  });
+
+  app.get("/api/geo/cities", async (req, res) => {
+    const country = String(req.query.country ?? "MX").toUpperCase().slice(0, 2);
+    const stateId = req.query.state_id ? Number(req.query.state_id) : null;
+    const q = req.query.q ? String(req.query.q).trim() : null;
+
+    let sql = `
+      SELECT gc.id, gc.state_id, gc.name, gc.lat, gc.lng,
+             gs.name AS state_name, gs.code AS state_code
+      FROM geo_cities gc
+      JOIN geo_states gs ON gs.id = gc.state_id
+      WHERE gs.country = ? AND gc.is_active = 1 AND gs.is_active = 1
+    `;
+    const params: unknown[] = [country];
+
+    if (stateId != null && Number.isFinite(stateId)) {
+      sql += " AND gc.state_id = ?";
+      params.push(stateId);
+    }
+    if (q && q.length >= 1) {
+      sql += " AND gc.name LIKE ?";
+      params.push(`%${q}%`);
+    }
+
+    sql += " ORDER BY gc.name ASC LIMIT 100";
+
+    const [rows] = await pool.query<RowDataPacket[]>(sql, params);
+    res.json({ cities: rows });
   });
 
   app.get("/api/events", async (req, res) => {
     const sport = req.query.sport ? String(req.query.sport) : null;
     const city = req.query.city ? String(req.query.city) : null;
-    const q = req.query.q ? String(req.query.q).trim() : null;
+    const geoCityId = req.query.geoCityId ? Number(req.query.geoCityId) : null;
+    const qRaw = req.query.q ? String(req.query.q).trim() : null;
+    const q = qRaw && qRaw.length >= 2 ? qRaw : null;
     const featured =
       req.query.featured === "1" || req.query.featured === "true" ? true : null;
-    const dateFrom = req.query.dateFrom ? String(req.query.dateFrom) : null;
-    const dateTo = req.query.dateTo ? String(req.query.dateTo) : null;
+    const { dateFrom, dateTo } = parseEventDateRange(
+      req.query.dateFrom ? String(req.query.dateFrom) : null,
+      req.query.dateTo ? String(req.query.dateTo) : null,
+    );
     const minPrice = req.query.minPrice ? Number(req.query.minPrice) : null;
     const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : null;
     const sort = req.query.sort ? String(req.query.sort) : "date_asc";
     const limit = Math.min(Number(req.query.limit) || 24, 100);
     const offset = Number(req.query.offset) || 0;
+
+    const geoCityIdProvided =
+      geoCityId != null && Number.isFinite(geoCityId) && geoCityId > 0;
+    const resolvedGeoCity = geoCityIdProvided
+      ? await resolveGeoCityById(pool, geoCityId)
+      : null;
+
+    if (geoCityIdProvided && !resolvedGeoCity) {
+      res.json({ events: [], total: 0, limit, offset });
+      return;
+    }
+
+    const listFilters: MarketplaceListFilters = {
+      sport,
+      city,
+      resolvedGeoCity,
+      featured,
+      dateFrom,
+      dateTo,
+      minPrice,
+      maxPrice,
+    };
+
+    if (q) {
+      const fuzzyResult = await listMarketplaceEventsWithFuzzySearch(pool, {
+        registrationCountSql: EVENT_REGISTRATION_COUNT_SQL,
+        filters: listFilters,
+        q,
+        sort,
+        limit,
+        offset,
+      });
+      res.json({
+        events: fuzzyResult.events,
+        total: fuzzyResult.total,
+        limit,
+        offset,
+      });
+      return;
+    }
 
     let sql = `
       SELECT e.id, e.public_uuid, e.slug, e.title, e.short_description, e.start_date, e.end_date,
@@ -3350,42 +4114,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
     `;
     const params: unknown[] = [];
-
-    if (sport) {
-      sql += " AND st.slug = ?";
-      params.push(sport);
-    }
-    if (city) {
-      sql += " AND (e.location_city LIKE ? OR e.location_state LIKE ?)";
-      params.push(`%${city}%`, `%${city}%`);
-    }
-    if (q) {
-      sql += ` AND (
-        e.title LIKE ? OR e.short_description LIKE ? OR e.search_keywords LIKE ?
-        OR e.location_city LIKE ? OR e.location_name LIKE ?
-      )`;
-      const like = `%${q}%`;
-      params.push(like, like, like, like, like);
-    }
-    if (featured) {
-      sql += " AND e.featured = 1";
-    }
-    if (dateFrom) {
-      sql += " AND e.start_date >= ?";
-      params.push(dateFrom);
-    }
-    if (dateTo) {
-      sql += " AND e.start_date <= ?";
-      params.push(dateTo);
-    }
-    if (minPrice != null && !Number.isNaN(minPrice)) {
-      sql += " AND ec_min.from_price_cents >= ?";
-      params.push(minPrice);
-    }
-    if (maxPrice != null && !Number.isNaN(maxPrice)) {
-      sql += " AND ec_min.from_price_cents <= ?";
-      params.push(maxPrice);
-    }
+    sql = appendMarketplaceListFilters(sql, params, listFilters);
 
     const orderMap: Record<string, string> = {
       date_asc: "e.featured DESC, e.start_date ASC",
@@ -3413,41 +4142,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
     `;
     const countParams: unknown[] = [];
-    if (sport) {
-      countSql += " AND st.slug = ?";
-      countParams.push(sport);
-    }
-    if (city) {
-      countSql += " AND (e.location_city LIKE ? OR e.location_state LIKE ?)";
-      countParams.push(`%${city}%`, `%${city}%`);
-    }
-    if (q) {
-      countSql += ` AND (
-        e.title LIKE ? OR e.short_description LIKE ? OR e.search_keywords LIKE ?
-        OR e.location_city LIKE ? OR e.location_name LIKE ?
-      )`;
-      const like = `%${q}%`;
-      countParams.push(like, like, like, like, like);
-    }
-    if (featured) {
-      countSql += " AND e.featured = 1";
-    }
-    if (dateFrom) {
-      countSql += " AND e.start_date >= ?";
-      countParams.push(dateFrom);
-    }
-    if (dateTo) {
-      countSql += " AND e.start_date <= ?";
-      countParams.push(dateTo);
-    }
-    if (minPrice != null && !Number.isNaN(minPrice)) {
-      countSql += " AND ec_min.from_price_cents >= ?";
-      countParams.push(minPrice);
-    }
-    if (maxPrice != null && !Number.isNaN(maxPrice)) {
-      countSql += " AND ec_min.from_price_cents <= ?";
-      countParams.push(maxPrice);
-    }
+    countSql = appendMarketplaceListFilters(countSql, countParams, listFilters);
 
     const [countRows] = await pool.query<RowDataPacket[]>(
       countSql,
@@ -3464,16 +4159,226 @@ function registerMarketplaceRoutes(app: express.Express) {
 
   app.get("/api/events/filters/cities", async (_req, res) => {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT DISTINCT e.location_city AS city, e.location_state AS state, COUNT(*) AS event_count
-       FROM events e
-       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
-         AND e.location_city IS NOT NULL AND e.location_city != ''
-       GROUP BY e.location_city, e.location_state
-       ORDER BY event_count DESC, e.location_city ASC
-       LIMIT 50`,
+      `SELECT gc.id, gc.name AS city, gs.name AS state, COUNT(e.id) AS event_count
+       FROM geo_cities gc
+       JOIN geo_states gs ON gs.id = gc.state_id AND gs.country = 'MX' AND gs.is_active = 1
+       LEFT JOIN events e ON e.location_city = gc.name
+         AND (e.location_state = gs.name OR e.location_state = gs.code)
+         AND e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
+       WHERE gc.is_active = 1
+       GROUP BY gc.id, gc.name, gs.name
+       HAVING event_count > 0
+       ORDER BY event_count DESC, gc.name ASC
+       LIMIT 100`,
     );
     res.json({ cities: rows });
   });
+
+  app.get(
+    "/api/search/suggest",
+    asyncHandler(async (req, res) => {
+      const q = String(req.query.q ?? "").trim();
+      if (q.length < 2) {
+        res.json({
+          query: q,
+          events: [],
+          cities: [],
+          sports: [],
+        });
+        return;
+      }
+
+      const tokens = searchTokens(q);
+      const likePatterns = likePatternsForTokens(tokens);
+      const published = `e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL`;
+
+      const eventSelect = `SELECT e.slug, e.title, e.start_date, e.location_city, e.location_state,
+                  e.hero_image_url, e.featured, st.name AS sport_name, st.slug AS sport_slug,
+                  e.short_description, e.search_keywords, e.location_name`;
+
+      const eventOrClauses = likePatterns.flatMap(() => [
+        `e.title LIKE ?`,
+        `e.short_description LIKE ?`,
+        `e.search_keywords LIKE ?`,
+        `e.location_city LIKE ?`,
+        `e.location_name LIKE ?`,
+        `st.name LIKE ?`,
+        `st.slug LIKE ?`,
+      ]);
+      const eventParams = likePatterns.flatMap((pattern) =>
+        Array(7).fill(pattern),
+      );
+
+      const cityOrClauses = likePatterns.flatMap(() => [
+        `e.location_city LIKE ?`,
+        `e.location_state LIKE ?`,
+      ]);
+      const cityParams = likePatterns.flatMap((pattern) => [pattern, pattern]);
+
+      const sportOrClauses = likePatterns.flatMap(() => [
+        `name LIKE ?`,
+        `slug LIKE ?`,
+      ]);
+      const sportParams = likePatterns.flatMap((pattern) => [pattern, pattern]);
+
+      const hasTokenFilter = likePatterns.length > 0;
+      const emptyRows: RowDataPacket[] = [];
+
+      const [eventsResult, eventsBroadResult, citiesResult, sportsResult, sportsBroadResult] =
+        await Promise.allSettled([
+        hasTokenFilter
+          ? pool.query<RowDataPacket[]>(
+              `${eventSelect}
+           FROM events e
+           JOIN sport_types st ON st.id = e.sport_type_id
+           WHERE ${published}
+             AND (${eventOrClauses.join(" OR ")})
+           ORDER BY e.featured DESC, e.start_date ASC
+           LIMIT 40`,
+              eventParams,
+            )
+          : Promise.resolve([emptyRows, []] as [RowDataPacket[], unknown[]]),
+        pool.query<RowDataPacket[]>(
+          `${eventSelect}
+           FROM events e
+           JOIN sport_types st ON st.id = e.sport_type_id
+           WHERE ${published}
+           ORDER BY e.featured DESC, e.start_date ASC
+           LIMIT 50`,
+        ),
+        hasTokenFilter
+          ? pool.query<RowDataPacket[]>(
+              `SELECT MIN(gc.id) AS id, e.location_city AS city, e.location_state AS state,
+                  COUNT(*) AS event_count
+           FROM events e
+           LEFT JOIN geo_cities gc ON gc.name = e.location_city AND gc.is_active = 1
+           LEFT JOIN geo_states gs ON gs.id = gc.state_id
+             AND (e.location_state = gs.name OR e.location_state = gs.code)
+           WHERE ${published}
+             AND e.location_city IS NOT NULL AND e.location_city != ''
+             AND (${cityOrClauses.join(" OR ")})
+           GROUP BY e.location_city, e.location_state
+           ORDER BY event_count DESC, e.location_city ASC
+           LIMIT 20`,
+              cityParams,
+            )
+          : Promise.resolve([emptyRows, []] as [RowDataPacket[], unknown[]]),
+        hasTokenFilter
+          ? pool.query<RowDataPacket[]>(
+              `SELECT slug, name, icon
+           FROM sport_types
+           WHERE is_active = 1 AND (${sportOrClauses.join(" OR ")})
+           ORDER BY sort_order ASC
+           LIMIT 16`,
+              sportParams,
+            )
+          : Promise.resolve([emptyRows, []] as [RowDataPacket[], unknown[]]),
+        pool.query<RowDataPacket[]>(
+          `SELECT slug, name, icon
+           FROM sport_types
+           WHERE is_active = 1
+           ORDER BY sort_order ASC
+           LIMIT 20`,
+        ),
+      ]);
+
+      const rawEventsMatched: RowDataPacket[] =
+        eventsResult.status === "fulfilled" ? eventsResult.value[0] : emptyRows;
+      const rawEventsBroad: RowDataPacket[] =
+        eventsBroadResult.status === "fulfilled" ? eventsBroadResult.value[0] : emptyRows;
+      const rawCities: RowDataPacket[] =
+        citiesResult.status === "fulfilled" ? citiesResult.value[0] : emptyRows;
+      const rawSportsMatched: RowDataPacket[] =
+        sportsResult.status === "fulfilled" ? sportsResult.value[0] : emptyRows;
+      const rawSportsBroad: RowDataPacket[] =
+        sportsBroadResult.status === "fulfilled" ? sportsBroadResult.value[0] : emptyRows;
+
+      if (eventsResult.status === "rejected") {
+        console.error("[GET /api/search/suggest] events", eventsResult.reason);
+      }
+      if (eventsBroadResult.status === "rejected") {
+        console.error("[GET /api/search/suggest] events-broad", eventsBroadResult.reason);
+      }
+      if (citiesResult.status === "rejected") {
+        console.error("[GET /api/search/suggest] cities", citiesResult.reason);
+      }
+      if (sportsResult.status === "rejected") {
+        console.error("[GET /api/search/suggest] sports", sportsResult.reason);
+      }
+
+      const stripEventExtras = (row: RowDataPacket) => {
+        const {
+          short_description: _sd,
+          search_keywords: _sk,
+          location_name: _ln,
+          featured: _f,
+          ...rest
+        } = row;
+        return rest;
+      };
+
+      const seenEventSlugs = new Set<string>();
+      const eventPool = [...rawEventsMatched, ...rawEventsBroad].filter((row) => {
+        if (seenEventSlugs.has(row.slug as string)) return false;
+        seenEventSlugs.add(row.slug as string);
+        return true;
+      });
+
+      const events = rankByFuzzy(
+        eventPool,
+        q,
+        (row) => [
+          row.title as string,
+          row.sport_name as string,
+          row.sport_slug as string,
+          row.location_city as string,
+          row.location_state as string,
+          row.location_name as string,
+          row.short_description as string,
+          row.search_keywords as string,
+        ],
+        6,
+      ).map(stripEventExtras);
+
+      const seenCities = new Set<string>();
+      const cities = rankByFuzzy(
+        rawCities.filter((row) => {
+          const key = `${row.city}|${row.state ?? ""}`;
+          if (seenCities.has(key)) return false;
+          seenCities.add(key);
+          return true;
+        }),
+        q,
+        (row) => [row.city as string, row.state as string],
+        5,
+      );
+
+      const seenSports = new Set<string>();
+      const sportPool = [...rawSportsMatched, ...rawSportsBroad].filter((row) => {
+        if (seenSports.has(row.slug as string)) return false;
+        seenSports.add(row.slug as string);
+        return true;
+      });
+      const sports = rankByFuzzy(
+        sportPool,
+        q,
+        (row) => [row.name as string, row.slug as string],
+        4,
+      );
+
+      const eventsOut =
+        events.length > 0
+          ? events
+          : rankByFuzzy(eventPool, q, (row) => [row.title as string], 6).map(stripEventExtras);
+      const citiesOut = cities.length > 0 ? cities : rawCities.slice(0, 5);
+      const sportsOut =
+        sports.length > 0
+          ? sports
+          : rankByFuzzy(sportPool, q, (row) => [row.name as string], 4);
+
+      res.json({ query: q, events: eventsOut, cities: citiesOut, sports: sportsOut });
+    }),
+  );
 
   app.post(
     "/api/events/:slug/sponsors/track",
@@ -3653,19 +4558,11 @@ function registerMarketplaceRoutes(app: express.Express) {
       }
     }
 
-    let waiver: Record<string, unknown> | null = null;
+    let waivers: RowDataPacket[] = [];
     if (event.requires_waiver) {
-      const [waiverRows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, title, content_html, version
-         FROM event_waivers
-         WHERE event_id = ? AND is_active = 1
-         ORDER BY version DESC LIMIT 1`,
-        [event.id],
-      );
-      if (waiverRows.length > 0) {
-        waiver = waiverRows[0];
-      }
+      waivers = await fetchActiveEventWaiversPublic(pool, event.id as number);
     }
+    const waiver = waivers[0] ?? null;
 
     res.json({
       event,
@@ -3685,6 +4582,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       serviceFeePercent: feePercent,
       course,
       media,
+      waivers,
       waiver,
       myRegistration,
     });
@@ -3791,7 +4689,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       }
 
       const [eventRows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, title, slug, registration_opens_at, registration_closes_at FROM events
+        `SELECT id, title, slug, start_date, registration_opens_at, registration_closes_at FROM events
          WHERE slug = ? AND status = 'published' AND deleted_at IS NULL LIMIT 1`,
         [slug],
       );
@@ -3803,6 +4701,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       const [catRows] = await pool.query<RowDataPacket[]>(
         `SELECT id, name, capacity, waitlist_enabled,
                 registration_opens_at, registration_closes_at,
+                min_age, max_age, gender_restriction,
                 ${CATEGORY_SOLD_COUNT_UNALIASED_SQL} AS sold_count
          FROM event_categories
          WHERE id = ? AND event_id = ? AND is_active = 1 LIMIT 1`,
@@ -3812,6 +4711,19 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.status(404).json({ error: "Category not found" });
       }
       const category = catRows[0];
+
+      const athleteProfile = await loadAthleteEligibilityProfile(athleteId);
+      if (!athleteProfile) {
+        return res.status(401).json({ error: "Athlete not found" });
+      }
+      const eligibilityErr = categoryEligibilityResponse(
+        category,
+        athleteProfile,
+        event.start_date as string,
+      );
+      if (eligibilityErr) {
+        return res.status(eligibilityErr.status).json(eligibilityErr.body);
+      }
 
       const windowErr = getRegistrationWindowError(
         {
@@ -3893,11 +4805,7 @@ function registerMarketplaceRoutes(app: express.Express) {
   app.post(
     "/api/events/:slug/register/checkout",
     requireAthlete,
-    async (req: AuthedRequest, res) => {
-      if (!stripeConfigured || !stripeClient) {
-        return res.status(503).json({ error: "Payment service unavailable" });
-      }
-
+    asyncHandler(async (req: AuthedRequest, res) => {
       const slug = String(req.params.slug);
       const athleteId = req.auth!.id;
       const categoryId = Number(req.body?.categoryId);
@@ -3906,6 +4814,18 @@ function registerMarketplaceRoutes(app: express.Express) {
         string | boolean
       >;
       const idempotencyKey = String(req.body?.idempotencyKey ?? "").trim();
+      const discountCodeInput = req.body?.discountCode
+        ? String(req.body.discountCode).trim()
+        : "";
+
+      checkoutTrace("start", {
+        slug,
+        athleteId,
+        categoryId,
+        idempotencyKey,
+        hasDiscountCode: Boolean(discountCodeInput),
+        stripeConfigured: isStripeConfigured(),
+      });
 
       if (!Number.isFinite(categoryId)) {
         return res.status(400).json({ error: "categoryId required" });
@@ -3919,14 +4839,14 @@ function registerMarketplaceRoutes(app: express.Express) {
       const [eventRows] = await pool.query<RowDataPacket[]>(
         STRIPE_CONNECT_ENABLED
           ? `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
-                    e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
+                    e.start_date, e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
                     o.stripe_account_id, o.stripe_onboarding_complete,
                     o.service_fee_percent AS org_fee_percent
              FROM events e
              JOIN organizers o ON o.id = e.organizer_id
              WHERE e.slug = ? AND e.status = 'published' LIMIT 1`
           : `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
-                    e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
+                    e.start_date, e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
                     o.service_fee_percent AS org_fee_percent
              FROM events e
              JOIN organizers o ON o.id = e.organizer_id
@@ -3938,21 +4858,8 @@ function registerMarketplaceRoutes(app: express.Express) {
       }
       const event = eventRows[0];
 
-      const [existingPay] = await pool.query<RowDataPacket[]>(
-        `SELECT public_uuid FROM payments
-         WHERE idempotency_key = ? AND athlete_id = ? AND registration_id IS NULL
-           AND status IN ('pending', 'processing') LIMIT 1`,
-        [idempotencyKey, athleteId],
-      );
-      if (existingPay.length > 0) {
-        const resumed = await buildCheckoutResponseForPayment(
-          existingPay[0].public_uuid as string,
-          athleteId,
-        );
-        if (resumed) {
-          return res.json(resumed);
-        }
-      }
+      await cancelStalePendingEventPayments(athleteId, event.id as number, idempotencyKey);
+      checkoutTrace("stale-payments-cancelled", { eventId: event.id });
 
       const [dupReg] = await pool.query<RowDataPacket[]>(
         `SELECT id FROM registrations
@@ -3970,6 +4877,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       const [catRows] = await pool.query<RowDataPacket[]>(
         `SELECT id, name, price_cents, capacity, currency, waitlist_enabled,
                 registration_opens_at, registration_closes_at,
+                min_age, max_age, gender_restriction,
                 ${CATEGORY_SOLD_COUNT_UNALIASED_SQL} AS sold_count
          FROM event_categories
          WHERE id = ? AND event_id = ? AND is_active = 1 LIMIT 1`,
@@ -3979,6 +4887,19 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.status(404).json({ error: "Category not found" });
       }
       const category = catRows[0];
+
+      const athleteProfile = await loadAthleteEligibilityProfile(athleteId);
+      if (!athleteProfile) {
+        return res.status(401).json({ error: "Athlete not found" });
+      }
+      const eligibilityErr = categoryEligibilityResponse(
+        category,
+        athleteProfile,
+        event.start_date as string,
+      );
+      if (eligibilityErr) {
+        return res.status(eligibilityErr.status).json(eligibilityErr.body);
+      }
 
       const windowErr = getRegistrationWindowError(
         {
@@ -4056,28 +4977,21 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
-      const waiverId = req.body?.waiverId != null ? Number(req.body.waiverId) : null;
-      const waiverSignature = req.body?.waiverSignature
-        ? String(req.body.waiverSignature).trim()
-        : "";
       const requiresWaiver = Boolean(event.requires_waiver);
+      let waiverSignatures: WaiverSignatureInput[] | null = null;
 
       if (requiresWaiver) {
-        const [waiverRows] = await pool.query<RowDataPacket[]>(
-          `SELECT id FROM event_waivers
-           WHERE event_id = ? AND is_active = 1
-           ORDER BY version DESC LIMIT 1`,
-          [event.id],
-        );
-        if (waiverRows.length === 0) {
-          return res.status(400).json({ error: "Event waiver is not configured" });
-        }
-        const activeWaiverId = Number(waiverRows[0].id);
-        if (!waiverId || waiverId !== activeWaiverId) {
+        waiverSignatures = parseWaiverSignatures(req.body);
+        if (!waiverSignatures) {
           return res.status(400).json({ error: "Waiver acceptance required" });
         }
-        if (!waiverSignature || waiverSignature.length < 3) {
-          return res.status(400).json({ error: "Typed signature required" });
+        const validation = await validateWaiverSignaturesForEvent(
+          pool,
+          event.id as number,
+          waiverSignatures,
+        );
+        if ("error" in validation) {
+          return res.status(400).json({ error: validation.error });
         }
       }
 
@@ -4093,10 +5007,8 @@ function registerMarketplaceRoutes(app: express.Express) {
       let discountCode: string | undefined;
       let discountAmountCents = 0;
 
-      const discountCodeInput = req.body?.discountCode
-        ? String(req.body.discountCode).trim()
-        : "";
       if (discountCodeInput) {
+        checkoutTrace("discount-apply", { code: discountCodeInput });
         const discountResult = await fetchValidDiscountCode(
           discountCodeInput,
           event.id as number,
@@ -4124,7 +5036,15 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
-      const payUuid = newPublicUuid();
+      checkoutTrace("pricing", {
+        eventId: event.id,
+        categoryId: category.id,
+        totalCents,
+        priceCents,
+        serviceFeeCents,
+        discountApplied: Boolean(discountCodeId),
+      });
+
       const checkoutMetadata: CheckoutPaymentMetadata = {
         categoryId: category.id as number,
         fieldValues,
@@ -4135,17 +5055,128 @@ function registerMarketplaceRoutes(app: express.Express) {
         ...(discountCodeId
           ? { discountCodeId, discountCode, discountAmountCents }
           : {}),
-        ...(requiresWaiver && waiverId
+        ...(requiresWaiver && waiverSignatures
           ? {
-              waiverId,
-              waiverSignature,
+              waiverSignatures,
               waiverAcceptedAt: new Date().toISOString(),
               clientIp: req.ip?.slice(0, 45),
               userAgent: String(req.headers["user-agent"] ?? "").slice(0, 500),
+              deviceInfo: String(req.headers["user-agent"] ?? "").slice(0, 255),
             }
           : {}),
       };
 
+      const metadataJson = JSON.stringify(checkoutMetadata);
+
+      const [existingPay] = await pool.query<RowDataPacket[]>(
+        `SELECT public_uuid FROM payments
+         WHERE idempotency_key = ? AND athlete_id = ? AND registration_id IS NULL
+           AND status IN ('pending', 'processing', 'succeeded') LIMIT 1`,
+        [idempotencyKey, athleteId],
+      );
+      if (existingPay.length > 0) {
+        const existingUuid = existingPay[0].public_uuid as string;
+        checkoutTrace("existing-payment", { paymentPublicUuid: existingUuid, totalCents });
+        await pool.query<ResultSetHeader>(
+          `UPDATE payments SET metadata_json = ?, amount_cents = ?,
+           registration_amount_cents = ?, service_fee_cents = ?
+           WHERE public_uuid = ?`,
+          [metadataJson, totalCents, priceCents, serviceFeeCents, existingUuid],
+        );
+
+        const [[existingRow]] = await pool.query<RowDataPacket[]>(
+          `SELECT stripe_payment_intent_id, amount_cents FROM payments WHERE public_uuid = ? LIMIT 1`,
+          [existingUuid],
+        );
+        if (
+          existingRow?.stripe_payment_intent_id &&
+          getStripeClient() &&
+          totalCents > 0 &&
+          Number(existingRow.amount_cents) !== totalCents
+        ) {
+          try {
+            await getStripeClient()!.paymentIntents.update(
+              String(existingRow.stripe_payment_intent_id),
+              { amount: totalCents },
+            );
+          } catch (err) {
+            console.error("[checkout] payment intent amount update failed:", err);
+          }
+        }
+
+        if (totalCents === 0) {
+          checkoutTrace("free-checkout-resume", { paymentPublicUuid: existingUuid });
+          return res.json({
+            paymentPublicUuid: existingUuid,
+            clientSecret: null,
+            amountCents: 0,
+            registrationAmountCents: priceCents,
+            serviceFeeCents,
+            currency: category.currency || "MXN",
+            categoryName: category.name,
+            eventTitle: event.title,
+            fieldValues,
+            ...(discountCode ? { discountCode, discountAmountCents } : {}),
+          });
+        }
+
+        if (!isStripeConfigured() || !getStripeClient()) {
+          return res.status(503).json({ error: "Payment service unavailable" });
+        }
+
+        const resumed = await buildCheckoutResponseForPayment(existingUuid, athleteId);
+        if (resumed) {
+          checkoutTrace("checkout-resumed", { paymentPublicUuid: existingUuid });
+          return res.json({ ...resumed, fieldValues });
+        }
+      }
+
+      const payUuid = newPublicUuid();
+
+      if (totalCents === 0) {
+        checkoutTrace("free-checkout-new", { paymentPublicUuid: payUuid });
+        await pool.query<ResultSetHeader>(
+          `INSERT INTO payments (
+            public_uuid, idempotency_key, registration_id, athlete_id, organizer_id, event_id,
+            amount_cents, registration_amount_cents, service_fee_cents, currency, status, provider,
+            metadata_json, paid_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+          [
+            payUuid,
+            idempotencyKey,
+            null,
+            athleteId,
+            event.organizer_id,
+            event.id,
+            0,
+            priceCents,
+            serviceFeeCents,
+            category.currency || "MXN",
+            "succeeded",
+            "mock",
+            JSON.stringify(checkoutMetadata),
+          ],
+        );
+
+        return res.json({
+          paymentPublicUuid: payUuid,
+          clientSecret: null,
+          amountCents: 0,
+          registrationAmountCents: priceCents,
+          serviceFeeCents,
+          currency: category.currency || "MXN",
+          categoryName: category.name,
+          eventTitle: event.title,
+          ...(discountCode ? { discountCode, discountAmountCents } : {}),
+        });
+      }
+
+      if (!isStripeConfigured() || !getStripeClient()) {
+        checkoutTrace("stripe-unavailable");
+        return res.status(503).json({ error: "Payment service unavailable" });
+      }
+
+      checkoutTrace("payment-insert", { paymentPublicUuid: payUuid, totalCents });
       const [payResult] = await pool.query<ResultSetHeader>(
         `INSERT INTO payments (
           public_uuid, idempotency_key, registration_id, athlete_id, organizer_id, event_id,
@@ -4170,9 +5201,13 @@ function registerMarketplaceRoutes(app: express.Express) {
       const paymentId = payResult.insertId;
 
       const stripeCustomerId = await ensureStripeCustomer(athleteId);
-      const piParams: Stripe.PaymentIntentCreateParams = {
+      checkoutTrace("stripe-customer", {
+        paymentPublicUuid: payUuid,
+        hasCustomer: Boolean(stripeCustomerId),
+      });
+      const piParams = buildRegistrationPaymentIntentParams({
         amount: totalCents,
-        currency: (category.currency as string)?.toLowerCase() || "mxn",
+        currency: (category.currency as string) || "mxn",
         metadata: {
           payment_public_uuid: payUuid,
           event_slug: slug,
@@ -4181,12 +5216,9 @@ function registerMarketplaceRoutes(app: express.Express) {
           event_id: String(event.id),
           ...(discountCodeId ? { discount_code_id: String(discountCodeId) } : {}),
         },
-        automatic_payment_methods: { enabled: true },
-        setup_future_usage: "off_session",
-      };
-      if (stripeCustomerId) {
-        piParams.customer = stripeCustomerId;
-      }
+        eventTitle: String(event.title),
+        customerId: stripeCustomerId,
+      });
 
       // Stripe Connect (destination charges + platform fee) — disabled for now.
       // Set STRIPE_CONNECT_ENABLED = true when organizer onboarding is live.
@@ -4204,8 +5236,28 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
-      const pi = await stripeClient.paymentIntents.create(piParams);
+      checkoutTrace("payment-intent-create", {
+        paymentPublicUuid: payUuid,
+        totalCents,
+        currency: piParams.currency,
+      });
+      let pi: Stripe.PaymentIntent;
+      try {
+        pi = await getStripeClient()!.paymentIntents.create(piParams, {
+          idempotencyKey: `pi_${payUuid}`,
+        });
+      } catch (err) {
+        checkoutTraceError("payment-intent-create", err, {
+          paymentPublicUuid: payUuid,
+        });
+        throw err;
+      }
       const clientSecret = pi.client_secret;
+      checkoutTrace("payment-intent-created", {
+        paymentPublicUuid: payUuid,
+        paymentIntentId: pi.id,
+        hasClientSecret: Boolean(clientSecret),
+      });
       await pool.query<ResultSetHeader>(
         `UPDATE payments SET stripe_payment_intent_id = ?, status = 'processing' WHERE id = ?`,
         [pi.id, paymentId],
@@ -4224,6 +5276,105 @@ function registerMarketplaceRoutes(app: express.Express) {
           ? { discountCode, discountAmountCents }
           : {}),
       });
+    }),
+  );
+
+  app.post(
+    "/api/events/:slug/register/resume",
+    requireAthlete,
+    async (req: AuthedRequest, res) => {
+      const slug = String(req.params.slug);
+      const athleteId = req.auth!.id;
+      const paymentPublicUuid = String(req.body?.paymentPublicUuid ?? "").trim();
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "").trim();
+
+      if (!paymentPublicUuid && !idempotencyKey) {
+        return res.status(400).json({ error: "paymentPublicUuid or idempotencyKey required" });
+      }
+
+      const [eventRows] = await pool.query<RowDataPacket[]>(
+        "SELECT id FROM events WHERE slug = ? AND status = 'published' LIMIT 1",
+        [slug],
+      );
+      if (eventRows.length === 0) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const eventId = eventRows[0].id as number;
+
+      const [payRows] = await pool.query<RowDataPacket[]>(
+        paymentPublicUuid
+          ? `SELECT p.*, e.title AS event_title, e.slug AS event_slug
+             FROM payments p
+             JOIN events e ON e.id = p.event_id
+             WHERE p.public_uuid = ? AND p.athlete_id = ? AND p.event_id = ? LIMIT 1`
+          : `SELECT p.*, e.title AS event_title, e.slug AS event_slug
+             FROM payments p
+             JOIN events e ON e.id = p.event_id
+             WHERE p.idempotency_key = ? AND p.athlete_id = ? AND p.event_id = ?
+               AND p.registration_id IS NULL
+             ORDER BY p.created_at DESC LIMIT 1`,
+        paymentPublicUuid
+          ? [paymentPublicUuid, athleteId, eventId]
+          : [idempotencyKey, athleteId, eventId],
+      );
+      if (payRows.length === 0) {
+        return res.status(404).json({ error: "Checkout session not found" });
+      }
+      const pay = payRows[0];
+      const payUuid = pay.public_uuid as string;
+
+      if (pay.registration_id) {
+        const [existing] = await pool.query<RowDataPacket[]>(
+          `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.status, r.total_cents,
+                  ec.name AS category_name, e.title AS event_title, e.slug AS event_slug
+           FROM registrations r
+           JOIN event_categories ec ON ec.id = r.event_category_id
+           JOIN events e ON e.id = r.event_id
+           WHERE r.id = ? AND r.deleted_at IS NULL`,
+          [pay.registration_id],
+        );
+        return res.json({
+          status: "complete",
+          registration: existing[0] ?? null,
+        });
+      }
+
+      if (pay.provider === "mock" && Number(pay.amount_cents) === 0) {
+        const result = await confirmRegistrationPayment(payUuid, athleteId);
+        if (result.success && result.registration) {
+          return res.json({ status: "complete", registration: result.registration });
+        }
+        return res.status(402).json({
+          status: "failed",
+          error: result.error || "Could not complete free registration",
+        });
+      }
+
+      if (getStripeClient() && pay.stripe_payment_intent_id) {
+        const pi = await getStripeClient()!.paymentIntents.retrieve(
+          pay.stripe_payment_intent_id as string,
+        );
+        if (pi.status === "succeeded") {
+          const result = await finalizeRegistrationAfterPayment(payUuid, pi);
+          if (result.success && result.registration) {
+            return res.json({ status: "complete", registration: result.registration });
+          }
+          return res.status(402).json({
+            status: "failed",
+            error: result.error || "Payment captured but registration failed",
+          });
+        }
+      }
+
+      const resumed = await buildCheckoutResponseForPayment(payUuid, athleteId);
+      if (!resumed) {
+        return res.status(410).json({
+          status: "expired",
+          error: "Checkout session expired — please start again",
+        });
+      }
+
+      return res.json({ status: "checkout", checkout: resumed });
     },
   );
 
@@ -4231,10 +5382,6 @@ function registerMarketplaceRoutes(app: express.Express) {
     "/api/events/:slug/register/confirm",
     requireAthlete,
     async (req: AuthedRequest, res) => {
-      if (!stripeConfigured || !stripeClient) {
-        return res.status(503).json({ error: "Payment service unavailable" });
-      }
-
       const paymentPublicUuid = String(
         req.body?.paymentPublicUuid ?? req.body?.registrationPublicUuid ?? "",
       ).trim();
@@ -4249,6 +5396,20 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.status(400).json({ error: "paymentPublicUuid required" });
       }
 
+      const [payProbe] = await pool.query<RowDataPacket[]>(
+        `SELECT provider, amount_cents FROM payments
+         WHERE public_uuid = ? AND athlete_id = ? LIMIT 1`,
+        [paymentPublicUuid, req.auth!.id],
+      );
+      const isZeroMock =
+        payProbe.length > 0 &&
+        payProbe[0].provider === "mock" &&
+        Number(payProbe[0].amount_cents) === 0;
+
+      if (!isZeroMock && (!isStripeConfigured() || !getStripeClient())) {
+        return res.status(503).json({ error: "Payment service unavailable" });
+      }
+
       const result = await confirmRegistrationPayment(
         paymentPublicUuid,
         req.auth!.id,
@@ -4260,6 +5421,9 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.status(402).json({
           success: false,
           error: result.error || "Payment failed",
+          ...(result.requiresAction
+            ? { requiresAction: true, clientSecret: result.clientSecret }
+            : {}),
         });
       }
 
@@ -4477,7 +5641,7 @@ function registerAthleteRoutes(app: express.Express) {
       if (rows.length === 0) {
         return res.status(404).json({ error: "Athlete not found" });
       }
-      res.json({ athlete: rows[0] });
+      res.json({ athlete: serializeAthleteRow(rows[0]) });
     },
   );
 
@@ -4536,7 +5700,7 @@ function registerAthleteRoutes(app: express.Express) {
       if (rows.length === 0) {
         return res.status(404).json({ error: "Athlete not found" });
       }
-      res.json({ ok: true, athlete: rows[0] });
+      res.json({ ok: true, athlete: serializeAthleteRow(rows[0]) });
     },
   );
 
@@ -4566,8 +5730,9 @@ function registerAthleteRoutes(app: express.Express) {
     async (req: AuthedRequest, res) => {
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT r.id, r.public_uuid, r.registration_number, r.qr_code_token, r.bib_number, r.status,
-                r.total_cents, r.created_at,
+                r.total_cents, r.created_at, r.waiver_signed_at,
                 e.title AS event_title, e.slug AS event_slug, e.start_date, e.allows_transfers,
+                e.requires_waiver,
                 ec.name AS category_name
          FROM registrations r
          JOIN events e ON e.id = r.event_id AND e.deleted_at IS NULL
@@ -4576,7 +5741,143 @@ function registerAthleteRoutes(app: express.Express) {
          ORDER BY r.created_at DESC`,
         [req.auth!.id],
       );
-      res.json({ registrations: rows });
+
+      const registrations = await Promise.all(
+        rows.map(async (row) => {
+          let waiver_outdated = false;
+          if (Boolean(row.requires_waiver)) {
+            const status = await getRegistrationWaiverStatus(pool, row.id as number);
+            waiver_outdated = status.outdated;
+          }
+          const { requires_waiver, ...rest } = row;
+          return { ...rest, waiver_outdated };
+        }),
+      );
+
+      res.json({ registrations });
+    },
+  );
+
+  app.get(
+    "/api/athlete/registrations/:publicUuid/waivers",
+    requireAthlete,
+    async (req: AuthedRequest, res) => {
+      const publicUuid = String(req.params.publicUuid).trim();
+      const [regRows] = await pool.query<RowDataPacket[]>(
+        `SELECT r.id, r.event_id, r.status, e.requires_waiver, e.slug AS event_slug
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id AND e.deleted_at IS NULL
+         WHERE r.public_uuid = ? AND r.athlete_id = ? AND r.deleted_at IS NULL LIMIT 1`,
+        [publicUuid, req.auth!.id],
+      );
+      if (regRows.length === 0) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+      const reg = regRows[0];
+      if (reg.status !== "confirmed") {
+        return res.status(400).json({ error: "Registration is not confirmed" });
+      }
+      if (!Boolean(reg.requires_waiver)) {
+        return res.json({ requiresResign: false, waivers: [], waiverStatus: { signed: true, outdated: false, outdatedWaivers: [] } });
+      }
+
+      const waivers = await fetchActiveEventWaiversPublic(pool, reg.event_id as number);
+      const waiverStatus = await getRegistrationWaiverStatus(pool, reg.id as number);
+
+      res.json({
+        requiresResign: waiverStatus.outdated,
+        waivers,
+        waiverStatus,
+      });
+    },
+  );
+
+  app.post(
+    "/api/athlete/registrations/:publicUuid/waivers/resign",
+    requireAthlete,
+    async (req: AuthedRequest, res) => {
+      const publicUuid = String(req.params.publicUuid).trim();
+      const signatures = parseWaiverSignatures(req.body);
+      if (!signatures) {
+        return res.status(400).json({ error: "Waiver acceptance required" });
+      }
+
+      const [regRows] = await pool.query<RowDataPacket[]>(
+        `SELECT r.id, r.event_id, r.status, e.requires_waiver
+         FROM registrations r
+         JOIN events e ON e.id = r.event_id AND e.deleted_at IS NULL
+         WHERE r.public_uuid = ? AND r.athlete_id = ? AND r.deleted_at IS NULL LIMIT 1`,
+        [publicUuid, req.auth!.id],
+      );
+      if (regRows.length === 0) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+      const reg = regRows[0];
+
+      const validation = await validateWaiverSignaturesForEvent(
+        pool,
+        reg.event_id as number,
+        signatures,
+      );
+      if ("error" in validation) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      const result = await resignRegistrationWaivers(pool, reg.id as number, signatures, {
+        clientIp: req.ip?.slice(0, 45),
+        userAgent: String(req.headers["user-agent"] ?? "").slice(0, 500),
+        deviceInfo: String(req.headers["user-agent"] ?? "").slice(0, 255),
+      });
+      if ("error" in result) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ ok: true });
+    },
+  );
+
+  app.get(
+    "/api/athlete/pending-checkout",
+    requireAthlete,
+    async (req: AuthedRequest, res) => {
+      const eventSlug = req.query.eventSlug ? String(req.query.eventSlug) : null;
+      const sql = eventSlug
+        ? `SELECT p.public_uuid, p.amount_cents, p.currency, p.status, p.created_at,
+                  p.metadata_json, e.title AS event_title, e.slug AS event_slug
+           FROM payments p
+           JOIN events e ON e.id = p.event_id
+           WHERE p.athlete_id = ? AND p.registration_id IS NULL
+             AND p.status IN ('pending', 'processing', 'succeeded')
+             AND e.slug = ?
+           ORDER BY p.created_at DESC LIMIT 1`
+        : `SELECT p.public_uuid, p.amount_cents, p.currency, p.status, p.created_at,
+                  p.metadata_json, e.title AS event_title, e.slug AS event_slug
+           FROM payments p
+           JOIN events e ON e.id = p.event_id
+           WHERE p.athlete_id = ? AND p.registration_id IS NULL
+             AND p.status IN ('pending', 'processing', 'succeeded')
+           ORDER BY p.created_at DESC LIMIT 5`;
+      const params = eventSlug ? [req.auth!.id, eventSlug] : [req.auth!.id];
+      const [rows] = await pool.query<RowDataPacket[]>(sql, params);
+      const pending = rows.map((row) => {
+        const meta = parseCheckoutPaymentMetadata(
+          typeof row.metadata_json === "string"
+            ? JSON.parse(row.metadata_json as string)
+            : row.metadata_json,
+        );
+        return {
+          public_uuid: row.public_uuid,
+          amount_cents: row.amount_cents,
+          currency: row.currency,
+          status: row.status,
+          created_at: row.created_at,
+          event_title: row.event_title,
+          event_slug: row.event_slug,
+          category_name: meta?.categoryName ?? null,
+          category_id: meta?.categoryId ?? null,
+        };
+      });
+      res.json({ pending });
     },
   );
 
@@ -4838,7 +6139,7 @@ function registerAthleteRoutes(app: express.Express) {
     "/api/athlete/payment-methods",
     requireAthlete,
     async (req: AuthedRequest, res) => {
-      if (!stripeConfigured || !stripeClient) {
+      if (!isStripeConfigured() || !getStripeClient()) {
         return res.status(503).json({ error: "Payment service unavailable" });
       }
 
@@ -4857,7 +6158,7 @@ function registerAthleteRoutes(app: express.Express) {
     "/api/athlete/payment-methods/setup-intent",
     requireAthlete,
     async (req: AuthedRequest, res) => {
-      if (!stripeConfigured || !stripeClient) {
+      if (!isStripeConfigured() || !getStripeClient()) {
         return res.status(503).json({ error: "Payment service unavailable" });
       }
 
@@ -4866,7 +6167,7 @@ function registerAthleteRoutes(app: express.Express) {
         return res.status(500).json({ error: "Could not create Stripe customer" });
       }
 
-      const setupIntent = await stripeClient.setupIntents.create({
+      const setupIntent = await getStripeClient()!.setupIntents.create({
         customer: customerId,
         payment_method_types: ["card"],
         usage: "off_session",
@@ -4888,7 +6189,7 @@ function registerAthleteRoutes(app: express.Express) {
       if (!setupIntentId) {
         return res.status(400).json({ error: "setupIntentId required" });
       }
-      if (!stripeConfigured || !stripeClient) {
+      if (!isStripeConfigured() || !getStripeClient()) {
         return res.status(503).json({ error: "Stripe not configured" });
       }
 
@@ -4898,7 +6199,7 @@ function registerAthleteRoutes(app: express.Express) {
       }
 
       const setupIntent =
-        await stripeClient.setupIntents.retrieve(setupIntentId);
+        await getStripeClient()!.setupIntents.retrieve(setupIntentId);
       if (setupIntent.status !== "succeeded") {
         return res.status(400).json({ error: "Setup not completed" });
       }
@@ -4941,7 +6242,7 @@ function registerAthleteRoutes(app: express.Express) {
       if (!paymentMethodId) {
         return res.status(400).json({ error: "paymentMethodId required" });
       }
-      if (!stripeConfigured || !stripeClient) {
+      if (!isStripeConfigured() || !getStripeClient()) {
         return res.status(503).json({ error: "Stripe not configured" });
       }
 
@@ -4975,7 +6276,7 @@ function registerAthleteRoutes(app: express.Express) {
       if (!paymentMethodId) {
         return res.status(400).json({ error: "paymentMethodId required" });
       }
-      if (!stripeConfigured || !stripeClient) {
+      if (!isStripeConfigured() || !getStripeClient()) {
         return res.status(503).json({ error: "Stripe not configured" });
       }
 
@@ -5235,7 +6536,7 @@ function registerAdminRoutes(app: express.Express) {
     }
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT e.id, e.slug, e.title, e.status, e.start_date,
+      `SELECT e.id, e.slug, e.title, e.status, e.start_date, e.organizer_id,
               ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count,
               e.location_city, st.name AS sport_name, o.name AS organizer_name
        FROM events e
@@ -5400,7 +6701,8 @@ function registerAdminRoutes(app: express.Express) {
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET?.trim() || "";
 
 async function handleStripeWebhook(req: Request, res: Response) {
-  if (!stripeClient || !STRIPE_WEBHOOK_SECRET) {
+  const stripe = getStripeClient();
+  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
     return res.status(503).json({ error: "Webhook not configured" });
   }
 
@@ -5411,7 +6713,7 @@ async function handleStripeWebhook(req: Request, res: Response) {
 
   let event: Stripe.Event;
   try {
-    event = stripeClient.webhooks.constructEvent(
+    event = stripe.webhooks.constructEvent(
       req.body as Buffer,
       signature,
       STRIPE_WEBHOOK_SECRET,
@@ -5460,7 +6762,21 @@ try {
 }
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
-  return app(req as any, res as any);
+  return new Promise<void>((resolve, reject) => {
+    res.on("finish", resolve);
+    res.on("close", resolve);
+    res.on("error", reject);
+    try {
+      app(req as any, res as any);
+    } catch (err) {
+      reject(err);
+    }
+  }).catch((err) => {
+    console.error("[Vercel handler]", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "A server error has occurred" });
+    }
+  });
 }
 
 export function createServer() {

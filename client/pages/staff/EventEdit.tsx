@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
@@ -11,13 +11,21 @@ import {
   Save,
   Trash2,
   Trophy,
-  Pencil,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useToast } from "@/hooks/use-toast";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import StaffCourseSummaryCard from "@/components/staff/StaffCourseSummaryCard";
 import StaffCourseWizardDialog from "@/components/staff/StaffCourseWizardDialog";
+import StaffEventCategoriesSection from "@/components/staff/StaffEventCategoriesSection";
+import StaffEventWaiversSection from "@/components/staff/StaffEventWaiversSection";
+import EventAssetUpload from "@/components/staff/EventAssetUpload";
+import RichHtmlEditor from "@/components/blog/RichHtmlEditor";
+import EventPublishPreviewDialog from "@/components/staff/EventPublishPreviewDialog";
+import StaffEventPublishChecklist, {
+  computeEventPublishReadiness,
+} from "@/components/staff/StaffEventPublishChecklist";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,15 +44,19 @@ import {
 } from "@/components/ui/scrollable-tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import GeoCitySelector from "@/components/geo/GeoCitySelector";
+import {
+  enforceCatalogCityOnEventBody,
+  isCatalogCitySelectionValid,
+} from "@/utils/geoCityValidation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchGeoCities, fetchGeoStates } from "@/store/slices/geoSlice";
 import { fetchSportTypes } from "@/store/slices/marketplaceSlice";
 import {
-  addEventCategory,
   clearEventDetail,
   createDiscountCode,
   createOrganizerEvent,
   deleteDiscountCode,
-  deleteEventCategory,
   fetchDiscountCodes,
   fetchEventCourse,
   fetchEventMedia,
@@ -56,11 +68,9 @@ import {
   fetchStaffEventDetail,
   publishStaffEvent,
   updateDiscountCode,
-  updateEventCategory,
   updateEventCourse,
   updateEventMedia,
   updateEventSponsors,
-  updateEventWaiver,
   offerWaitlistSpot,
   revokeWaitlistEntry,
   updateRegistrationFields,
@@ -72,13 +82,20 @@ import type {
   EventSponsorInput,
   SponsorTier,
   StaffDiscountCodeInput,
-  StaffEventCategoryPatch,
   StaffEventCoursePayload,
-  StaffEventUpsertRequest,
   StaffMediaAssetRow,
   StaffScheduleWaveInput,
 } from "@shared/api";
 import { getNumberLocale } from "@/utils/dateLocale";
+import { buildStaffEventBody } from "@/utils/buildStaffEventBody";
+import { fromDatetimeLocal, toDatetimeLocal } from "@/utils/datetimeLocal";
+import { uploadEventAssetToCdn } from "@/lib/cdn-upload";
+import {
+  createBlobPreviewUrl,
+  revokeBlobUrl,
+  uploadPendingHtmlImages,
+} from "@/lib/blog-pending-images";
+import { validateBlogImageFile } from "@/utils/blogImageValidation";
 import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
@@ -90,25 +107,13 @@ const eventSchema = Yup.object({
   start_date: Yup.string().required("Required"),
 });
 
-function toDatetimeLocal(value?: string | null): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function fromDatetimeLocal(value: string): string | null {
-  if (!value) return null;
-  return new Date(value).toISOString();
-}
-
 export default function StaffEventEdit() {
   const { eventId: eventIdParam } = useParams<{ eventId: string }>();
   const isNew = eventIdParam === "new";
   const eventId = isNew ? null : Number(eventIdParam);
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const dispatch = useAppDispatch();
   const { role, user } = useAppSelector((s) => s.staffAuth);
   const { sportTypes } = useAppSelector((s) => s.marketplace);
@@ -116,7 +121,7 @@ export default function StaffEventEdit() {
     eventDetail,
     eventSponsors,
     registrationFields,
-    eventWaiver,
+    eventWaivers,
     scheduleWaves,
     eventCourse,
     discountCodes,
@@ -134,14 +139,10 @@ export default function StaffEventEdit() {
     saveEventError,
     publishingEvent,
     publishError,
-    savingCategory,
-    categoryError,
     savingSponsors,
     sponsorsError,
     savingFields,
     fieldsError,
-    savingWaiver,
-    waiverError,
     savingWaves,
     wavesError,
     savingCourse,
@@ -152,13 +153,15 @@ export default function StaffEventEdit() {
 
   const [tab, setTab] = useState("details");
   const [courseWizardOpen, setCourseWizardOpen] = useState(false);
-  const [catName, setCatName] = useState("");
-  const [catPrice, setCatPrice] = useState("");
-  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
-  const [categoryDraft, setCategoryDraft] = useState<StaffEventCategoryPatch>({});
+  const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
+  const [uploadingAssets, setUploadingAssets] = useState(false);
+  const [heroPendingFile, setHeroPendingFile] = useState<File | null>(null);
+  const [heroPreviewUrl, setHeroPreviewUrl] = useState<string | null>(null);
+  const sponsorPendingRef = useRef<Map<number, File>>(new Map());
+  const mediaPendingRef = useRef<Map<number, File>>(new Map());
+  const descriptionPendingByUrlRef = useRef<Map<string, File>>(new Map());
+  const descriptionDraftUploadIdRef = useRef(`event_draft_${Date.now()}`);
   const [fieldDrafts, setFieldDrafts] = useState<EventRegistrationFieldInput[]>([]);
-  const [waiverTitle, setWaiverTitle] = useState("");
-  const [waiverContent, setWaiverContent] = useState("");
   const [sponsorDrafts, setSponsorDrafts] = useState<EventSponsorInput[]>([]);
   const [waveDrafts, setWaveDrafts] = useState<StaffScheduleWaveInput[]>([]);
   const [courseDraft, setCourseDraft] = useState<StaffEventCoursePayload | null>(null);
@@ -169,8 +172,39 @@ export default function StaffEventEdit() {
     applies_to: "registration",
   });
   const [mediaDrafts, setMediaDrafts] = useState<StaffMediaAssetRow[]>([]);
+  const [geoStateId, setGeoStateId] = useState<number | null>(null);
+  const [geoCityId, setGeoCityId] = useState<number | null>(null);
+  const [geoLegacySearchResolved, setGeoLegacySearchResolved] = useState(false);
+  const geoStates = useAppSelector((s) => s.geo.states);
+  const geoCitiesByState = useAppSelector((s) => s.geo.citiesByStateId);
   const numLocale = getNumberLocale(i18n.language);
   const isAdmin = role === "admin";
+
+  const descriptionUploadId = useMemo(
+    () =>
+      eventId != null
+        ? `event_${eventId}_desc`
+        : descriptionDraftUploadIdRef.current,
+    [eventId],
+  );
+
+  const stageDescriptionImage = useCallback(
+    (file: File): string | null => {
+      const validationError = validateBlogImageFile(file, t);
+      if (validationError) {
+        toast({
+          title: t("staffPortal.eventEdit.descriptionImageFailed"),
+          description: validationError,
+          variant: "destructive",
+        });
+        return null;
+      }
+      const previewUrl = createBlobPreviewUrl(file);
+      descriptionPendingByUrlRef.current.set(previewUrl, file);
+      return previewUrl;
+    },
+    [t, toast],
+  );
   const isOrganizer = role === "organizer";
   const staffRole = role === "admin" ? "admin" : "organizer";
   const organizerMemberRole = user?.type === "organizer" ? user.role : "organizer";
@@ -182,6 +216,7 @@ export default function StaffEventEdit() {
 
   useEffect(() => {
     dispatch(fetchSportTypes());
+    dispatch(fetchGeoStates("MX"));
     return () => {
       dispatch(clearEventDetail());
     };
@@ -256,13 +291,6 @@ export default function StaffEventEdit() {
   }, [registrationFields]);
 
   useEffect(() => {
-    if (eventWaiver) {
-      setWaiverTitle(eventWaiver.title);
-      setWaiverContent(eventWaiver.content_html);
-    }
-  }, [eventWaiver]);
-
-  useEffect(() => {
     setWaveDrafts(
       scheduleWaves.map((w, i) => ({
         name: w.name,
@@ -302,52 +330,234 @@ export default function StaffEventEdit() {
       status: event?.status ?? "draft",
       visibility: event?.visibility ?? "public",
       featured: Boolean(event?.featured),
+      requires_waiver: Boolean(event?.requires_waiver),
       start_date: toDatetimeLocal(event?.start_date),
       end_date: toDatetimeLocal(event?.end_date),
       registration_opens_at: toDatetimeLocal(event?.registration_opens_at),
       registration_closes_at: toDatetimeLocal(event?.registration_closes_at),
       location_city: event?.location_city ?? "",
+      location_state: event?.location_state ?? "",
       location_name: event?.location_name ?? "",
+      location_lat:
+        event?.location_lat != null && event.location_lat !== ""
+          ? String(event.location_lat)
+          : "",
+      location_lng:
+        event?.location_lng != null && event.location_lng !== ""
+          ? String(event.location_lng)
+          : "",
       hero_image_url: event?.hero_image_url ?? "",
       max_registrations: event?.max_registrations?.toString() ?? "",
     },
     validationSchema: eventSchema,
     onSubmit: async (values) => {
       if (!role) return;
-      const body: StaffEventUpsertRequest = {
-        title: values.title.trim(),
-        slug: values.slug.trim() || undefined,
-        sport_type_id: Number(values.sport_type_id),
-        short_description: values.short_description.trim() || null,
-        description: values.description.trim() || null,
-        status: values.status,
-        visibility: values.visibility,
-        featured: values.featured,
-        start_date: fromDatetimeLocal(values.start_date) ?? values.start_date,
-        end_date: fromDatetimeLocal(values.end_date),
-        registration_opens_at: fromDatetimeLocal(values.registration_opens_at),
-        registration_closes_at: fromDatetimeLocal(values.registration_closes_at),
-        location_city: values.location_city.trim() || null,
-        location_name: values.location_name.trim() || null,
-        hero_image_url: values.hero_image_url.trim() || null,
-        max_registrations: values.max_registrations
-          ? Number(values.max_registrations)
-          : null,
-      };
-
-      if (isNew) {
-        const result = await dispatch(createOrganizerEvent(body));
-        if (createOrganizerEvent.fulfilled.match(result)) {
-          navigate(`/staff/events/${result.payload.event.id}/edit`, { replace: true });
-        }
+      if (!isCatalogCitySelectionValid(geoCityId, values.location_city)) {
+        toast({
+          title: t("geo.citySelector.invalidSelectionTitle"),
+          description: isAdmin
+            ? t("geo.citySelector.supportMessageAdmin")
+            : t("geo.citySelector.supportMessageOrganizer"),
+          variant: "destructive",
+        });
         return;
       }
+      setUploadingAssets(true);
+      try {
+        let heroUrl = values.hero_image_url.trim() || null;
+        if (heroPendingFile && eventId) {
+          heroUrl = await uploadEventAssetToCdn(
+            heroPendingFile,
+            `event_${eventId}_hero`,
+            isAdmin,
+            "hero",
+          );
+          setHeroPendingFile(null);
+          if (heroPreviewUrl?.startsWith("blob:")) revokeBlobUrl(heroPreviewUrl);
+          setHeroPreviewUrl(heroUrl);
+          void formik.setFieldValue("hero_image_url", heroUrl ?? "");
+        }
 
-      if (eventId) {
-        await dispatch(updateStaffEvent({ eventId, role, body }));
+        let description = values.description;
+        if (descriptionPendingByUrlRef.current.size > 0) {
+          description = await uploadPendingHtmlImages({
+            html: values.description,
+            pendingByUrl: descriptionPendingByUrlRef.current,
+            uploadId: descriptionUploadId,
+            isAdmin,
+          });
+          for (const blobUrl of descriptionPendingByUrlRef.current.keys()) {
+            if (!description.includes(blobUrl)) {
+              revokeBlobUrl(blobUrl);
+            }
+          }
+          descriptionPendingByUrlRef.current.clear();
+          void formik.setFieldValue("description", description);
+        }
+
+        const body = enforceCatalogCityOnEventBody(
+          buildStaffEventBody(values, {
+            hero_image_url: heroUrl,
+            description: description.trim() || null,
+          }),
+          geoCityId,
+        );
+
+        if (isNew) {
+          const result = await dispatch(createOrganizerEvent(body));
+          if (createOrganizerEvent.fulfilled.match(result)) {
+            navigate(`/staff/events/${result.payload.event.id}/edit`, { replace: true });
+          }
+          return;
+        }
+
+        if (eventId) {
+          await dispatch(updateStaffEvent({ eventId, role, body }));
+        }
+      } finally {
+        setUploadingAssets(false);
       }
     },
   });
+
+  useEffect(() => {
+    if (!event?.location_city) {
+      setGeoStateId(null);
+      setGeoCityId(null);
+      return;
+    }
+    if (geoStates.length === 0) return;
+
+    const stateMatch = geoStates.find(
+      (s) =>
+        s.name === event.location_state ||
+        s.code === event.location_state ||
+        (!event.location_state && s.name === "CDMX"),
+    );
+    if (!stateMatch) return;
+
+    setGeoStateId((prev) => (prev === stateMatch.id ? prev : stateMatch.id));
+    if (!geoCitiesByState[stateMatch.id]) {
+      void dispatch(fetchGeoCities({ stateId: stateMatch.id }));
+    }
+  }, [
+    dispatch,
+    event?.location_city,
+    event?.location_state,
+    geoStates,
+    geoCitiesByState,
+  ]);
+
+  useEffect(() => {
+    if (!event?.location_city || geoStateId == null) return;
+    const cities = geoCitiesByState[geoStateId] ?? [];
+    if (cities.length === 0) return;
+    const cityMatch = cities.find((c) => c.name === event.location_city);
+    if (cityMatch) {
+      setGeoCityId((prev) => (prev === cityMatch.id ? prev : cityMatch.id));
+    }
+  }, [event?.location_city, geoStateId, geoCitiesByState]);
+
+  useEffect(() => {
+    if (!event?.location_city || event.location_state || geoStateId) {
+      setGeoLegacySearchResolved(false);
+      return;
+    }
+    void dispatch(fetchGeoCities({ q: event.location_city })).then((action) => {
+      setGeoLegacySearchResolved(true);
+      if (!fetchGeoCities.fulfilled.match(action)) return;
+      const match = action.payload.cities.find((c) => c.name === event.location_city);
+      if (!match) return;
+      setGeoStateId(match.state_id);
+      setGeoCityId(match.id);
+      void formik.setFieldValue("location_state", match.state_name);
+    });
+  }, [dispatch, event?.location_city, event?.location_state, geoStateId]);
+
+  useEffect(() => {
+    if (event?.hero_image_url && !heroPendingFile) {
+      setHeroPreviewUrl(event.hero_image_url);
+    }
+  }, [event?.hero_image_url, heroPendingFile]);
+
+  useEffect(() => {
+    if (event?.id) {
+      descriptionPendingByUrlRef.current.clear();
+    }
+  }, [event?.id]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of descriptionPendingByUrlRef.current.keys()) {
+        revokeBlobUrl(url);
+      }
+    };
+  }, []);
+
+  const activeWaivers = useMemo(
+    () => eventWaivers.filter((w) => Boolean(w.is_active)),
+    [eventWaivers],
+  );
+
+  const waiverPublishBlocked =
+    formik.values.requires_waiver &&
+    !activeWaivers.some((w) => {
+      if (w.content_type === "pdf") return Boolean(w.pdf_url?.trim());
+      if (w.content_type === "both") {
+        return Boolean(w.content_html?.trim() || w.pdf_url?.trim());
+      }
+      return Boolean(w.content_html?.trim());
+    });
+
+  const publishReadiness = useMemo(
+    () =>
+      computeEventPublishReadiness({
+        title: formik.values.title,
+        sportTypeId: formik.values.sport_type_id,
+        startDate: formik.values.start_date,
+        categoryCount: eventDetail?.categories?.length ?? 0,
+        heroUrl: heroPreviewUrl || formik.values.hero_image_url,
+        locationLat: formik.values.location_lat,
+        locationLng: formik.values.location_lng,
+        hasWaiver: activeWaivers.some((w) => {
+          if (w.content_type === "pdf") return Boolean(w.pdf_url?.trim());
+          if (w.content_type === "both") {
+            return Boolean(w.content_html?.trim() || w.pdf_url?.trim());
+          }
+          return Boolean(w.content_html?.trim());
+        }),
+        hasCourse: Boolean(courseDraft?.routeGeojson),
+      }),
+    [
+      activeWaivers,
+      courseDraft?.routeGeojson,
+      eventDetail?.categories?.length,
+      formik.values,
+      heroPreviewUrl,
+    ],
+  );
+
+  const handleEventLocationFromCourse = useCallback(
+    (lat: number, lng: number) => {
+      void formik.setFieldValue("location_lat", String(lat));
+      void formik.setFieldValue("location_lng", String(lng));
+      if (!eventId || !role) return;
+      void dispatch(
+        updateStaffEvent({
+          eventId,
+          role,
+          body: enforceCatalogCityOnEventBody(
+            buildStaffEventBody(formik.values, {
+              location_lat: lat,
+              location_lng: lng,
+            }),
+            geoCityId,
+          ),
+        }),
+      );
+    },
+    [dispatch, eventId, formik, geoCityId, role],
+  );
 
   if (isNew && isAdmin) {
     return <Navigate to="/staff/events" replace />;
@@ -362,82 +572,36 @@ export default function StaffEventEdit() {
     const result = await dispatch(publishStaffEvent({ eventId, role }));
     if (publishStaffEvent.fulfilled.match(result)) {
       formik.setFieldValue("status", "published");
+      setPublishPreviewOpen(false);
     }
   };
 
-  const handleAddCategory = async () => {
-    if (!eventId || !catName.trim() || !catPrice) return;
-    const price_cents = Math.round(Number(catPrice) * 100);
-    if (!Number.isFinite(price_cents) || price_cents < 0) return;
-    await dispatch(
-      addEventCategory({
-        eventId,
-        role: staffRole,
-        body: { name: catName.trim(), price_cents },
-      }),
-    );
-    setCatName("");
-    setCatPrice("");
-  };
-
-  const handleSaveSponsors = () => {
+  const handleSaveSponsors = async () => {
     if (!eventId || !role) return;
-    dispatch(
-      updateEventSponsors({
-        eventId,
-        role: staffRole,
-        sponsors: sponsorDrafts.filter((s) => s.name.trim()),
-      }),
-    );
-  };
-
-  const startEditCategory = (c: {
-    id: number;
-    name: string;
-    price_cents: number;
-    capacity?: number | null;
-    distance_km?: number | null;
-    gender_restriction?: string | null;
-    waitlist_enabled?: boolean | number;
-    registration_opens_at?: string | null;
-    registration_closes_at?: string | null;
-  }) => {
-    setEditingCategoryId(c.id);
-    setCategoryDraft({
-      name: c.name,
-      price_cents: c.price_cents,
-      capacity: c.capacity ?? null,
-      distance_km: c.distance_km ?? null,
-      gender_restriction: c.gender_restriction ?? "any",
-      waitlist_enabled: Boolean(c.waitlist_enabled),
-      registration_opens_at: toDatetimeLocal(c.registration_opens_at) || null,
-      registration_closes_at: toDatetimeLocal(c.registration_closes_at) || null,
-    });
-  };
-
-  const handleSaveCategoryEdit = async () => {
-    if (!eventId || editingCategoryId == null) return;
-    const opensLocal =
-      typeof categoryDraft.registration_opens_at === "string"
-        ? categoryDraft.registration_opens_at
-        : "";
-    const closesLocal =
-      typeof categoryDraft.registration_closes_at === "string"
-        ? categoryDraft.registration_closes_at
-        : "";
-    await dispatch(
-      updateEventCategory({
-        eventId,
-        categoryId: editingCategoryId,
-        role: staffRole,
-        body: {
-          ...categoryDraft,
-          registration_opens_at: opensLocal ? fromDatetimeLocal(opensLocal) : null,
-          registration_closes_at: closesLocal ? fromDatetimeLocal(closesLocal) : null,
-        },
-      }),
-    );
-    setEditingCategoryId(null);
+    setUploadingAssets(true);
+    try {
+      const next = [...sponsorDrafts];
+      for (const [index, file] of sponsorPendingRef.current.entries()) {
+        const url = await uploadEventAssetToCdn(
+          file,
+          `event_${eventId}_sponsor_${index}`,
+          isAdmin,
+          "sponsor",
+        );
+        if (next[index]) next[index] = { ...next[index], logo_url: url };
+      }
+      sponsorPendingRef.current.clear();
+      setSponsorDrafts(next);
+      dispatch(
+        updateEventSponsors({
+          eventId,
+          role: staffRole,
+          sponsors: next.filter((s) => s.name.trim()),
+        }),
+      );
+    } finally {
+      setUploadingAssets(false);
+    }
   };
 
   const handleSaveFields = () => {
@@ -451,16 +615,32 @@ export default function StaffEventEdit() {
     );
   };
 
-  const handleSaveWaiver = () => {
-    if (!eventId || !role || !waiverTitle.trim() || !waiverContent.trim()) return;
-    dispatch(
-      updateEventWaiver({
-        eventId,
-        role: staffRole,
-        title: waiverTitle.trim(),
-        content_html: waiverContent.trim(),
-      }),
-    );
+  const handleSaveMedia = async () => {
+    if (!eventId || !role) return;
+    setUploadingAssets(true);
+    try {
+      const next = [...mediaDrafts];
+      for (const [index, file] of mediaPendingRef.current.entries()) {
+        const url = await uploadEventAssetToCdn(
+          file,
+          `event_${eventId}_media_${index}`,
+          isAdmin,
+          "image",
+        );
+        if (next[index]) next[index] = { ...next[index], url };
+      }
+      mediaPendingRef.current.clear();
+      setMediaDrafts(next);
+      dispatch(
+        updateEventMedia({
+          eventId,
+          role: staffRole,
+          media: next.filter((m) => m.url.trim()),
+        }),
+      );
+    } finally {
+      setUploadingAssets(false);
+    }
   };
 
   const handleSaveWaves = () => {
@@ -513,7 +693,7 @@ export default function StaffEventEdit() {
     : t("staffPortal.eventEdit.editTitle");
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 min-w-0">
+    <div className="max-w-4xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet title={pageTitle} description={t("staffPortal.eventEdit.subtitle")} />
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -537,8 +717,8 @@ export default function StaffEventEdit() {
           <Button
             variant="outline"
             className="border-cyan text-cyan shrink-0"
-            disabled={publishingEvent}
-            onClick={handlePublish}
+            disabled={publishingEvent || !publishReadiness.hasCategory || waiverPublishBlocked}
+            onClick={() => setPublishPreviewOpen(true)}
           >
             {publishingEvent ? (
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -575,11 +755,33 @@ export default function StaffEventEdit() {
         }}
       />
 
+      <EventPublishPreviewDialog
+        open={publishPreviewOpen}
+        onOpenChange={setPublishPreviewOpen}
+        event={event}
+        categories={eventDetail?.categories ?? []}
+        sponsors={sponsorDrafts}
+        courseDistanceKm={courseDraft?.distanceKm}
+        waiverCount={activeWaivers.length}
+        requiresWaiver={formik.values.requires_waiver}
+        confirming={publishingEvent}
+        onConfirm={() => void handlePublish()}
+      />
+
       {loadingEventDetail && !isNew ? (
         <p className="text-muted-foreground">{t("common.loading")}</p>
       ) : (
+        <>
+          {!isNew ? (
+            <StaffEventPublishChecklist
+              readiness={publishReadiness}
+              onNavigate={setTab}
+              className="lg:hidden"
+            />
+          ) : null}
         <Tabs value={tab} onValueChange={setTab} className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
-          <VerticalTabsList aria-label={t("staffPortal.eventEdit.sectionsLabel")}>
+          <div className="w-full lg:w-56 shrink-0 space-y-4">
+            <VerticalTabsList aria-label={t("staffPortal.eventEdit.sectionsLabel")}>
             <VerticalTabsTrigger value="details">{t("staffPortal.eventEdit.tabDetails")}</VerticalTabsTrigger>
             {!isNew ? (
               <VerticalTabsTrigger value="categories">
@@ -601,11 +803,22 @@ export default function StaffEventEdit() {
               </>
             ) : null}
           </VerticalTabsList>
+            {!isNew ? (
+              <StaffEventPublishChecklist
+                readiness={publishReadiness}
+                onNavigate={setTab}
+                className="hidden lg:block"
+              />
+            ) : null}
+          </div>
 
           <div className="flex-1 min-w-0 w-full">
 
           <TabsContent value="details" className="mt-0">
             <form onSubmit={formik.handleSubmit} className="card-sport p-6 space-y-5">
+              <p className="text-sm text-muted-foreground">
+                {t("staffPortal.eventEdit.detailsHelp")}
+              </p>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2 space-y-2">
                   <Label htmlFor="title">{t("staffPortal.eventEdit.fieldTitle")}</Label>
@@ -648,14 +861,61 @@ export default function StaffEventEdit() {
                   <Input id="end_date" type="datetime-local" {...formik.getFieldProps("end_date")} />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="location_city">{t("staffPortal.eventEdit.fieldCity")}</Label>
-                  <Input id="location_city" {...formik.getFieldProps("location_city")} />
-                </div>
+                <GeoCitySelector
+                  stateId={geoStateId}
+                  cityId={geoCityId}
+                  cityName={formik.values.location_city}
+                  stateName={formik.values.location_state}
+                  staffRole={isAdmin ? "admin" : "organizer"}
+                  legacySearchResolved={geoLegacySearchResolved}
+                  onChange={(sel) => {
+                    setGeoStateId(sel.stateId);
+                    setGeoCityId(sel.geoCityId);
+                    setGeoLegacySearchResolved(false);
+                    void formik.setFieldValue("location_city", sel.city);
+                    void formik.setFieldValue("location_state", sel.state);
+                    if (!sel.city) {
+                      void formik.setFieldValue("location_lat", "");
+                      void formik.setFieldValue("location_lng", "");
+                      return;
+                    }
+                    if (sel.lat != null) {
+                      void formik.setFieldValue("location_lat", String(sel.lat));
+                    }
+                    if (sel.lng != null) {
+                      void formik.setFieldValue("location_lng", String(sel.lng));
+                    }
+                  }}
+                />
 
                 <div className="space-y-2">
                   <Label htmlFor="location_name">{t("staffPortal.eventEdit.fieldVenue")}</Label>
                   <Input id="location_name" {...formik.getFieldProps("location_name")} />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="location_lat">{t("staffPortal.eventEdit.fieldLat")}</Label>
+                  <Input
+                    id="location_lat"
+                    type="number"
+                    step="any"
+                    placeholder="19.4326"
+                    {...formik.getFieldProps("location_lat")}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="location_lng">{t("staffPortal.eventEdit.fieldLng")}</Label>
+                  <Input
+                    id="location_lng"
+                    type="number"
+                    step="any"
+                    placeholder="-99.1332"
+                    {...formik.getFieldProps("location_lng")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.eventEdit.fieldLocationHint")}
+                  </p>
                 </div>
 
                 {!isNew ? (
@@ -697,6 +957,21 @@ export default function StaffEventEdit() {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    <label className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-border/60 p-3 cursor-pointer">
+                      <Checkbox
+                        checked={formik.values.requires_waiver}
+                        onCheckedChange={(v) => formik.setFieldValue("requires_waiver", v === true)}
+                      />
+                      <span className="text-sm leading-snug">
+                        <span className="font-medium block">
+                          {t("staffPortal.eventEdit.fieldRequiresWaiver")}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {t("staffPortal.eventEdit.fieldRequiresWaiverHint")}
+                        </span>
+                      </span>
+                    </label>
                   </>
                 ) : null}
 
@@ -712,9 +987,31 @@ export default function StaffEventEdit() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="hero_image_url">{t("staffPortal.eventEdit.fieldHero")}</Label>
-                  <Input id="hero_image_url" {...formik.getFieldProps("hero_image_url")} />
+                <div className="sm:col-span-2 space-y-2">
+                  <Label>{t("staffPortal.eventEdit.fieldHero")}</Label>
+                  <EventAssetUpload
+                    kind="image"
+                    previewUrl={heroPreviewUrl}
+                    onSelectFile={(file) => {
+                      if (heroPreviewUrl?.startsWith("blob:")) revokeBlobUrl(heroPreviewUrl);
+                      setHeroPendingFile(file);
+                      setHeroPreviewUrl(createBlobPreviewUrl(file));
+                    }}
+                    onClear={() => {
+                      if (heroPreviewUrl?.startsWith("blob:")) revokeBlobUrl(heroPreviewUrl);
+                      setHeroPendingFile(null);
+                      setHeroPreviewUrl(null);
+                      void formik.setFieldValue("hero_image_url", "");
+                    }}
+                  />
+                  <Input
+                    id="hero_image_url"
+                    placeholder={t("staffPortal.eventEdit.fieldHeroUrlFallback")}
+                    {...formik.getFieldProps("hero_image_url")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.eventEdit.fieldHeroHint")}
+                  </p>
                 </div>
 
                 {!isNew ? (
@@ -755,240 +1052,55 @@ export default function StaffEventEdit() {
 
                 <div className="sm:col-span-2 space-y-2">
                   <Label htmlFor="description">{t("staffPortal.eventEdit.fieldDesc")}</Label>
-                  <Textarea id="description" rows={5} {...formik.getFieldProps("description")} />
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.eventEdit.fieldDescHint")}
+                  </p>
+                  <RichHtmlEditor
+                    value={formik.values.description}
+                    onChange={(html) => void formik.setFieldValue("description", html)}
+                    onStageImage={stageDescriptionImage}
+                    placeholder={t("staffPortal.eventEdit.fieldDescPlaceholder")}
+                  />
                 </div>
               </div>
 
-              <Button type="submit" disabled={savingEvent} className="w-full sm:w-auto">
-                {savingEvent ? (
+              <Button type="submit" disabled={savingEvent || uploadingAssets} className="w-full sm:w-auto">
+                {savingEvent || uploadingAssets ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : (
                   <Save className="w-4 h-4 mr-2" />
                 )}
-                {isNew ? t("staffPortal.eventEdit.create") : t("staffPortal.eventEdit.save")}
+                {uploadingAssets
+                  ? t("staffPortal.eventEdit.savingAssets")
+                  : isNew
+                    ? t("staffPortal.eventEdit.create")
+                    : t("staffPortal.eventEdit.save")}
               </Button>
             </form>
           </TabsContent>
 
           {!isNew ? (
             <TabsContent value="categories" className="mt-0 space-y-4">
-              <div className="card-sport p-6 space-y-4">
-                <h2 className="font-semibold">{t("staffPortal.eventEdit.categoriesTitle")}</h2>
-
-                {(eventDetail?.categories?.length ?? 0) === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {t("staffPortal.eventEdit.noCategories")}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {eventDetail?.categories.map((c) => (
-                      <div
-                        key={c.id}
-                        className="rounded-xl border border-border p-3 space-y-3"
-                      >
-                        {editingCategoryId === c.id ? (
-                          <div className="grid sm:grid-cols-2 gap-2">
-                            <Input
-                              value={categoryDraft.name ?? ""}
-                              onChange={(e) =>
-                                setCategoryDraft((d) => ({ ...d, name: e.target.value }))
-                              }
-                            />
-                            <Input
-                              type="number"
-                              step={0.01}
-                              value={
-                                categoryDraft.price_cents != null
-                                  ? categoryDraft.price_cents / 100
-                                  : ""
-                              }
-                              onChange={(e) =>
-                                setCategoryDraft((d) => ({
-                                  ...d,
-                                  price_cents: Math.round(Number(e.target.value) * 100),
-                                }))
-                              }
-                            />
-                            <Input
-                              type="number"
-                              placeholder={t("staffPortal.eventEdit.categoryCapacity")}
-                              value={categoryDraft.capacity ?? ""}
-                              onChange={(e) =>
-                                setCategoryDraft((d) => ({
-                                  ...d,
-                                  capacity: e.target.value ? Number(e.target.value) : null,
-                                }))
-                              }
-                            />
-                            <Input
-                              type="number"
-                              step={0.01}
-                              placeholder={t("staffPortal.eventEdit.categoryDistance")}
-                              value={categoryDraft.distance_km ?? ""}
-                              onChange={(e) =>
-                                setCategoryDraft((d) => ({
-                                  ...d,
-                                  distance_km: e.target.value ? Number(e.target.value) : null,
-                                }))
-                              }
-                            />
-                            <label className="sm:col-span-2 flex items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={Boolean(categoryDraft.waitlist_enabled)}
-                                onCheckedChange={(checked) =>
-                                  setCategoryDraft((d) => ({
-                                    ...d,
-                                    waitlist_enabled: checked === true,
-                                  }))
-                                }
-                              />
-                              {t("staffPortal.eventEdit.categoryWaitlist")}
-                            </label>
-                            <div>
-                              <Label className="text-xs">
-                                {t("staffPortal.eventEdit.categoryRegOpens")}
-                              </Label>
-                              <Input
-                                type="datetime-local"
-                                value={
-                                  typeof categoryDraft.registration_opens_at === "string"
-                                    ? categoryDraft.registration_opens_at
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  setCategoryDraft((d) => ({
-                                    ...d,
-                                    registration_opens_at: e.target.value || null,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs">
-                                {t("staffPortal.eventEdit.categoryRegCloses")}
-                              </Label>
-                              <Input
-                                type="datetime-local"
-                                value={
-                                  typeof categoryDraft.registration_closes_at === "string"
-                                    ? categoryDraft.registration_closes_at
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  setCategoryDraft((d) => ({
-                                    ...d,
-                                    registration_closes_at: e.target.value || null,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div className="sm:col-span-2 flex gap-2">
-                              <Button size="sm" onClick={handleSaveCategoryEdit}>
-                                {t("staffPortal.eventEdit.save")}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingCategoryId(null)}
-                              >
-                                {t("common.cancel")}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-medium">{c.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                ${(c.price_cents / 100).toLocaleString(numLocale)} MXN ·{" "}
-                                {c.sold_count}
-                                {c.capacity != null ? ` / ${c.capacity}` : ""}{" "}
-                                {t("staffPortal.dashboard.registered").toLowerCase()}
-                                {c.distance_km ? ` · ${c.distance_km} km` : ""}
-                                {Boolean(c.waitlist_enabled)
-                                  ? ` · ${t("staffPortal.eventEdit.waitlistOn")}`
-                                  : ""}
-                              </p>
-                            </div>
-                            {canManageCategories ? (
-                              <div className="flex gap-1 shrink-0">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => startEditCategory(c)}
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-destructive"
-                                  onClick={() =>
-                                    eventId &&
-                                    dispatch(
-                                      deleteEventCategory({
-                                        eventId,
-                                        categoryId: c.id,
-                                        role: staffRole,
-                                      }),
-                                    )
-                                  }
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            ) : null}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {canManageCategories ? (
-                  <div className="pt-4 border-t border-border space-y-3">
-                    <h3 className="text-sm font-medium">{t("staffPortal.eventEdit.addCategory")}</h3>
-                    {categoryError ? (
-                      <p className="text-sm text-destructive">{categoryError}</p>
-                    ) : null}
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Input
-                        placeholder={t("staffPortal.eventEdit.categoryName")}
-                        value={catName}
-                        onChange={(e) => setCatName(e.target.value)}
-                        className="flex-1"
-                      />
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        placeholder={t("staffPortal.eventEdit.categoryPrice")}
-                        value={catPrice}
-                        onChange={(e) => setCatPrice(e.target.value)}
-                        className="w-full sm:w-32"
-                      />
-                      <Button
-                        type="button"
-                        onClick={handleAddCategory}
-                        disabled={savingCategory || !catName.trim() || !catPrice}
-                      >
-                        {savingCategory ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Plus className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
+              {eventId ? (
+                <StaffEventCategoriesSection
+                  eventId={eventId}
+                  categories={eventDetail?.categories ?? []}
+                  canManage={canManageCategories}
+                  staffRole={staffRole}
+                />
+              ) : null}
             </TabsContent>
           ) : null}
 
           {canManageSponsors ? (
             <TabsContent value="sponsors" className="mt-0 space-y-4">
               <div className="card-sport p-6 space-y-4">
-                <h2 className="font-semibold">{t("staffPortal.eventEdit.sponsorsTitle")}</h2>
+                <div>
+                  <h2 className="font-semibold">{t("staffPortal.eventEdit.sponsorsTitle")}</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {t("staffPortal.eventEdit.sponsorsHelp")}
+                  </p>
+                </div>
                 {sponsorsError ? (
                   <p className="text-sm text-destructive">{sponsorsError}</p>
                 ) : null}
@@ -1016,6 +1128,26 @@ export default function StaffEventEdit() {
                           setSponsorDrafts(next);
                         }}
                       />
+                      <div className="sm:col-span-12">
+                        <EventAssetUpload
+                          kind="image"
+                          compact
+                          previewUrl={s.logo_url ?? null}
+                          onSelectFile={(file) => {
+                            sponsorPendingRef.current.set(i, file);
+                            const preview = createBlobPreviewUrl(file);
+                            const next = [...sponsorDrafts];
+                            next[i] = { ...next[i], logo_url: preview };
+                            setSponsorDrafts(next);
+                          }}
+                          onClear={() => {
+                            sponsorPendingRef.current.delete(i);
+                            const next = [...sponsorDrafts];
+                            next[i] = { ...next[i], logo_url: "" };
+                            setSponsorDrafts(next);
+                          }}
+                        />
+                      </div>
                       <Select
                         value={s.tier ?? "partner"}
                         onValueChange={(v) => {
@@ -1066,7 +1198,11 @@ export default function StaffEventEdit() {
                     <Plus className="w-4 h-4 mr-2" />
                     {t("staffPortal.eventEdit.addSponsor")}
                   </Button>
-                  <Button type="button" onClick={handleSaveSponsors} disabled={savingSponsors}>
+                  <Button
+                    type="button"
+                    onClick={() => void handleSaveSponsors()}
+                    disabled={savingSponsors || uploadingAssets}
+                  >
                     {savingSponsors ? (
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
                     ) : (
@@ -1240,41 +1376,15 @@ export default function StaffEventEdit() {
 
           {canManageCategories ? (
             <TabsContent value="waiver" className="mt-0 space-y-4">
-              <div className="card-sport p-6 space-y-4">
-                <h2 className="font-semibold">{t("staffPortal.eventEdit.waiverTitle")}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {t("staffPortal.eventEdit.waiverSubtitle")}
-                </p>
-                {waiverError ? <p className="text-sm text-destructive">{waiverError}</p> : null}
-                <Input
-                  placeholder={t("staffPortal.eventEdit.waiverName")}
-                  value={waiverTitle}
-                  onChange={(e) => setWaiverTitle(e.target.value)}
+              {eventId ? (
+                <StaffEventWaiversSection
+                  eventId={eventId}
+                  waivers={eventWaivers}
+                  canManage={canManageCategories}
+                  staffRole={staffRole}
+                  isAdmin={isAdmin}
                 />
-                <Textarea
-                  rows={10}
-                  placeholder={t("staffPortal.eventEdit.waiverContent")}
-                  value={waiverContent}
-                  onChange={(e) => setWaiverContent(e.target.value)}
-                />
-                {eventWaiver ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t("staffPortal.eventEdit.waiverVersion", { version: eventWaiver.version })}
-                  </p>
-                ) : null}
-                <Button
-                  type="button"
-                  onClick={handleSaveWaiver}
-                  disabled={savingWaiver || !waiverTitle.trim() || !waiverContent.trim()}
-                >
-                  {savingWaiver ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <Save className="w-4 h-4 mr-2" />
-                  )}
-                  {t("staffPortal.eventEdit.saveWaiver")}
-                </Button>
-              </div>
+              ) : null}
             </TabsContent>
           ) : null}
 
@@ -1398,6 +1508,8 @@ export default function StaffEventEdit() {
                 {courseError ? <p className="text-sm text-destructive">{courseError}</p> : null}
                 <StaffCourseSummaryCard
                   course={courseDraft}
+                  startLat={formik.values.location_lat || event?.location_lat}
+                  startLng={formik.values.location_lng || event?.location_lng}
                   onOpenWizard={() => setCourseWizardOpen(true)}
                 />
                 <StaffCourseWizardDialog
@@ -1406,8 +1518,9 @@ export default function StaffEventEdit() {
                   value={courseDraft}
                   onSave={handleWizardSave}
                   saving={savingCourse}
-                  eventLat={event?.location_lat}
-                  eventLng={event?.location_lng}
+                  eventLat={formik.values.location_lat || event?.location_lat}
+                  eventLng={formik.values.location_lng || event?.location_lng}
+                  onEventLocationChange={handleEventLocationFromCourse}
                 />
               </div>
             </TabsContent>
@@ -1646,16 +1759,42 @@ export default function StaffEventEdit() {
                             setMediaDrafts(next);
                           }}
                         />
-                        <Input
-                          className="sm:col-span-7"
-                          placeholder="https://..."
-                          value={m.url}
-                          onChange={(e) => {
-                            const next = [...mediaDrafts];
-                            next[i] = { ...next[i], url: e.target.value };
-                            setMediaDrafts(next);
-                          }}
-                        />
+                        <div className="sm:col-span-7 space-y-2">
+                          <Input
+                            placeholder="https://..."
+                            value={m.url.startsWith("blob:") ? "" : m.url}
+                            onChange={(e) => {
+                              const next = [...mediaDrafts];
+                              next[i] = { ...next[i], url: e.target.value };
+                              setMediaDrafts(next);
+                            }}
+                          />
+                          <EventAssetUpload
+                            kind="image"
+                            compact
+                            previewUrl={
+                              m.url.startsWith("blob:") || m.url.startsWith("http")
+                                ? m.url
+                                : null
+                            }
+                            onSelectFile={(file) => {
+                              mediaPendingRef.current.set(i, file);
+                              const blob = createBlobPreviewUrl(file);
+                              const next = [...mediaDrafts];
+                              next[i] = { ...next[i], url: blob ?? "" };
+                              setMediaDrafts(next);
+                            }}
+                            onClear={() => {
+                              mediaPendingRef.current.delete(i);
+                              const next = [...mediaDrafts];
+                              if (next[i]?.url.startsWith("blob:")) {
+                                revokeBlobUrl(next[i].url);
+                              }
+                              next[i] = { ...next[i], url: "" };
+                              setMediaDrafts(next);
+                            }}
+                          />
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -1691,17 +1830,8 @@ export default function StaffEventEdit() {
                   </Button>
                   <Button
                     type="button"
-                    disabled={savingEventMedia || !eventId}
-                    onClick={() =>
-                      eventId &&
-                      dispatch(
-                        updateEventMedia({
-                          eventId,
-                          role: staffRole,
-                          media: mediaDrafts.filter((m) => m.url.trim()),
-                        }),
-                      )
-                    }
+                    disabled={savingEventMedia || uploadingAssets || !eventId}
+                    onClick={handleSaveMedia}
                   >
                     {savingEventMedia ? (
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -1716,6 +1846,7 @@ export default function StaffEventEdit() {
           ) : null}
           </div>
         </Tabs>
+        </>
       )}
     </div>
   );

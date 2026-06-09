@@ -2,12 +2,28 @@ import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/tool
 import api, { getAthleteToken, setAthleteToken } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
 import type {
+  AthleteAuthSessionResponse,
   AthleteCheckEmailResponse,
   AthleteProfileUpdateRequest,
   AthleteUser,
 } from "@shared/api";
 import { mapAthleteApiRow } from "@shared/api";
 import i18n from "@/i18n";
+
+function athleteAuthRejectMessage(e: unknown, fallback: string): string {
+  const err = e as {
+    response?: {
+      data?: { error?: string; code?: string; retryAfterSec?: number };
+    };
+  };
+  const data = err?.response?.data;
+  if (data?.code === "rate_limited") {
+    return i18n.t("auth.rateLimited", {
+      seconds: data.retryAfterSec ?? 60,
+    });
+  }
+  return data?.error || fallback;
+}
 
 interface AthleteAuthState {
   user: AthleteUser | null;
@@ -16,12 +32,12 @@ interface AthleteAuthState {
   updatingProfile: boolean;
   uploadingAvatar: boolean;
   checkingEmail: boolean;
-  requestingOtp: boolean;
-  verifyingOtp: boolean;
+  signingIn: boolean;
+  registering: boolean;
+  resettingPassword: boolean;
   syncingClerk: boolean;
   error: string | null;
-  otpSentTo: string | null;
-  otpChannel: "email" | "sms";
+  passwordResetSent: boolean;
 }
 
 const initialState: AthleteAuthState = {
@@ -31,16 +47,16 @@ const initialState: AthleteAuthState = {
   updatingProfile: false,
   uploadingAvatar: false,
   checkingEmail: false,
-  requestingOtp: false,
-  verifyingOtp: false,
+  signingIn: false,
+  registering: false,
+  resettingPassword: false,
   syncingClerk: false,
   error: null,
-  otpSentTo: null,
-  otpChannel: "email",
+  passwordResetSent: false,
 };
 
 export const checkAthleteEmail = createAsyncThunk<
-  { exists: boolean },
+  { exists: boolean; hasPassword: boolean; hasSocialLogin: boolean },
   { email: string },
   { rejectValue: string }
 >("athleteAuth/checkEmail", async (payload, { rejectWithValue }) => {
@@ -49,82 +65,119 @@ export const checkAthleteEmail = createAsyncThunk<
       "/auth/athlete/check-email",
       { email: payload.email.trim().toLowerCase() },
     );
-    return { exists: data.exists };
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { error?: string } } };
-    return rejectWithValue(err?.response?.data?.error || "Could not verify email");
-  }
-});
-
-export const requestAthleteOtp = createAsyncThunk<
-  { destination: string; channel: "email" | "sms" },
-  {
-    email?: string;
-    phone?: string;
-    channel?: "email" | "sms";
-    purpose?: string;
-    first_name?: string;
-    last_name?: string;
-  },
-  { rejectValue: string }
->("athleteAuth/requestOtp", async (payload, { rejectWithValue }) => {
-  try {
-    const channel = payload.channel || (payload.phone ? "sms" : "email");
-    await api.post("/auth/athlete/request-otp", {
-      ...payload,
-      channel,
-      locale: getStoredLocale() || normalizeLocale(undefined),
-    });
     return {
-      destination: payload.email || payload.phone || "",
-      channel,
+      exists: data.exists,
+      hasPassword: data.hasPassword ?? false,
+      hasSocialLogin: data.hasSocialLogin ?? false,
     };
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
-    return rejectWithValue(
-      err?.response?.data?.error || "No pudimos enviar el código. Intenta de nuevo.",
-    );
+    return rejectWithValue(athleteAuthRejectMessage(e, "Could not verify email"));
   }
 });
 
-export const verifyAthleteOtp = createAsyncThunk<
-  { token: string; athlete: AthleteUser },
-  {
-    email?: string;
-    phone?: string;
-    code: string;
-    channel?: "email" | "sms";
-    purpose?: string;
-  },
+export const loginAthlete = createAsyncThunk<
+  AthleteAuthSessionResponse,
+  { email: string; password: string },
   { rejectValue: string }
->("athleteAuth/verifyOtp", async (payload, { rejectWithValue }) => {
+>("athleteAuth/login", async (payload, { rejectWithValue }) => {
   try {
-    const channel = payload.channel || (payload.phone ? "sms" : "email");
-    const { data } = await api.post("/auth/athlete/verify-otp", {
-      ...payload,
-      channel,
-      purpose: payload.purpose || "login",
+    const { data } = await api.post<AthleteAuthSessionResponse>("/auth/athlete/login", {
+      email: payload.email.trim().toLowerCase(),
+      password: payload.password,
+      locale: getStoredLocale() || normalizeLocale(undefined),
     });
     setAthleteToken(data.token);
-    return { token: data.token, athlete: data.athlete };
+    return data;
+  } catch (e: unknown) {
+    const err = e as {
+      response?: { data?: { error?: string; code?: string } };
+    };
+    return rejectWithValue(athleteAuthRejectMessage(e, "Invalid email or password"));
+  }
+});
+
+export const registerAthlete = createAsyncThunk<
+  AthleteAuthSessionResponse,
+  {
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+    dateOfBirth: string;
+    gender?: string | null;
+  },
+  { rejectValue: string }
+>("athleteAuth/register", async (payload, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<AthleteAuthSessionResponse>("/auth/athlete/register", {
+      email: payload.email.trim().toLowerCase(),
+      firstName: payload.firstName.trim(),
+      lastName: payload.lastName.trim(),
+      password: payload.password,
+      dateOfBirth: payload.dateOfBirth,
+      gender: payload.gender || null,
+      locale: getStoredLocale() || normalizeLocale(undefined),
+    });
+    setAthleteToken(data.token);
+    return data;
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
-    return rejectWithValue(err?.response?.data?.error || "Código inválido o expirado");
+    return rejectWithValue(athleteAuthRejectMessage(e, "Could not create account"));
+  }
+});
+
+export const forgotAthletePassword = createAsyncThunk<
+  void,
+  { email: string },
+  { rejectValue: string }
+>("athleteAuth/forgotPassword", async (payload, { rejectWithValue }) => {
+  try {
+    await api.post("/auth/athlete/forgot-password", {
+      email: payload.email.trim().toLowerCase(),
+      locale: getStoredLocale() || normalizeLocale(undefined),
+    });
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(athleteAuthRejectMessage(e, "Could not send reset email"));
+  }
+});
+
+export const resetAthletePassword = createAsyncThunk<
+  AthleteAuthSessionResponse,
+  { email: string; code: string; password: string },
+  { rejectValue: string }
+>("athleteAuth/resetPassword", async (payload, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<AthleteAuthSessionResponse>(
+      "/auth/athlete/reset-password",
+      payload,
+    );
+    if (data.token) setAthleteToken(data.token);
+    return data;
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(athleteAuthRejectMessage(e, "Invalid or expired reset code"));
   }
 });
 
 export const syncAthleteClerk = createAsyncThunk<
-  { token: string; athlete: AthleteUser },
+  AthleteAuthSessionResponse,
   { sessionToken: string },
   { rejectValue: string }
 >("athleteAuth/syncClerk", async ({ sessionToken }, { rejectWithValue }) => {
   try {
-    const { data } = await api.post("/auth/clerk/athlete", { sessionToken });
+    const { data } = await api.post<AthleteAuthSessionResponse>("/auth/clerk/athlete", {
+      sessionToken,
+      locale: getStoredLocale() || normalizeLocale(undefined),
+    });
     setAthleteToken(data.token);
-    return { token: data.token, athlete: data.athlete };
+    return data;
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
-    return rejectWithValue(err?.response?.data?.error || "Error al vincular cuenta social");
+    return rejectWithValue(
+      err?.response?.data?.error || "Could not complete social sign-in",
+    );
   }
 });
 
@@ -219,6 +272,9 @@ const slice = createSlice({
     clearAthleteError(state) {
       state.error = null;
     },
+    clearPasswordResetSent(state) {
+      state.passwordResetSent = false;
+    },
     setAthleteUserLocal(state, action: PayloadAction<AthleteUser | null>) {
       state.user = action.payload;
     },
@@ -236,31 +292,61 @@ const slice = createSlice({
       s.error = a.payload || "Error";
     });
 
-    b.addCase(requestAthleteOtp.pending, (s) => {
-      s.requestingOtp = true;
+    b.addCase(loginAthlete.pending, (s) => {
+      s.signingIn = true;
       s.error = null;
     });
-    b.addCase(requestAthleteOtp.fulfilled, (s, a) => {
-      s.requestingOtp = false;
-      s.otpSentTo = a.payload.destination;
-      s.otpChannel = a.payload.channel;
-    });
-    b.addCase(requestAthleteOtp.rejected, (s, a) => {
-      s.requestingOtp = false;
-      s.error = a.payload || "Error";
-    });
-
-    b.addCase(verifyAthleteOtp.pending, (s) => {
-      s.verifyingOtp = true;
-      s.error = null;
-    });
-    b.addCase(verifyAthleteOtp.fulfilled, (s, a) => {
-      s.verifyingOtp = false;
+    b.addCase(loginAthlete.fulfilled, (s, a) => {
+      s.signingIn = false;
       s.token = a.payload.token;
       s.user = a.payload.athlete;
     });
-    b.addCase(verifyAthleteOtp.rejected, (s, a) => {
-      s.verifyingOtp = false;
+    b.addCase(loginAthlete.rejected, (s, a) => {
+      s.signingIn = false;
+      s.error = a.payload || "Error";
+    });
+
+    b.addCase(registerAthlete.pending, (s) => {
+      s.registering = true;
+      s.error = null;
+    });
+    b.addCase(registerAthlete.fulfilled, (s, a) => {
+      s.registering = false;
+      s.token = a.payload.token;
+      s.user = a.payload.athlete;
+    });
+    b.addCase(registerAthlete.rejected, (s, a) => {
+      s.registering = false;
+      s.error = a.payload || "Error";
+    });
+
+    b.addCase(forgotAthletePassword.pending, (s) => {
+      s.resettingPassword = true;
+      s.error = null;
+      s.passwordResetSent = false;
+    });
+    b.addCase(forgotAthletePassword.fulfilled, (s) => {
+      s.resettingPassword = false;
+      s.passwordResetSent = true;
+    });
+    b.addCase(forgotAthletePassword.rejected, (s, a) => {
+      s.resettingPassword = false;
+      s.error = a.payload || "Error";
+    });
+
+    b.addCase(resetAthletePassword.pending, (s) => {
+      s.registering = true;
+      s.error = null;
+    });
+    b.addCase(resetAthletePassword.fulfilled, (s, a) => {
+      s.registering = false;
+      if (a.payload.token) {
+        s.token = a.payload.token;
+        s.user = a.payload.athlete;
+      }
+    });
+    b.addCase(resetAthletePassword.rejected, (s, a) => {
+      s.registering = false;
       s.error = a.payload || "Error";
     });
 
@@ -349,10 +435,10 @@ const slice = createSlice({
     b.addCase(athleteLogout.fulfilled, (s) => {
       s.token = null;
       s.user = null;
-      s.otpSentTo = null;
     });
   },
 });
 
-export const { clearAthleteError, setAthleteUserLocal } = slice.actions;
+export const { clearAthleteError, clearPasswordResetSent, setAthleteUserLocal } =
+  slice.actions;
 export default slice.reducer;

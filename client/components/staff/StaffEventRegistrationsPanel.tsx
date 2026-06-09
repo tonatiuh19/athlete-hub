@@ -89,7 +89,7 @@ export default function StaffEventRegistrationsPanel({
   const handleExport = () => {
     downloadCsv(
       "registrations.csv",
-      ["folio", "bib", "athlete", "email", "category", "status", "total_mxn", "checked_in"],
+      ["folio", "bib", "athlete", "email", "category", "status", "total_mxn", "waiver", "checked_in"],
       eventHubRegistrations.map((r) => [
         r.registration_number,
         r.bib_number ?? "",
@@ -98,6 +98,7 @@ export default function StaffEventRegistrationsPanel({
         r.category_name,
         r.status,
         String(r.total_cents / 100),
+        r.waiver_signed_at ? "yes" : "no",
         r.checked_in_at ? "yes" : "no",
       ]),
     );
@@ -190,6 +191,22 @@ export default function StaffEventRegistrationsPanel({
             ${(r.total_cents / 100).toLocaleString(numLocale)}
           </span>
         ),
+      },
+      {
+        key: "waiver_signed_at",
+        label: t("staffPortal.registrations.colWaiver"),
+        sortable: true,
+        shrink: true,
+        render: (r) =>
+          r.waiver_outdated ? (
+            <span className="text-xs text-destructive font-medium">
+              {t("staffPortal.registrations.waiverOutdated")}
+            </span>
+          ) : r.waiver_signed_at ? (
+            <span className="text-xs text-accent font-medium">{t("common.yes")}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">{t("common.no")}</span>
+          ),
       },
       {
         key: "created_at",

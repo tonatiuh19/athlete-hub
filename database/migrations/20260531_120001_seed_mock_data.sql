@@ -330,11 +330,13 @@ ON DUPLICATE KEY UPDATE `label` = VALUES(`label`);
 -- ============================================================================
 -- WAIVERS
 -- ============================================================================
-INSERT INTO `event_waivers` (`event_id`, `title`, `content_html`, `version`, `is_active`)
-SELECT e.id, 'Exoneración de Responsabilidad — Maratón CDMX 2026',
-  '<p>Al inscribirme declaro estar en condiciones físicas aptas para participar. Exonero a Run Mexico y colaboradores de cualquier responsabilidad por lesiones durante el evento.</p>',
-  1, 1
-FROM events e WHERE e.slug = 'maraton-cdmx-2026'
+INSERT INTO `event_waivers` (`event_id`, `title`, `content_html`, `version`, `is_active`, `sort_order`)
+SELECT e.id,
+  CONCAT('Exoneración de Responsabilidad — ', e.title),
+  '<p>Al inscribirme declaro estar en condiciones físicas aptas para participar. Exonero al organizador y a sus colaboradores de cualquier responsabilidad por lesiones o incidentes durante el evento.</p>',
+  1, 1, 0
+FROM events e
+WHERE e.requires_waiver = 1
   AND NOT EXISTS (SELECT 1 FROM event_waivers ew WHERE ew.event_id = e.id AND ew.is_active = 1);
 
 -- ============================================================================

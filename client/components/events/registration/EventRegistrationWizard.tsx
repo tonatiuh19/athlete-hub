@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -10,20 +10,32 @@ import WizardAuthStep from "@/components/events/registration/WizardAuthStep";
 import WizardCheckoutStep from "@/components/events/registration/WizardCheckoutStep";
 import WizardResultStep from "@/components/events/registration/WizardResultStep";
 import WizardWaiverStep from "@/components/events/registration/WizardWaiverStep";
+import {
+  usePersistRegistrationSession,
+  useRestoreRegistrationSession,
+} from "@/components/events/registration/RegistrationPaymentReturnHandler";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
-  closeRegistrationWizard,
   fetchPaymentConfig,
   joinEventWaitlist,
+  resetCheckoutSession,
+  resumeRegistrationCheckout,
   setWaiverAcceptance,
   setWizardStep,
 } from "@/store/slices/registrationCheckoutSlice";
+import { dismissRegistrationWizard } from "@/utils/dismissRegistrationWizard";
+import { clearRegistrationSession, loadRegistrationSession } from "@/utils/registrationSessionStorage";
 import { fetchEventDetail } from "@/store/slices/marketplaceSlice";
 import {
   fetchAthleteRegistrations,
   fetchAthleteWaitlist,
 } from "@/store/slices/athletePortalSlice";
 import { cn } from "@/lib/utils";
+import {
+  eventRequiresWaiver,
+  getRegistrationWaivers,
+  isWaiverMisconfigured,
+} from "@/utils/eventRegistrationWaivers";
 
 export default function EventRegistrationWizard() {
   const { t } = useTranslation();
@@ -41,14 +53,87 @@ export default function EventRegistrationWizard() {
     waitlistMode,
     waitlistClaimMode,
     joiningWaitlist,
+    waiverAcceptance,
+    checkout,
+    discountCode,
   } = useAppSelector((s) => s.registrationCheckout);
   const { token } = useAppSelector((s) => s.athleteAuth);
 
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
+  const [restoredFieldValues, setRestoredFieldValues] = useState<
+    Record<string, string | boolean> | null
+  >(null);
+  const [checkoutPaymentReady, setCheckoutPaymentReady] = useState(false);
 
-  const needsWaiver = Boolean(
-    eventDetail?.event.requires_waiver && eventDetail?.waiver,
+  const registrationWaivers = useMemo(
+    () => getRegistrationWaivers(eventDetail),
+    [eventDetail],
   );
+
+  const needsWaiver = eventRequiresWaiver(eventDetail) && registrationWaivers.length > 0;
+  const waiverMisconfigured = isWaiverMisconfigured(eventDetail);
+
+  const resumeAttempted = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      resumeAttempted.current = false;
+      setCheckoutPaymentReady(false);
+    }
+  }, [open]);
+
+  useRestoreRegistrationSession({
+    open,
+    eventSlug,
+    categoryId: category?.id ?? null,
+    onRestoreIdempotencyKey: setIdempotencyKey,
+    onRestoreWaiver: (signatures) => dispatch(setWaiverAcceptance(signatures)),
+    onRestoreStep: (s) => dispatch(setWizardStep(s)),
+    onRestoreSession: (saved) => {
+      if (saved.fieldValues) setRestoredFieldValues(saved.fieldValues);
+      if (saved.checkoutPaymentReady) setCheckoutPaymentReady(true);
+    },
+  });
+
+  useEffect(() => {
+    if (!open || !eventSlug || !token || category?.id == null || resumeAttempted.current) return;
+    const saved = loadRegistrationSession(eventSlug, category.id);
+    if (!saved || saved.step !== "checkout") return;
+    if (!saved.paymentPublicUuid && !saved.idempotencyKey) return;
+    resumeAttempted.current = true;
+    void dispatch(
+      resumeRegistrationCheckout({
+        slug: eventSlug,
+        paymentPublicUuid: saved.paymentPublicUuid,
+        idempotencyKey: saved.idempotencyKey,
+      }),
+    ).then((result) => {
+      if (!resumeRegistrationCheckout.fulfilled.match(result)) return;
+      if (result.payload.status === "complete") {
+        clearRegistrationSession();
+        return;
+      }
+      if (
+        result.payload.status === "checkout" &&
+        result.payload.checkout?.fieldValues
+      ) {
+        setRestoredFieldValues(result.payload.checkout.fieldValues);
+      }
+    });
+  }, [open, eventSlug, token, category?.id, dispatch]);
+
+  usePersistRegistrationSession({
+    open,
+    eventSlug,
+    categoryId: category?.id ?? null,
+    idempotencyKey,
+    step,
+    paymentPublicUuid: checkout?.paymentPublicUuid,
+    waiverAcceptance,
+    discountCode,
+    fieldValues: checkout?.fieldValues ?? restoredFieldValues ?? undefined,
+    checkoutPaymentReady: checkoutPaymentReady || Boolean(checkout),
+  });
 
   const stepsMeta = useMemo(
     () =>
@@ -105,16 +190,19 @@ export default function EventRegistrationWizard() {
   ]);
 
   useEffect(() => {
-    if (!open || !confirmResult?.success || !waitlistClaimMode) return;
-    dispatch(fetchAthleteWaitlist());
-    dispatch(fetchAthleteRegistrations());
+    if (!open || !confirmResult?.success) return;
+    clearRegistrationSession();
+    if (waitlistClaimMode) {
+      dispatch(fetchAthleteWaitlist());
+      dispatch(fetchAthleteRegistrations());
+    }
   }, [open, confirmResult, waitlistClaimMode, dispatch]);
 
   if (!open || !category || !eventSlug) return null;
 
   if (!eventDetail || eventDetail.event.slug !== eventSlug) {
     return (
-      <Dialog open={open} onOpenChange={(v) => !v && dispatch(closeRegistrationWizard())}>
+      <Dialog open={open} onOpenChange={(v) => !v && dismissRegistrationWizard(dispatch)}>
         <DialogContent className="max-w-sm bg-bg-dark border-gray-700/60">
           <div className="py-8 text-center text-gray-400 text-sm">{t("common.loading")}</div>
         </DialogContent>
@@ -122,15 +210,20 @@ export default function EventRegistrationWizard() {
     );
   }
 
-  const handleClose = () => dispatch(closeRegistrationWizard());
+  const handleClose = () => dismissRegistrationWizard(dispatch);
+  const handleViewRegistrations = () => dismissRegistrationWizard(dispatch);
 
   const handleRetry = () => {
+    dispatch(resetCheckoutSession());
+    setIdempotencyKey(crypto.randomUUID());
+    setCheckoutPaymentReady(false);
+    setRestoredFieldValues(null);
     dispatch(setWizardStep(needsWaiver ? "waiver" : "checkout"));
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-lg w-[calc(100%-2rem)] max-h-[min(90vh,720px)] overflow-y-auto bg-bg-dark border-gray-700/60 p-0 gap-0">
+      <DialogContent className="max-w-lg w-[min(calc(100vw-2rem),32rem)] max-h-[min(90dvh,720px)] overflow-y-auto overflow-x-hidden bg-bg-dark border-gray-700/60 p-0 gap-0">
         <DialogHeader className="p-5 pb-0 pr-12 space-y-4">
           <div className="min-w-0">
             <DialogTitle className="text-base font-bold text-white truncate">
@@ -141,7 +234,7 @@ export default function EventRegistrationWizard() {
             <p className="text-xs text-gray-500 truncate">{category.name}</p>
           </div>
 
-          {step !== "result" && (
+          {step !== "result" && !waiverMisconfigured && (
             <div className="flex items-center gap-2">
               {progressSteps.map((s, i) => (
                 <div
@@ -176,7 +269,14 @@ export default function EventRegistrationWizard() {
         </DialogHeader>
 
         <div className="p-5 pt-4">
-          {step === "auth" && (
+          {waiverMisconfigured && step !== "result" ? (
+            <div className="py-6 text-center space-y-3">
+              <p className="text-sm text-destructive">{t("eventDetail.waiverNotConfigured")}</p>
+              <p className="text-xs text-gray-500">{t("eventDetail.waiverNotConfiguredHint")}</p>
+            </div>
+          ) : null}
+
+          {!waiverMisconfigured && step === "auth" && (
             <WizardAuthStep
               onAuthed={() => {
                 if (waitlistMode) return;
@@ -185,20 +285,20 @@ export default function EventRegistrationWizard() {
             />
           )}
 
-          {waitlistMode && step === "auth" && token && joiningWaitlist ? (
+          {!waiverMisconfigured && waitlistMode && step === "auth" && token && joiningWaitlist ? (
             <div className="py-8 text-center text-gray-400 text-sm">
               {t("eventDetail.joiningWaitlist")}
             </div>
           ) : null}
 
-          {!waitlistMode && step === "waiver" && eventDetail.waiver ? (
+          {!waiverMisconfigured && !waitlistMode && step === "waiver" && registrationWaivers.length > 0 ? (
             <WizardWaiverStep
-              waiver={eventDetail.waiver}
-              onAccepted={(payload) => dispatch(setWaiverAcceptance(payload))}
+              waivers={registrationWaivers}
+              onAccepted={(signatures) => dispatch(setWaiverAcceptance(signatures))}
             />
           ) : null}
 
-          {!waitlistMode && step === "checkout" && (
+          {!waiverMisconfigured && !waitlistMode && step === "checkout" && (
             <WizardCheckoutStep
               slug={eventSlug}
               eventTitle={eventDetail.event.title}
@@ -206,6 +306,9 @@ export default function EventRegistrationWizard() {
               fields={eventDetail.registrationFields}
               serviceFeePercent={eventDetail.serviceFeePercent}
               idempotencyKey={idempotencyKey}
+              restoredFieldValues={restoredFieldValues ?? checkout?.fieldValues}
+              checkoutPaymentReady={checkoutPaymentReady || Boolean(checkout)}
+              onCheckoutPaymentReady={setCheckoutPaymentReady}
             />
           )}
 
@@ -217,6 +320,7 @@ export default function EventRegistrationWizard() {
               registration={confirmResult?.registration}
               onRetry={handleRetry}
               onClose={handleClose}
+              onViewRegistrations={handleViewRegistrations}
             />
           )}
         </div>

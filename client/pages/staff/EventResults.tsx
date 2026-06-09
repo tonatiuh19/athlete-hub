@@ -167,7 +167,7 @@ export default function StaffEventResults() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 min-w-0">
+    <div className="max-w-5xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("staffPortal.results.title")}
         description={t("staffPortal.results.subtitle")}

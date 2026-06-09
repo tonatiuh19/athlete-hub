@@ -18,7 +18,7 @@ const NotFound = () => {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-gradient-dark overflow-x-clip max-w-[100vw] flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gradient-dark overflow-x-clip w-full max-w-full flex items-center justify-center px-4">
       <MetaHelmet
         title={t("notFound.message")}
         description={t("notFound.message")}

@@ -77,43 +77,94 @@ paths:
                 properties:
                   exists:
                     type: boolean
+                  hasPassword:
+                    type: boolean
+                  hasSocialLogin:
+                    type: boolean
 
-  /auth/athlete/request-otp:
+  /auth/athlete/register:
     post:
       tags: [Auth]
-      summary: Request athlete OTP (email or SMS)
+      summary: Register athlete with email and password
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [email, firstName, lastName, password, dateOfBirth]
               properties:
-                channel:
-                  type: string
-                  enum: [email, sms]
                 email:
                   type: string
-                phone:
+                firstName:
                   type: string
-                purpose:
+                lastName:
                   type: string
-                  enum: [login, register, verify]
-                first_name:
+                password:
                   type: string
-                last_name:
+                dateOfBirth:
                   type: string
-      responses:
-        "200":
-          description: OTP sent
-
-  /auth/athlete/verify-otp:
-    post:
-      tags: [Auth]
-      summary: Verify athlete OTP and create session
+                  format: date
+                  description: YYYY-MM-DD — used for category eligibility
+                gender:
+                  type: string
+                  enum: [male, female, other, prefer_not_to_say]
       responses:
         "200":
           description: Session token returned
+
+  /auth/athlete/login:
+    post:
+      tags: [Auth]
+      summary: Athlete email/password login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Session token returned
+        "403":
+          description: Password not set — reset email sent
+
+  /auth/athlete/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request athlete password reset email
+      responses:
+        "200":
+          description: Always returns ok (no email enumeration)
+
+  /auth/athlete/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset athlete password with email and 6-digit code from email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, password]
+              properties:
+                email:
+                  type: string
+                code:
+                  type: string
+                  pattern: "^\\d{6}$"
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Password updated; may return session token
 
   /auth/organizer/request-otp:
     post:
@@ -295,6 +346,48 @@ paths:
         "200":
           description: Platform stats, featured/upcoming events, top athletes and teams
 
+  /public/blog:
+    get:
+      tags: [Marketplace]
+      summary: List published blog posts
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+        - name: featured
+          in: query
+          schema:
+            type: boolean
+        - name: organizer
+          in: query
+          description: Filter by organizer slug
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated blog posts
+
+  /public/blog/{slug}:
+    get:
+      tags: [Marketplace]
+      summary: Get published blog post by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Blog post detail
+        "404":
+          description: Not found
+
   /events:
     get:
       tags: [Marketplace]
@@ -302,7 +395,10 @@ paths:
       parameters:
         - name: q
           in: query
-          description: Search query (title, city, organizer)
+          description: >
+            Search query (min 2 chars). Uses the same fuzzy, accent-insensitive
+            matching as GET /search/suggest across title, sport, city, organizer,
+            and keywords. Default sort date_asc ranks by relevance when q is set.
           schema:
             type: string
         - name: sport
@@ -313,6 +409,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: geoCityId
+          in: query
+          schema:
+            type: integer
+          description: Canonical geo_cities id for exact city+state filtering. Unknown ids return an empty result set.
         - name: featured
           in: query
           schema:
@@ -322,11 +423,13 @@ paths:
           schema:
             type: string
             format: date
+          description: Inclusive start of date range (compared by calendar day)
         - name: dateTo
           in: query
           schema:
             type: string
             format: date
+          description: Inclusive end of date range (compared by calendar day). Inverted ranges are normalized automatically.
         - name: minPrice
           in: query
           schema:
@@ -352,13 +455,64 @@ paths:
         "200":
           description: Events list with total count, includes location_lat and location_lng
 
+  /geo/states:
+    get:
+      tags: [Geo]
+      summary: List states/provinces for a country
+      parameters:
+        - name: country
+          in: query
+          schema:
+            type: string
+            default: MX
+      responses:
+        "200":
+          description: States list
+
+  /geo/cities:
+    get:
+      tags: [Geo]
+      summary: List cities from the geo catalog
+      parameters:
+        - name: country
+          in: query
+          schema:
+            type: string
+            default: MX
+        - name: state_id
+          in: query
+          schema:
+            type: integer
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cities list with state metadata
+
   /events/filters/cities:
     get:
       tags: [Marketplace]
-      summary: List distinct cities for published events (for filter dropdown)
+      summary: List cities with published event counts (geo catalog backed)
       responses:
         "200":
-          description: Array of city names
+          description: Array of geo cities with id, city, state, and event_count
+
+  /search/suggest:
+    get:
+      tags: [Marketplace]
+      summary: Unified autocomplete for events, cities, and sports
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+      responses:
+        "200":
+          description: Grouped search suggestions
 
   /events/{slug}:
     get:
@@ -889,7 +1043,65 @@ paths:
         "200":
           description: Registration confirmed
         "402":
-          description: Payment failed
+          description: Payment failed or requires additional authentication (3DS)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                  requiresAction:
+                    type: boolean
+                  clientSecret:
+                    type: string
+
+  /athlete/pending-checkout:
+    get:
+      tags: [Athlete]
+      summary: List incomplete registration checkouts for the signed-in athlete
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventSlug
+          in: query
+          required: false
+          schema:
+            type: string
+          description: When set, returns at most one pending checkout for that event
+      responses:
+        "200":
+          description: Pending checkout payments without a linked registration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        public_uuid:
+                          type: string
+                        amount_cents:
+                          type: integer
+                        currency:
+                          type: string
+                        status:
+                          type: string
+                        event_title:
+                          type: string
+                        event_slug:
+                          type: string
+                        category_name:
+                          type: string
+                          nullable: true
+                        category_id:
+                          type: integer
+                          nullable: true
 
   /config/payments:
     get:
@@ -1750,6 +1962,119 @@ paths:
         "404":
           description: Event not found
 
+  /organizer/blog-posts:
+    get:
+      tags: [Organizer]
+      summary: List blog posts for current organizer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, published, archived]
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated blog posts
+    post:
+      tags: [Organizer]
+      summary: Create organizer-scoped blog post
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created blog post
+
+  /organizer/blog-posts/{postId}:
+    get:
+      tags: [Organizer]
+      summary: Get organizer blog post by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Blog post
+    put:
+      tags: [Organizer]
+      summary: Update organizer blog post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated blog post
+    delete:
+      tags: [Organizer]
+      summary: Soft-delete organizer blog post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  /organizer/blog/upload-image:
+    post:
+      tags: [Organizer]
+      summary: Upload blog image to CDN (organizer)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                filename:
+                  type: string
+      responses:
+        "200":
+          description: CDN URL
+
   /admin/dashboard:
     get:
       tags: [Admin]
@@ -2299,6 +2624,125 @@ paths:
       responses:
         "200":
           description: Updated members list
+
+  /admin/blog-posts:
+    get:
+      tags: [Admin]
+      summary: List blog posts (platform + all organizers)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, published, archived]
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [platform, organizer]
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated blog posts
+    post:
+      tags: [Admin]
+      summary: Create blog post
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created blog post
+
+  /admin/blog-posts/{postId}:
+    get:
+      tags: [Admin]
+      summary: Get blog post by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Blog post
+    put:
+      tags: [Admin]
+      summary: Update blog post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated blog post
+    delete:
+      tags: [Admin]
+      summary: Soft-delete blog post
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+
+  /admin/blog/upload-image:
+    post:
+      tags: [Admin]
+      summary: Upload blog image to CDN
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  description: Base64-encoded image data
+                filename:
+                  type: string
+      responses:
+        "200":
+          description: CDN URL
 
   /admin/admins:
     get:

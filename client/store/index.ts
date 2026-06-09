@@ -10,6 +10,8 @@ import registrationCheckoutReducer from "./slices/registrationCheckoutSlice";
 import paymentMethodsReducer from "./slices/paymentMethodsSlice";
 import appConfigReducer from "./slices/appConfigSlice";
 import publicHomeReducer from "./slices/publicHomeSlice";
+import blogsReducer from "./slices/blogsSlice";
+import geoReducer from "./slices/geoSlice";
 
 export const store = configureStore({
   reducer: {
@@ -24,6 +26,8 @@ export const store = configureStore({
     paymentMethods: paymentMethodsReducer,
     appConfig: appConfigReducer,
     publicHome: publicHomeReducer,
+    blogs: blogsReducer,
+    geo: geoReducer,
   },
 });
 

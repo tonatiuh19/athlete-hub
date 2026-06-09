@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
+import TribooLogo from "@/components/brand/TribooLogo";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -10,6 +11,7 @@ import { useHomeNavScroll } from "./useHomeNavScroll";
 
 const NAV_SECTIONS = [
   { key: "home.navEvents", href: "/events" },
+  { key: "home.navBlog", href: "/blog" },
   { key: "home.navCommunities", href: "/#communities" },
   { key: "home.navLeaderboards", href: "/#leaderboards" },
 ] as const;
@@ -32,8 +34,8 @@ function NavUserAvatar({
   const avatarShell = cn(
     "h-8 w-8 shrink-0 rounded-full ring-2",
     solid
-      ? "ring-cyan/30 ring-offset-2 ring-offset-[hsl(var(--background))]"
-      : "ring-white/25 ring-offset-2 ring-offset-transparent shadow-[0_0_16px_rgba(0,229,255,0.35)]",
+      ? "ring-primary/30 ring-offset-2 ring-offset-background"
+      : "ring-white/25 ring-offset-2 ring-offset-transparent shadow-glow-triboo",
   );
 
   if (hasAvatar) {
@@ -42,7 +44,7 @@ function NavUserAvatar({
         <AvatarImage src={avatarUrl} alt="" />
         <AvatarFallback
           delayMs={0}
-          className="bg-gradient-to-br from-cyan to-blue-electric text-navy-deep text-[11px] font-bold"
+          className="bg-triboo-gradient text-primary-foreground text-[11px] font-bold"
         >
           {initials}
         </AvatarFallback>
@@ -54,7 +56,7 @@ function NavUserAvatar({
     <div
       className={cn(
         avatarShell,
-        "flex items-center justify-center bg-gradient-to-br from-cyan via-blue-electric to-purple-accent/90 text-navy-deep text-[11px] font-bold tracking-tight",
+        "flex items-center justify-center bg-triboo-gradient text-primary-foreground text-[11px] font-bold tracking-tight",
       )}
       aria-hidden
     >
@@ -79,14 +81,14 @@ export default function HomeNavbar() {
     "text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 whitespace-nowrap",
     solid
       ? "btn-primary px-3 py-2 sm:px-5 sm:py-2.5"
-      : "px-3 py-2 sm:px-5 sm:py-2.5 text-cyan border border-cyan/40 bg-white/[0.06] backdrop-blur-md hover:bg-cyan/15 hover:border-cyan/70 hover:shadow-[0_0_24px_rgba(0,229,255,0.2)]",
+      : "px-3 py-2 sm:px-5 sm:py-2.5 text-primary border border-primary/40 bg-white/[0.06] backdrop-blur-md hover:bg-primary/15 hover:border-primary/70 hover:shadow-glow-triboo",
   );
 
   const portalChipClass = cn(
     "inline-flex items-center gap-2 sm:gap-2.5 rounded-full pl-1 pr-3 sm:pr-4 py-1 text-xs sm:text-sm font-semibold transition-all duration-300 whitespace-nowrap",
     solid
-      ? "border border-border bg-surface-dark/90 text-foreground hover:border-cyan/45 hover:bg-cyan/5 hover:shadow-[0_0_20px_rgba(0,229,255,0.12)]"
-      : "border border-white/15 bg-white/[0.08] text-white backdrop-blur-md hover:border-cyan/50 hover:bg-white/[0.12] hover:shadow-[0_0_24px_rgba(0,229,255,0.18)]",
+      ? "border border-border bg-card/90 text-foreground hover:border-primary/45 hover:bg-primary/5 hover:shadow-glow-triboo"
+      : "border border-white/15 bg-white/[0.08] text-white backdrop-blur-md hover:border-primary/50 hover:bg-white/[0.12] hover:shadow-glow-triboo",
   );
 
   return (
@@ -96,26 +98,17 @@ export default function HomeNavbar() {
         solid ? "home-nav-solid" : "home-nav-glass",
       )}
     >
-      {/* Scroll progress rail */}
       <div
-        className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-cyan via-blue-electric to-purple-accent origin-left transition-opacity duration-300"
+        className="absolute bottom-0 left-0 h-[2px] bg-triboo-gradient origin-left transition-opacity duration-300"
         style={{
           width: `${scrollProgress * 100}%`,
-          opacity: solid ? 0.9 : 0.35,
+          opacity: solid ? 0.95 : 0.5,
         }}
         aria-hidden
       />
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 h-[4.5rem] flex items-center justify-between gap-3 min-w-0">
-        <Link
-          to="/"
-          className={cn(
-            "text-lg sm:text-xl md:text-2xl font-bold text-gradient transition-all duration-300 shrink-0",
-            !solid && "drop-shadow-[0_0_24px_rgba(0,229,255,0.35)]",
-          )}
-        >
-          AthleteHub
-        </Link>
+        <TribooLogo surface="dark" className="h-9 sm:h-10" />
 
         <nav className="hidden md:flex items-center gap-1">
           {NAV_SECTIONS.map(({ key, href }) =>
@@ -126,7 +119,7 @@ export default function HomeNavbar() {
                 className={cn(
                   "home-nav-link relative px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-300",
                   solid
-                    ? "text-gray-400 hover:text-cyan hover:bg-cyan/5"
+                    ? "text-muted-foreground hover:text-primary hover:bg-primary/5"
                     : "text-white/75 hover:text-white hover:bg-white/5",
                 )}
               >
@@ -139,7 +132,7 @@ export default function HomeNavbar() {
                 className={cn(
                   "home-nav-link relative px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-300",
                   solid
-                    ? "text-gray-400 hover:text-cyan hover:bg-cyan/5"
+                    ? "text-muted-foreground hover:text-primary hover:bg-primary/5"
                     : "text-white/75 hover:text-white hover:bg-white/5",
                 )}
               >
@@ -151,38 +144,39 @@ export default function HomeNavbar() {
 
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {token && !user && loading ? (
-            <div
-              className="h-9 w-24 sm:w-28 rounded-xl bg-white/10 animate-pulse"
-              aria-hidden
-            />
+            <div className="h-9 w-24 sm:w-28 rounded-xl bg-white/10 animate-pulse" aria-hidden />
           ) : isLoggedIn && user ? (
-            <Link
-              to="/portal"
-              className={portalChipClass}
-              title={t("home.myPortal")}
-            >
+            <Link to="/portal" className={portalChipClass} title={t("home.myPortal")}>
               <NavUserAvatar
                 firstName={user.firstName}
                 lastName={user.lastName}
                 avatarUrl={user.avatarUrl}
                 solid={solid}
               />
-              <span className="hidden sm:inline max-w-[8rem] truncate">
-                {user.firstName}
-              </span>
+              <span className="hidden sm:inline max-w-[8rem] truncate">{user.firstName}</span>
               <span className="sm:hidden">{t("home.myPortalShort")}</span>
             </Link>
           ) : (
-            <Link to="/login" className={authButtonClass}>
-              {t("home.signIn")}
-            </Link>
+            <>
+              <Link
+                to="/login"
+                className={cn(
+                  "hidden sm:inline text-sm font-medium transition-colors",
+                  solid ? "text-muted-foreground hover:text-primary" : "text-white/80 hover:text-white",
+                )}
+              >
+                {t("home.signIn")}
+              </Link>
+              <Link to="/login" className={authButtonClass}>
+                {t("home.hero.signUp")}
+              </Link>
+            </>
           )}
         </div>
       </div>
 
-      {/* Ambient edge glow — glass mode only */}
       <motion.div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan/30 to-transparent"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent"
         animate={{ opacity: solid ? 0 : 1 }}
         transition={{ duration: 0.4 }}
         aria-hidden

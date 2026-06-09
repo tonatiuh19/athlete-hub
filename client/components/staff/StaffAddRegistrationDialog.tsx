@@ -81,6 +81,7 @@ export default function StaffAddRegistrationDialog({
       athlete_email: "",
       event_category_id: "",
       comp: true,
+      waiver_waived: false,
       bib_number: "",
     },
     validationSchema: schema,
@@ -95,6 +96,7 @@ export default function StaffAddRegistrationDialog({
             athlete_email: values.athlete_email.trim(),
             event_category_id: Number(values.event_category_id),
             comp: values.comp,
+            waiver_waived: values.waiver_waived,
             bib_number: values.bib_number.trim() || undefined,
           },
         }),
@@ -109,7 +111,12 @@ export default function StaffAddRegistrationDialog({
 
   const activeCategories = resolvedCategories.filter((c) => c.is_active);
   const canSubmit =
-    resolvedEventId != null && activeCategories.length > 0 && !creatingStaffRegistration;
+    resolvedEventId != null &&
+    activeCategories.length > 0 &&
+    !creatingStaffRegistration &&
+    (!eventDetail?.event?.requires_waiver ||
+      eventDetail.event.requires_waiver === 0 ||
+      formik.values.waiver_waived);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -189,6 +196,18 @@ export default function StaffAddRegistrationDialog({
             />
             {t("staffPortal.registrations.compEntry")}
           </label>
+          {eventDetail?.event?.requires_waiver !== false &&
+          eventDetail?.event?.requires_waiver !== 0 ? (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={formik.values.waiver_waived}
+                onCheckedChange={(v) => formik.setFieldValue("waiver_waived", Boolean(v))}
+              />
+              <span className="leading-snug text-muted-foreground">
+                {t("staffPortal.registrations.waiverWaivedManual")}
+              </span>
+            </label>
+          ) : null}
           {createStaffRegistrationError ? (
             <p className="text-sm text-destructive">{createStaffRegistrationError}</p>
           ) : null}

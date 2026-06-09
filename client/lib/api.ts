@@ -71,7 +71,9 @@ api.interceptors.response.use(
         setAthleteToken(null);
         const path = window.location.pathname;
         const onPublicAuthFlow =
-          path.startsWith("/events") || path.startsWith("/login");
+          path.startsWith("/events") ||
+          path.startsWith("/login") ||
+          path.startsWith("/sso-callback");
         if (!onPublicAuthFlow) {
           window.location.href = "/login";
         }

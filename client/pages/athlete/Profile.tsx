@@ -15,6 +15,7 @@ import {
   HeartPulse,
   Save,
 } from "lucide-react";
+import DatePickerField from "@/components/ui/date-picker-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -163,7 +164,7 @@ export default function AthleteProfile() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet
         title={t("athletePortal.profile.title")}
         description={t("athletePortal.profile.subtitle")}
@@ -265,13 +266,15 @@ export default function AthleteProfile() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="dateOfBirth">{t("athletePortal.profile.dobLabel")}</Label>
-            <Input
+            <DatePickerField
               id="dateOfBirth"
-              name="dateOfBirth"
-              type="date"
               value={formik.values.dateOfBirth}
-              onChange={formik.handleChange}
-              onBlur={formik.handleBlur}
+              onChange={(v) => formik.setFieldValue("dateOfBirth", v)}
+              onBlur={() => formik.setFieldTouched("dateOfBirth", true)}
+              variant="birthDate"
+              showIcon={false}
+              invalid={Boolean(formik.touched.dateOfBirth && formik.errors.dateOfBirth)}
+              triggerClassName="h-10 rounded-md bg-background"
             />
             {formik.touched.dateOfBirth && formik.errors.dateOfBirth ? (
               <p className="text-xs text-destructive">{formik.errors.dateOfBirth}</p>
