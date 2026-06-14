@@ -21,7 +21,7 @@ export default function HomeHero() {
   const { t } = useTranslation();
 
   return (
-    <section className="relative flex flex-col overflow-hidden bg-triboo-black">
+    <section className="relative flex flex-col overflow-x-clip bg-triboo-black">
       <HeroVideoBackground />
       <HeroGlowLayer />
 
@@ -38,7 +38,7 @@ export default function HomeHero() {
         <div className="flex flex-col max-w-3xl lg:max-w-4xl py-2 md:py-4">
           <motion.h1
             {...fadeUp(0.12)}
-            className="font-black uppercase tracking-[-0.02em] leading-[0.9] text-[2.1rem] sm:text-5xl lg:text-[3.75rem] xl:text-[4.25rem]"
+            className="font-black uppercase tracking-[-0.02em] leading-[0.9] text-[1.75rem] sm:text-5xl lg:text-[3.75rem] xl:text-[4.25rem]"
           >
             <span className="block text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.5)]">
               {t("home.hero.title1")}
@@ -53,12 +53,12 @@ export default function HomeHero() {
 
           <motion.p
             {...fadeUp(0.22)}
-            className="mt-5 text-base sm:text-lg text-white/70 max-w-lg leading-relaxed"
+            className="hidden md:block mt-4 md:mt-5 text-sm sm:text-lg text-white/70 max-w-lg leading-relaxed"
           >
             {t("home.hero.description")}
           </motion.p>
 
-          <motion.div {...fadeUp(0.32)} className="relative z-30 mt-7 md:mt-8 w-full">
+          <motion.div {...fadeUp(0.32)} className="relative z-30 mt-5 md:mt-8 w-full min-w-0">
             <HeroSearchBar />
           </motion.div>
         </div>

@@ -1,6 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  canOrganizerCreateEvents as sharedCanOrganizerCreateEvents,
+  canOrganizerEditEvents as sharedCanOrganizerEditEvents,
+} from "@shared/staffRoles";
+import {
   BarChart3,
+  Banknote,
   Calendar,
   CreditCard,
   FileText,
@@ -76,6 +81,11 @@ function organizerNav(role: string): StaffNavItem[] {
     labelKey: "staffPortal.nav.payments",
     icon: CreditCard,
   };
+  const payouts: StaffNavItem = {
+    to: "/staff/payouts",
+    labelKey: "staffPortal.nav.payouts",
+    icon: Banknote,
+  };
   const analytics: StaffNavItem = {
     to: "/staff/analytics",
     labelKey: "staffPortal.nav.analytics",
@@ -100,14 +110,14 @@ function organizerNav(role: string): StaffNavItem[] {
     case "marketing":
       return withMessagingNav([dashboard, events, BLOG_NAV, analytics, settings], role);
     case "finance":
-      return withMessagingNav([dashboard, registrations, payments, analytics, settings], role);
+      return withMessagingNav([dashboard, registrations, payments, payouts, analytics, settings], role);
     case "sponsor":
       return withMessagingNav([dashboard, events, settings], role);
     case "owner":
     case "organizer":
     default:
       return withMessagingNav(
-        [dashboard, events, BLOG_NAV, registrations, payments, analytics, team, settings],
+        [dashboard, events, BLOG_NAV, registrations, payments, payouts, analytics, team, settings],
         role,
       );
   }
@@ -119,7 +129,7 @@ export function getStaffNav(isAdmin: boolean, organizerRole?: string): StaffNavI
 }
 
 export function canOrganizerEditEvents(role: string): boolean {
-  return ["owner", "organizer", "operations", "marketing"].includes(role);
+  return sharedCanOrganizerEditEvents(role);
 }
 
 export function canOrganizerManageTeam(role: string): boolean {
@@ -127,10 +137,21 @@ export function canOrganizerManageTeam(role: string): boolean {
 }
 
 export function canOrganizerCreateEvents(role: string): boolean {
-  return ["owner", "organizer", "operations", "marketing"].includes(role);
+  return sharedCanOrganizerCreateEvents(role);
 }
 
 export function canViewStaffPayments(isAdmin: boolean, organizerRole?: string): boolean {
   if (isAdmin) return true;
   return ["owner", "organizer", "finance"].includes(organizerRole ?? "");
+}
+
+/** Organizer self-serve payout setup (same roles as payments for finance/owner). */
+export function canAccessStaffPayouts(isAdmin: boolean, organizerRole?: string): boolean {
+  if (isAdmin) return false;
+  return ["owner", "organizer", "finance"].includes(organizerRole ?? "");
+}
+
+/** Refund permissions mirror payment visibility for organizers. */
+export function canRefundStaffPayments(isAdmin: boolean, organizerRole?: string): boolean {
+  return canViewStaffPayments(isAdmin, organizerRole);
 }

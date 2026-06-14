@@ -74,7 +74,7 @@ export default function WizardWaiverStep({ waivers, onAccepted }: WizardWaiverSt
             {(waiver.content_type === "html" || waiver.content_type === "both") &&
             waiver.content_html?.trim() ? (
               <div
-                className="max-h-40 overflow-y-auto text-sm text-gray-300 prose prose-invert prose-sm max-w-none"
+                className="max-h-40 overflow-y-auto overflow-x-auto text-sm text-gray-300 prose prose-invert prose-sm max-w-none [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full [&_img]:max-w-full [&_img]:h-auto"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(waiver.content_html) }}
               />
             ) : null}

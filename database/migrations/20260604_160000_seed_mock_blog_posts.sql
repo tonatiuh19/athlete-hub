@@ -66,14 +66,14 @@ INSERT INTO `blog_posts` (
 SELECT
   'bp000003-0000-4000-8000-000000000003',
   'run-mexico-preparacion-maraton-cdmx-2026',
-  'Run Mexico: preparación para el Maratón CDMX 2026',
-  'Desde Run Mexico compartimos tips de hidratación, ritmos por zona y cómo aprovechar el recorrido por Reforma.',
-  '<h2>Conoce el recorrido</h2><p>Reforma, Chapultepec y el Zócalo marcan el ritmo emocional de la carrera. Estudia los segmentos en elevación y planifica tu estrategia de negative split.</p><h2>Hidratación y nutrición</h2><p>Prueba geles y bebidas en tus tiradas largas. El día del evento no experimentes nada nuevo.</p><h2>Inscríbete con tiempo</h2><p>Las categorías populares se llenan. Reserva tu lugar en Triboo Sport y arma tu Triboo para entrenar en grupo.</p>',
+  'Run Mexico: preparación para la Gran Carrera Urbana 2026',
+  'Desde Run Mexico compartimos tips de hidratación, ritmos por zona y cómo aprovechar el circuito urbano.',
+  '<h2>Conoce el circuito</h2><p>Estudia los segmentos en elevación y planifica tu estrategia de negative split en el recorrido urbano.</p><h2>Hidratación y nutrición</h2><p>Prueba geles y bebidas en tus tiradas largas. El día del evento no experimentes nada nuevo.</p><h2>Inscríbete con tiempo</h2><p>Las categorías populares se llenan. Reserva tu lugar en Triboo Sport y arma tu Triboo para entrenar en grupo.</p>',
   'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=1200',
   'published', 0, 'organizer', o.id, e.id,
   NULL, om.id, CONCAT(om.first_name, ' ', om.last_name),
-  'Preparación Maratón CDMX 2026 | Run Mexico',
-  'Consejos oficiales de Run Mexico para el Maratón Ciudad de México 2026.',
+  'Preparación Gran Carrera Urbana 2026 | Run Mexico',
+  'Consejos oficiales de Run Mexico para la Gran Carrera Urbana 42K 2026.',
   'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=1200',
   5, 'es', NOW()
 FROM organizers o

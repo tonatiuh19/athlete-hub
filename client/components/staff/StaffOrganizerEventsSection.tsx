@@ -152,7 +152,8 @@ export default function StaffOrganizerEventsSection({
         </p>
       ) : (
         <div className="card-sport overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full text-sm min-w-[360px]">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
                 <th className="p-3 font-medium">{t("staffPortal.people.colEvent")}</th>
@@ -184,6 +185,7 @@ export default function StaffOrganizerEventsSection({
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

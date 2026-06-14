@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -36,6 +43,10 @@ import {
   Highlighter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+export interface RichHtmlEditorHandle {
+  getHtml: () => string;
+}
 
 export interface RichHtmlEditorProps {
   value: string;
@@ -77,13 +88,11 @@ function ToolbarButton({
   );
 }
 
-export default function RichHtmlEditor({
-  value,
-  onChange,
-  placeholder,
-  onStageImage,
-  className,
-}: RichHtmlEditorProps) {
+const RichHtmlEditor = forwardRef<RichHtmlEditorHandle, RichHtmlEditorProps>(
+  function RichHtmlEditor(
+    { value, onChange, placeholder, onStageImage, className },
+    ref,
+  ) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const syncingRef = useRef(false);
@@ -118,6 +127,14 @@ export default function RichHtmlEditor({
       onChange(ed.getHTML());
     },
   });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getHtml: () => editor?.getHTML() ?? value,
+    }),
+    [editor, value],
+  );
 
   useEffect(() => {
     if (!editor) return;
@@ -378,4 +395,7 @@ export default function RichHtmlEditor({
       </div>
     </div>
   );
-}
+  },
+);
+
+export default RichHtmlEditor;

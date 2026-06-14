@@ -4,8 +4,6 @@ import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, Clock, Loader2, Sparkles, User } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
-import HomeNavbar from "@/components/home/HomeNavbar";
-import SiteFooter from "@/components/SiteFooter";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import {
   BlogLocaleBadge,
@@ -131,7 +129,7 @@ export default function BlogIndex() {
   }, [publicPosts]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-below-nav bg-background flex flex-col">
       <MetaHelmet
         title={t("blog.meta.indexTitle")}
         description={t("blog.meta.indexDescription")}
@@ -139,8 +137,6 @@ export default function BlogIndex() {
         alternateLocales
         keywords={["Triboo Sport", "blog", "sports", "events"]}
       />
-
-      <HomeNavbar />
 
       <main className="flex-1 w-full">
         <section className="relative overflow-hidden border-b border-border">
@@ -210,8 +206,6 @@ export default function BlogIndex() {
           )}
         </section>
       </main>
-
-      <SiteFooter />
     </div>
   );
 }

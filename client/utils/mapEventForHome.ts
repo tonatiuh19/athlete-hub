@@ -1,6 +1,8 @@
 import { format } from "date-fns";
 import type { EventListItem } from "@shared/api";
 import type { HeroEvent } from "@/components/home/HeroEventCard";
+import { DEFAULT_EVENT_HERO_IMAGE } from "@/constants/eventImages";
+import { optimizeEventMediaUrl } from "@/lib/cdn-url";
 import { getDateFnsLocale } from "@/utils/dateLocale";
 
 const ACCENTS: HeroEvent["accent"][] = ["orange", "red", "ember"];
@@ -20,8 +22,8 @@ export function mapEventToHeroEvent(
     participants: event.registration_count,
     slug: event.slug,
     imageUrl:
-      event.hero_image_url ||
-      "https://images.unsplash.com/photo-1452626212852-811edd589ec7?w=900&q=80&auto=format&fit=crop",
+      optimizeEventMediaUrl(event.hero_image_url, "featured") ||
+      optimizeEventMediaUrl(DEFAULT_EVENT_HERO_IMAGE, "featured")!,
     accent: ACCENTS[index % ACCENTS.length],
   };
 }
@@ -36,6 +38,7 @@ export function mapEventToFeaturedCard(
   distance: string;
   participants: number;
   category: string;
+  sportSlug: string;
   imageUrl: string;
   slug: string;
 } {
@@ -48,9 +51,10 @@ export function mapEventToFeaturedCard(
     distance: event.sport_name,
     participants: event.registration_count,
     category: event.sport_name,
+    sportSlug: event.sport_slug,
     slug: event.slug,
     imageUrl:
-      event.hero_image_url ||
-      "https://images.unsplash.com/photo-1452626212852-811edd589ec7?w=900&q=80&auto=format&fit=crop",
+      optimizeEventMediaUrl(event.hero_image_url, "featured") ||
+      optimizeEventMediaUrl(DEFAULT_EVENT_HERO_IMAGE, "featured")!,
   };
 }

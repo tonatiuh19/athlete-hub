@@ -11,8 +11,6 @@ import {
   User,
 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
-import HomeNavbar from "@/components/home/HomeNavbar";
-import SiteFooter from "@/components/SiteFooter";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,22 +71,19 @@ export default function BlogPost() {
 
   if (publicPostLoading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <HomeNavbar />
+      <div className="min-h-below-nav bg-background flex flex-col">
         <div className="flex-1 flex items-center justify-center gap-3 text-muted-foreground">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <span>{t("blog.post.loading")}</span>
         </div>
-        <SiteFooter />
       </div>
     );
   }
 
   if (publicPostError || !publicPost) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="min-h-below-nav bg-background flex flex-col">
         <MetaHelmet title={t("blog.post.notFoundTitle")} description={t("blog.post.notFound")} noindex />
-        <HomeNavbar />
         <main className="flex-1 max-w-3xl mx-auto px-4 py-16 w-full">
           <PortalErrorAlert error={publicPostError || t("blog.post.notFound")} />
           <Link
@@ -99,13 +94,12 @@ export default function BlogPost() {
             {t("blog.post.backToBlog")}
           </Link>
         </main>
-        <SiteFooter />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-below-nav bg-background flex flex-col">
       <MetaHelmet
         title={metaTitle}
         description={metaDescription}
@@ -123,8 +117,6 @@ export default function BlogPost() {
         )}
         jsonLd={blogJsonLd}
       />
-
-      <HomeNavbar />
 
       <main className="flex-1 w-full min-w-0">
         <section className="relative min-h-[240px] md:min-h-[360px] overflow-hidden border-b border-border">
@@ -218,8 +210,6 @@ export default function BlogPost() {
           ) : null}
         </article>
       </main>
-
-      <SiteFooter />
     </div>
   );
 }

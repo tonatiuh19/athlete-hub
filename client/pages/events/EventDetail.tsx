@@ -54,6 +54,7 @@ import {
   eventDescriptionPlainText,
 } from "@/utils/eventDescriptionHtml";
 import { sanitizeHtml } from "@/utils/sanitizeHtml";
+import { optimizeEventMediaUrl, buildEventMediaSrcSet } from "@/lib/cdn-url";
 import type { CoursePoint } from "@shared/api";
 import { pointColor } from "@/lib/leafletSetup";
 import { useMapPanelHeight } from "@/hooks/use-media-query";
@@ -286,7 +287,8 @@ export default function EventDetail() {
   const isRegisteredConfirmed = Boolean(myRegistration);
   const registrationWindowStatus = getRegistrationWindowStatus(event);
   const registrationOpen = isRegistrationOpen(event);
-  const canRegister = !isRegisteredConfirmed && !pendingCheckout && registrationOpen;
+  const canRegister =
+    !isRegisteredConfirmed && !pendingCheckout && registrationOpen;
   const hasDescription = eventDescriptionHasContent(event.description);
   const descriptionIsHtml = eventDescriptionIsHtml(event.description);
   const descriptionParagraphs = descriptionIsHtml
@@ -304,7 +306,9 @@ export default function EventDetail() {
     categories[0]?.total_cents ?? Infinity,
   );
 
-  const eventImage = event.banner_image_url || event.hero_image_url;
+  const heroImage = optimizeEventMediaUrl(event.hero_image_url, "detail");
+  const bannerImage = optimizeEventMediaUrl(event.banner_image_url, "banner");
+  const eventImage = bannerImage || heroImage;
   const eventPath = `/events/${slug}`;
 
   const eventJsonLd = {
@@ -346,12 +350,10 @@ export default function EventDetail() {
                   url: eventImage,
                   alt: event.title,
                 },
-                ...(event.banner_image_url &&
-                event.hero_image_url &&
-                event.banner_image_url !== event.hero_image_url
+                ...(bannerImage && heroImage && bannerImage !== heroImage
                   ? [
                       {
-                        url: event.banner_image_url,
+                        url: bannerImage,
                         alt: `${event.title} — banner`,
                       },
                     ]
@@ -380,11 +382,15 @@ export default function EventDetail() {
 
       {/* Hero */}
       <section className="relative min-h-[280px] md:min-h-[360px] overflow-hidden">
-        {event.banner_image_url || event.hero_image_url ? (
+        {eventImage ? (
           <img
-            src={event.banner_image_url || event.hero_image_url}
+            src={eventImage}
+            srcSet={buildEventMediaSrcSet(bannerImage || event.hero_image_url, bannerImage ? "banner" : "detail")}
+            sizes="100vw"
             alt=""
             className="absolute inset-0 w-full h-full object-cover"
+            fetchPriority="high"
+            decoding="async"
           />
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-cyan/20 via-bg-dark to-purple-accent/20" />
@@ -602,17 +608,6 @@ export default function EventDetail() {
             )}
             <div className="grid md:grid-cols-3 gap-6">
               <div className="md:col-span-2 space-y-6">
-                {event.short_description ? (
-                  <div className="p-6 rounded-xl border border-gray-700/50 bg-surface-dark/50">
-                    <h2 className="text-lg font-bold text-white mb-3">
-                      {t("eventDetail.about")}
-                    </h2>
-                    <p className="text-gray-400 leading-relaxed">
-                      {event.short_description}
-                    </p>
-                  </div>
-                ) : null}
-
                 <div className="p-6 rounded-xl border border-gray-700/50 bg-surface-dark/50">
                   <h2 className="text-lg font-bold text-white mb-4">
                     {t("eventDetail.convocatoriaTitle")}
@@ -620,7 +615,7 @@ export default function EventDetail() {
                   {hasDescription ? (
                     descriptionIsHtml ? (
                       <div
-                        className="blog-prose text-gray-300 leading-relaxed [&_a]:text-cyan [&_a]:underline [&_h2]:text-white [&_h3]:text-white [&_img]:rounded-xl [&_img]:my-4 [&_blockquote]:border-l-cyan [&_blockquote]:border-l-4 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-400"
+                        className="blog-prose text-gray-300 leading-relaxed [&_a]:text-cyan [&_a]:underline [&_h2]:text-white [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-6 [&_h2]:mb-3 [&_h3]:text-white [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ul]:mb-4 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_ol]:mb-4 [&_li]:text-gray-300 [&_strong]:text-white [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full [&_table]:w-full [&_table]:text-sm [&_table]:mb-4 [&_th]:text-left [&_th]:text-white [&_th]:border-b [&_th]:border-gray-600 [&_th]:py-2 [&_th]:pr-3 [&_td]:py-2 [&_td]:pr-3 [&_td]:border-b [&_td]:border-gray-700/50 [&_img]:rounded-xl [&_img]:my-4 [&_blockquote]:border-l-cyan [&_blockquote]:border-l-4 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-400 [&_blockquote]:my-4"
                         dangerouslySetInnerHTML={{
                           __html: sanitizeHtml(event.description!),
                         }}
@@ -861,14 +856,13 @@ export default function EventDetail() {
                   const isSoldOut =
                     cat.capacity != null && cat.sold_count >= cat.capacity;
                   const waitlistEnabled = Boolean(cat.waitlist_enabled);
-                  const eligibility =
-                    token
-                      ? getCategoryEligibilityForAthlete(
-                          cat,
-                          user,
-                          event.start_date,
-                        )
-                      : { eligible: true as const };
+                  const eligibility = token
+                    ? getCategoryEligibilityForAthlete(
+                        cat,
+                        user,
+                        event.start_date,
+                      )
+                    : { eligible: true as const };
                   const isRecommended =
                     recommendedCategoryId === cat.id && eligibility.eligible;
                   const eligibilityParts = formatCategoryEligibility(cat, t);
@@ -1019,15 +1013,17 @@ export default function EventDetail() {
               {scheduleWaves.map((wave) => (
                 <div
                   key={wave.id}
-                  className="flex items-center justify-between p-4 rounded-xl border border-gray-700/50 bg-surface-dark/40"
+                  className="flex items-center justify-between gap-3 p-4 rounded-xl border border-gray-700/50 bg-surface-dark/40"
                 >
-                  <div>
-                    <p className="font-semibold text-white">{wave.name}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white break-words">
+                      {wave.name}
+                    </p>
                     <p className="text-sm text-gray-400">
                       {formatEventDate(wave.starts_at, i18n.language)}
                     </p>
                   </div>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 shrink-0 whitespace-nowrap">
                     {wave.registered_count}
                     {wave.capacity ? ` / ${wave.capacity}` : ""}
                   </p>

@@ -18,9 +18,38 @@ import { Resend } from "resend";
 import twilio from "twilio";
 import Stripe from "stripe";
 import { createClerkClient, verifyToken } from "@clerk/backend";
-import { registerStaffPortalRoutes, listAdminAthletes, listStaffRegistrations, listOrganizerMemberEvents } from "../server/staffPortal.js";
+import {
+  registerStaffPortalRoutes,
+  listAdminAthletes,
+  listStaffRegistrations,
+  listOrganizerMemberEvents,
+  assertMemberCanAccessEvent,
+  getOrganizerMemberRole,
+} from "../server/staffPortal.js";
+import { canOrganizerEditEvents } from "../shared/staffRoles.js";
+import { calcServiceFeeCents } from "../shared/checkoutBreakdown.js";
+import {
+  applyConnectToPaymentIntent,
+  assertOrganizerPayoutReadyForPaidEvent,
+  handleStripeAccountUpdatedWebhook,
+  handleStripeConnectDeauthorized,
+  enrichStaffEventsWithPaymentAvailability,
+  resolveCheckoutConnectMode,
+} from "../server/stripeConnect.js";
+import { buildStripeRefundParams } from "../server/stripeRefunds.js";
+import {
+  claimStripeWebhookEvent,
+  markStripeWebhookEventFailed,
+  markStripeWebhookEventProcessed,
+} from "../server/stripeWebhook.js";
 import { registerPhase2Routes } from "../server/phase2.js";
+import { registerPublicTeamRoutes } from "../server/publicTeams.js";
 import { registerBlogRoutes } from "../server/blog.js";
+import { cdnAwareJsonBodyParser } from "../server/cdnUploadJsonBody.js";
+import {
+  isStaffProxyableImageUrl,
+  normalizeEventMediaUrl,
+} from "../shared/cdnUrl.js";
 import {
   CATEGORY_SOLD_COUNT_UNALIASED_SQL,
   DISCOUNT_USED_COUNT_SQL,
@@ -69,15 +98,62 @@ import {
 import { validateAthletePassword } from "../shared/passwordPolicy.js";
 import { evaluateCategoryEligibility } from "../shared/categoryEligibility.js";
 import { normalizeApiDateOnly } from "../shared/api.js";
+// Shared modules imported transitively by server/* — referenced here for Vercel bundle.
+import { validateCoursePayload } from "../shared/courseValidation.js";
+import {
+  buildRouteGeoJson,
+  getRouteImportSource,
+  parseRouteGeoJson,
+} from "../shared/courseGeoJson.js";
+import {
+  evaluateCheckInWindow,
+  eventEndWallTime,
+  normalizeWallDateTimeFromDb,
+  parseIncomingEventDateTime,
+} from "../shared/checkInWindow.js";
+import { WAIVER_ACCEPTANCE_SIGNATURE } from "../shared/waiverConstants.js";
+import { normalizeBlogSlug, resolveBlogSlug } from "../shared/slugify.js";
+import {
+  buildStripePayoutChecklist,
+  buildTribooPayoutChecklist,
+  deriveStripeConnectStatusFromCapabilities,
+  isOrganizerPayoutReady,
+  isTribooPayoutProfileComplete,
+} from "../shared/stripeConnect.js";
+import { handleStaffImageProxy } from "../server/staffImageProxy.js";
 import {
   checkAthleteAuthRateLimit,
   type AthleteAuthRateLimitScope,
 } from "../server/authRateLimit.js";
+
+/** Keeps transitive server/shared modules in the Vercel lambda bundle (see vercel.json). */
+const __vercelServerBundle = {
+  validateCoursePayload,
+  buildRouteGeoJson,
+  getRouteImportSource,
+  parseRouteGeoJson,
+  evaluateCheckInWindow,
+  eventEndWallTime,
+  normalizeWallDateTimeFromDb,
+  parseIncomingEventDateTime,
+  WAIVER_ACCEPTANCE_SIGNATURE,
+  normalizeBlogSlug,
+  resolveBlogSlug,
+  buildStripePayoutChecklist,
+  buildTribooPayoutChecklist,
+  deriveStripeConnectStatusFromCapabilities,
+  isOrganizerPayoutReady,
+  isTribooPayoutProfileComplete,
+  isStaffProxyableImageUrl,
+  handleStaffImageProxy,
+};
+void __vercelServerBundle;
 import {
   getTestAuthBypass,
   getTestClerkProfileResolver,
   getTestPoolOverride,
   getTestResetCodeGenerator,
+  getTestStripeClientOverride,
   isTestMode,
   pushCapturedTestEmail,
 } from "./testHooks.js";
@@ -159,7 +235,10 @@ type EmailTemplateKind =
   | "passwordReset"
   | "welcomeAthlete"
   | "welcomeStaff"
-  | "registrationConfirmed";
+  | "registrationConfirmed"
+  | "eventSubmittedForApproval"
+  | "eventApproved"
+  | "eventRejected";
 
 type EmailAudience = "athlete" | "admin" | "organizer";
 
@@ -225,6 +304,32 @@ type EmailStrings = {
     security: string;
     cta: string;
   };
+  eventSubmittedForApproval: {
+    preheader: string;
+    title: string;
+    greeting: string;
+    intro: string;
+    eventLabel: string;
+    cta: string;
+  };
+  eventApproved: {
+    preheader: string;
+    title: string;
+    greeting: string;
+    intro: string;
+    eventLabel: string;
+    cta: string;
+  };
+  eventRejected: {
+    preheader: string;
+    title: string;
+    greeting: string;
+    intro: string;
+    eventLabel: string;
+    reasonLabel: string;
+    noReason: string;
+    cta: string;
+  };
 };
 
 const EMAIL_STRINGS_ES: EmailStrings = {
@@ -234,6 +339,9 @@ const EMAIL_STRINGS_ES: EmailStrings = {
     welcomeAthlete: "¡Bienvenido a Triboo Sport!",
     welcomeStaff: "Bienvenido al Staff Console — Triboo Sport",
     registrationConfirmed: "¡Inscripción confirmada! — Triboo Sport",
+    eventSubmittedForApproval: "Evento pendiente de aprobación — Triboo Sport",
+    eventApproved: "¡Evento publicado! — Triboo Sport",
+    eventRejected: "Evento devuelto a borrador — Triboo Sport",
   },
   otp: {
     preheader: "Tu código de acceso expira en 10 minutos",
@@ -298,6 +406,35 @@ const EMAIL_STRINGS_ES: EmailStrings = {
       "Si no solicitaste este cambio, ignora este correo. Tu contraseña actual seguirá funcionando.",
     cta: "Restablecer contraseña",
   },
+  eventSubmittedForApproval: {
+    preheader: "Un organizador envió un evento para revisión",
+    title: "Evento pendiente de aprobación",
+    greeting: "Hola {{name}},",
+    intro:
+      "Un organizador envió un evento para tu revisión. Apruébalo o devuélvelo a borrador desde la consola de staff.",
+    eventLabel: "Evento",
+    cta: "Revisar en consola",
+  },
+  eventApproved: {
+    preheader: "Tu evento ya está publicado",
+    title: "¡Evento aprobado!",
+    greeting: "Hola {{name}},",
+    intro:
+      "Tu evento fue aprobado y ya está publicado. Los atletas pueden verlo e inscribirse.",
+    eventLabel: "Evento",
+    cta: "Ver evento en consola",
+  },
+  eventRejected: {
+    preheader: "Tu evento necesita cambios antes de publicarse",
+    title: "Evento devuelto a borrador",
+    greeting: "Hola {{name}},",
+    intro:
+      "Un administrador devolvió tu evento a borrador. Revisa los comentarios, ajusta lo necesario y vuelve a enviarlo.",
+    eventLabel: "Evento",
+    reasonLabel: "Motivo",
+    noReason: "No se indicó un motivo específico.",
+    cta: "Editar evento",
+  },
 };
 
 const EMAIL_STRINGS_EN: EmailStrings = {
@@ -307,6 +444,9 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     welcomeAthlete: "Welcome to Triboo Sport!",
     welcomeStaff: "Welcome to Staff Console — Triboo Sport",
     registrationConfirmed: "Registration confirmed! — Triboo Sport",
+    eventSubmittedForApproval: "Event pending approval — Triboo Sport",
+    eventApproved: "Event published! — Triboo Sport",
+    eventRejected: "Event returned to draft — Triboo Sport",
   },
   otp: {
     preheader: "Your access code expires in 10 minutes",
@@ -370,6 +510,35 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     security:
       "If you didn't request this change, ignore this email. Your current password will still work.",
     cta: "Reset password",
+  },
+  eventSubmittedForApproval: {
+    preheader: "An organizer submitted an event for review",
+    title: "Event pending approval",
+    greeting: "Hi {{name}},",
+    intro:
+      "An organizer submitted an event for your review. Approve it or return it to draft from the staff console.",
+    eventLabel: "Event",
+    cta: "Review in console",
+  },
+  eventApproved: {
+    preheader: "Your event is now live",
+    title: "Event approved!",
+    greeting: "Hi {{name}},",
+    intro:
+      "Your event was approved and is now published. Athletes can view it and register.",
+    eventLabel: "Event",
+    cta: "View event in console",
+  },
+  eventRejected: {
+    preheader: "Your event needs changes before it can go live",
+    title: "Event returned to draft",
+    greeting: "Hi {{name}},",
+    intro:
+      "An admin returned your event to draft. Review the feedback, make updates, and submit again.",
+    eventLabel: "Event",
+    reasonLabel: "Reason",
+    noReason: "No specific reason was provided.",
+    cta: "Edit event",
   },
 };
 
@@ -637,6 +806,92 @@ function buildWelcomeStaffEmail(params: {
   };
 }
 
+function buildEventSubmittedForApprovalEmail(params: {
+  locale: AppLocale;
+  firstName: string;
+  eventTitle: string;
+  appUrl: string;
+}): { subject: string; html: string; text: string } {
+  const { locale, firstName, eventTitle, appUrl } = params;
+  const s = emailStrings(locale);
+  const staffUrl = `${appUrl.replace(/\/$/, "")}/staff/admin/events`;
+  const bodyHtml = `
+    <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.eventSubmittedForApproval.greeting, { name: firstName }))}</p>
+    <p style="margin:0 0 16px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.eventSubmittedForApproval.intro)}</p>
+    <p style="margin:0;font-size:15px;"><span style="color:${EMAIL_BRAND.textDim};">${escapeHtml(s.eventSubmittedForApproval.eventLabel)}:</span> <strong>${escapeHtml(eventTitle)}</strong></p>`;
+  return {
+    subject: s.subjects.eventSubmittedForApproval,
+    html: emailShell({
+      locale,
+      preheader: s.eventSubmittedForApproval.preheader,
+      title: s.eventSubmittedForApproval.title,
+      bodyHtml,
+      cta: { label: s.eventSubmittedForApproval.cta, url: staffUrl },
+      appUrl,
+    }),
+    text: `${interpolateEmail(s.eventSubmittedForApproval.greeting, { name: firstName })}\n\n${s.eventSubmittedForApproval.intro}\n\n${s.eventSubmittedForApproval.eventLabel}: ${eventTitle}\n\n${staffUrl}`,
+  };
+}
+
+function buildEventApprovedEmail(params: {
+  locale: AppLocale;
+  firstName: string;
+  eventTitle: string;
+  appUrl: string;
+  eventId: number;
+}): { subject: string; html: string; text: string } {
+  const { locale, firstName, eventTitle, appUrl, eventId } = params;
+  const s = emailStrings(locale);
+  const eventUrl = `${appUrl.replace(/\/$/, "")}/staff/organizer/events/${eventId}`;
+  const bodyHtml = `
+    <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.eventApproved.greeting, { name: firstName }))}</p>
+    <p style="margin:0 0 16px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.eventApproved.intro)}</p>
+    <p style="margin:0;font-size:15px;"><span style="color:${EMAIL_BRAND.textDim};">${escapeHtml(s.eventApproved.eventLabel)}:</span> <strong>${escapeHtml(eventTitle)}</strong></p>`;
+  return {
+    subject: s.subjects.eventApproved,
+    html: emailShell({
+      locale,
+      preheader: s.eventApproved.preheader,
+      title: s.eventApproved.title,
+      bodyHtml,
+      cta: { label: s.eventApproved.cta, url: eventUrl },
+      appUrl,
+    }),
+    text: `${interpolateEmail(s.eventApproved.greeting, { name: firstName })}\n\n${s.eventApproved.intro}\n\n${s.eventApproved.eventLabel}: ${eventTitle}\n\n${eventUrl}`,
+  };
+}
+
+function buildEventRejectedEmail(params: {
+  locale: AppLocale;
+  firstName: string;
+  eventTitle: string;
+  reason: string | null;
+  appUrl: string;
+  eventId: number;
+}): { subject: string; html: string; text: string } {
+  const { locale, firstName, eventTitle, reason, appUrl, eventId } = params;
+  const s = emailStrings(locale);
+  const eventUrl = `${appUrl.replace(/\/$/, "")}/staff/organizer/events/${eventId}`;
+  const reasonText = reason?.trim() ? reason.trim() : s.eventRejected.noReason;
+  const bodyHtml = `
+    <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.eventRejected.greeting, { name: firstName }))}</p>
+    <p style="margin:0 0 16px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.eventRejected.intro)}</p>
+    <p style="margin:0 0 8px;font-size:15px;"><span style="color:${EMAIL_BRAND.textDim};">${escapeHtml(s.eventRejected.eventLabel)}:</span> <strong>${escapeHtml(eventTitle)}</strong></p>
+    <p style="margin:0;font-size:15px;"><span style="color:${EMAIL_BRAND.textDim};">${escapeHtml(s.eventRejected.reasonLabel)}:</span> ${escapeHtml(reasonText)}</p>`;
+  return {
+    subject: s.subjects.eventRejected,
+    html: emailShell({
+      locale,
+      preheader: s.eventRejected.preheader,
+      title: s.eventRejected.title,
+      bodyHtml,
+      cta: { label: s.eventRejected.cta, url: eventUrl },
+      appUrl,
+    }),
+    text: `${interpolateEmail(s.eventRejected.greeting, { name: firstName })}\n\n${s.eventRejected.intro}\n\n${s.eventRejected.eventLabel}: ${eventTitle}\n${s.eventRejected.reasonLabel}: ${reasonText}\n\n${eventUrl}`,
+  };
+}
+
 function buildRegistrationConfirmedEmail(params: {
   locale: AppLocale;
   firstName: string;
@@ -833,7 +1088,7 @@ async function findOrCreateAthleteFromClerk(
     const athlete = rows[0];
     await pool.query<ResultSetHeader>(
       `UPDATE athletes SET
-         email = COALESCE(email, ?),
+         email = ?,
          first_name = CASE WHEN first_name = '' OR first_name IS NULL THEN ? ELSE first_name END,
          last_name = CASE WHEN last_name = '' OR last_name IS NULL THEN ? ELSE last_name END,
          avatar_url = COALESCE(?, avatar_url),
@@ -904,6 +1159,16 @@ function athleteAuthPayload(athlete: RowDataPacket) {
     gender: (athlete.gender as string | null) ?? null,
     avatarUrl: athlete.avatar_url ?? undefined,
   };
+}
+
+/** Login email on the athlete record — registration confirmations always go here */
+async function athleteLoginEmail(athleteId: number): Promise<string | undefined> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT email FROM athletes WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    [athleteId],
+  );
+  const email = rows[0]?.email;
+  return email ? String(email).trim() : undefined;
 }
 
 async function loadAthleteEligibilityProfile(athleteId: number) {
@@ -1098,6 +1363,7 @@ export {
   setTestAuthBypass,
   resetTestEnvironment,
   setTestClerkProfileResolver,
+  setTestStripeClient,
 } from "./testHooks.js";
 
 const TRANSIENT_DB_CODES = [
@@ -1166,6 +1432,12 @@ function getStripePublishableKey(): string {
 }
 
 function isStripeConfigured(): boolean {
+  if (isTestMode()) {
+    const override = getTestStripeClientOverride();
+    if (override !== undefined) {
+      return override !== null;
+    }
+  }
   return !!(
     process.env.STRIPE_SECRET_KEY?.trim() && getStripePublishableKey()
   );
@@ -1173,6 +1445,12 @@ function isStripeConfigured(): boolean {
 
 let stripeClient: Stripe | null = null;
 function getStripeClient(): Stripe | null {
+  if (isTestMode()) {
+    const override = getTestStripeClientOverride();
+    if (override !== undefined) {
+      return override;
+    }
+  }
   const secret = process.env.STRIPE_SECRET_KEY?.trim();
   if (!secret || !getStripePublishableKey()) return null;
   if (!stripeClient) {
@@ -1224,8 +1502,7 @@ if (isStripeConfigured()) {
   );
 }
 
-/** Re-enable when organizer Stripe Connect onboarding is live. */
-const STRIPE_CONNECT_ENABLED = false;
+/** Stripe Connect (MX) for destination charges when organizer payout is ready. */
 
 // ============================================================================
 // AUTH HELPERS
@@ -1582,10 +1859,6 @@ async function resolveStaffByEmail(
 // PAYMENT HELPERS (direct Stripe payments; Connect disabled for now)
 // ============================================================================
 
-function calcServiceFeeCents(priceCents: number, feePercent: number): number {
-  return Math.round(priceCents * (feePercent / 100));
-}
-
 type DiscountCodeRow = {
   id: number;
   code: string;
@@ -1740,15 +2013,24 @@ async function nextRegistrationNumber(eventId: number): Promise<string> {
 
 async function processPaymentRefund(opts: {
   paymentId: number;
-  adminId: number;
+  requestedByType: "admin" | "organizer_member";
+  requestedById: number;
+  organizerId?: number;
   reason?: string;
 }): Promise<void> {
   const [[pay]] = await pool.query<RowDataPacket[]>(
-    `SELECT id, registration_id, amount_cents, currency, status, provider, stripe_payment_intent_id
+    `SELECT id, registration_id, organizer_id, amount_cents, currency, status, provider,
+            stripe_payment_intent_id, stripe_transfer_id, metadata_json
      FROM payments WHERE id = ? LIMIT 1`,
     [opts.paymentId],
   );
   if (!pay) {
+    throw new Error("Payment not found");
+  }
+  if (
+    opts.requestedByType === "organizer_member" &&
+    Number(pay.organizer_id) !== Number(opts.organizerId)
+  ) {
     throw new Error("Payment not found");
   }
   if (pay.status === "refunded") {
@@ -1762,9 +2044,12 @@ async function processPaymentRefund(opts: {
   let stripeRefundId: string | null = null;
 
   if (pay.stripe_payment_intent_id && getStripeClient()) {
-    const refund = await getStripeClient()!.refunds.create({
-      payment_intent: String(pay.stripe_payment_intent_id),
+    const refundParams = buildStripeRefundParams(String(pay.stripe_payment_intent_id), {
+      stripe_payment_intent_id: pay.stripe_payment_intent_id as string,
+      stripe_transfer_id: pay.stripe_transfer_id as string | null,
+      metadata_json: pay.metadata_json,
     });
+    const refund = await getStripeClient()!.refunds.create(refundParams);
     stripeRefundId = refund.id;
   } else if (pay.provider !== "mock") {
     throw new Error("Stripe refund unavailable for this payment");
@@ -1778,7 +2063,7 @@ async function processPaymentRefund(opts: {
       `INSERT INTO payment_refunds (
          payment_id, amount_cents, currency, reason, status, provider, stripe_refund_id,
          requested_by_type, requested_by_id, processed_at
-       ) VALUES (?,?,?,?,'succeeded',?,?, 'admin', ?, NOW())`,
+       ) VALUES (?,?,?,?,'succeeded',?,?, ?, ?, NOW())`,
       [
         opts.paymentId,
         amountCents,
@@ -1786,7 +2071,8 @@ async function processPaymentRefund(opts: {
         opts.reason ?? null,
         pay.stripe_payment_intent_id ? "stripe" : "mock",
         stripeRefundId,
-        opts.adminId,
+        opts.requestedByType === "admin" ? "admin" : "organizer_member",
+        opts.requestedById,
       ],
     );
 
@@ -1828,9 +2114,12 @@ async function processPaymentRefund(opts: {
             reg.id,
             reg.status,
             "refunded",
-            "admin",
-            opts.adminId,
-            opts.reason ?? "Payment refunded by admin",
+            opts.requestedByType === "admin" ? "admin" : "organizer_member",
+            opts.requestedById,
+            opts.reason ??
+              (opts.requestedByType === "admin"
+                ? "Payment refunded by admin"
+                : "Payment refunded by organizer"),
           ],
         );
       }
@@ -2133,8 +2422,8 @@ async function buildCheckoutResponseForPayment(
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT p.id, p.public_uuid, p.amount_cents, p.registration_amount_cents,
             p.service_fee_cents, p.currency, p.metadata_json, p.stripe_payment_intent_id,
-            p.provider, p.status, p.registration_id, p.event_id, e.title AS event_title,
-            e.slug AS event_slug
+            p.provider, p.status, p.registration_id, p.event_id, p.organizer_id,
+            e.title AS event_title, e.slug AS event_slug
      FROM payments p
      JOIN events e ON e.id = p.event_id
      WHERE p.public_uuid = ? AND p.athlete_id = ? LIMIT 1`,
@@ -2174,7 +2463,7 @@ async function buildCheckoutResponseForPayment(
 
   if (!clientSecret) {
     const stripeCustomerId = await ensureStripeCustomer(athleteId);
-    const piParams = buildRegistrationPaymentIntentParams({
+    let piParams = buildRegistrationPaymentIntentParams({
       amount: Number(pay.amount_cents),
       currency: (pay.currency as string) || "mxn",
       metadata: {
@@ -2183,10 +2472,25 @@ async function buildCheckoutResponseForPayment(
         athlete_id: String(athleteId),
         category_id: String(meta.categoryId),
         event_id: String(pay.event_id),
+        organizer_id: String(pay.organizer_id ?? ""),
       },
       eventTitle: pay.event_title as string | undefined,
       customerId: stripeCustomerId,
     });
+    const connectMode = await resolveCheckoutConnectMode(
+      pool,
+      Number(pay.organizer_id),
+      getStripeClient(),
+    );
+    if (connectMode.mode === "blocked") {
+      return null;
+    }
+    if (connectMode.mode === "destination") {
+      piParams = applyConnectToPaymentIntent(piParams, {
+        destinationAccountId: connectMode.stripeAccountId,
+        applicationFeeCents: Number(pay.service_fee_cents ?? 0),
+      });
+    }
     const pi = await getStripeClient()!.paymentIntents.create(piParams, {
       idempotencyKey: `pi_${paymentPublicUuid}`,
     });
@@ -2287,6 +2591,148 @@ async function refundOrphanSucceededPayment(
   }
 }
 
+async function deliverRegistrationConfirmedEmail(
+  registrationId: number,
+  opts?: { force?: boolean },
+): Promise<{ sent: boolean; skipped?: boolean; error?: string }> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT r.registration_number, r.status,
+            a.id AS athlete_id, a.email AS athlete_email, a.first_name AS athlete_first_name,
+            a.preferred_language,
+            e.title AS event_title,
+            ec.name AS category_name
+     FROM registrations r
+     JOIN athletes a ON a.id = r.athlete_id AND a.deleted_at IS NULL
+     JOIN events e ON e.id = r.event_id
+     JOIN event_categories ec ON ec.id = r.event_category_id
+     WHERE r.id = ? AND r.deleted_at IS NULL
+     LIMIT 1`,
+    [registrationId],
+  );
+
+  if (rows.length === 0 || rows[0].status !== "confirmed") {
+    return { sent: false, error: "Registration not found or not confirmed" };
+  }
+
+  const reg = rows[0];
+  const athleteEmail = String(reg.athlete_email ?? "").trim();
+  if (!athleteEmail) {
+    console.error("[email:registration-confirmed] missing athlete email", {
+      registrationId,
+    });
+    return { sent: false, error: "Athlete email missing" };
+  }
+
+  if (!opts?.force) {
+    const [alreadySent] = await pool.query<RowDataPacket[]>(
+      `SELECT id FROM notification_queue
+       WHERE channel = 'email' AND status IN ('sent', 'pending')
+         AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.type')) = 'registration_confirmed'
+         AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.registration_id')) = ?
+       LIMIT 1`,
+      [String(registrationId)],
+    );
+    if (alreadySent.length > 0) {
+      return { sent: false, skipped: true };
+    }
+  }
+
+  const locale = resolveLocale(reg.preferred_language as string | undefined);
+  const mail = buildRegistrationConfirmedEmail({
+    locale,
+    firstName: String(reg.athlete_first_name || "Atleta"),
+    eventTitle: String(reg.event_title),
+    categoryName: String(reg.category_name),
+    registrationNumber: String(reg.registration_number),
+    appUrl: APP_URL,
+  });
+
+  let queueId: number | null = null;
+  try {
+    const [ins] = await pool.query<ResultSetHeader>(
+      `INSERT INTO notification_queue (
+         recipient_type, recipient_id, channel, to_address, subject, body, status, payload_json
+       ) VALUES ('athlete', ?, 'email', ?, ?, ?, 'pending', ?)`,
+      [
+        reg.athlete_id,
+        athleteEmail,
+        mail.subject,
+        mail.text ?? mail.subject,
+        JSON.stringify({
+          type: "registration_confirmed",
+          registration_id: registrationId,
+          registration_number: reg.registration_number,
+        }),
+      ],
+    );
+    queueId = ins.insertId;
+
+    await sendEmail({
+      to: athleteEmail,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+
+    await pool.query<ResultSetHeader>(
+      `UPDATE notification_queue SET status = 'sent', sent_at = NOW() WHERE id = ?`,
+      [queueId],
+    );
+
+    console.log("[email:registration-confirmed] sent", {
+      registrationId,
+      to: athleteEmail,
+    });
+    return { sent: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[email:registration-confirmed] failed", {
+      registrationId,
+      to: athleteEmail,
+      error: message,
+    });
+    if (queueId != null) {
+      await pool.query<ResultSetHeader>(
+        `UPDATE notification_queue SET status = 'failed', error_message = ? WHERE id = ?`,
+        [message.slice(0, 2000), queueId],
+      );
+    }
+    return { sent: false, error: message };
+  }
+}
+
+async function resolveConnectPaymentIds(
+  pi: Stripe.PaymentIntent,
+): Promise<{ transferId: string | null; applicationFeeId: string | null }> {
+  const chargeId =
+    typeof pi.latest_charge === "string"
+      ? pi.latest_charge
+      : pi.latest_charge?.id ?? null;
+  if (!chargeId) {
+    return { transferId: null, applicationFeeId: null };
+  }
+
+  const stripe = getStripeClient();
+  if (!stripe) {
+    return { transferId: null, applicationFeeId: null };
+  }
+
+  try {
+    const charge = await stripe.charges.retrieve(chargeId);
+    const transferId =
+      typeof charge.transfer === "string" ? charge.transfer : null;
+    const applicationFeeId =
+      typeof charge.application_fee === "string"
+        ? charge.application_fee
+        : null;
+    return { transferId, applicationFeeId };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[stripe:connect] charge lookup failed:", message);
+    return { transferId: null, applicationFeeId: null };
+  }
+}
+
 async function finalizeRegistrationAfterPayment(
   paymentPublicUuid: string,
   pi: Stripe.PaymentIntent,
@@ -2337,6 +2783,7 @@ async function finalizeRegistrationAfterPayment(
     };
 
     if (pay.registration_id) {
+      const existingRegistrationId = Number(pay.registration_id);
       const [existing] = await conn.query<RowDataPacket[]>(
         `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.status, r.total_cents,
                 ec.name AS category_name, e.title AS event_title, e.slug AS event_slug
@@ -2344,10 +2791,11 @@ async function finalizeRegistrationAfterPayment(
          JOIN event_categories ec ON ec.id = r.event_category_id
          JOIN events e ON e.id = r.event_id
          WHERE r.id = ? AND r.deleted_at IS NULL`,
-        [pay.registration_id],
+        [existingRegistrationId],
       );
       await conn.commit();
       if (existing.length > 0) {
+        await deliverRegistrationConfirmedEmail(existingRegistrationId);
         return { success: true, registration: existing[0] };
       }
     }
@@ -2539,14 +2987,20 @@ async function finalizeRegistrationAfterPayment(
       );
     }
 
+    const connectIds = await resolveConnectPaymentIds(pi);
+
     await conn.query<ResultSetHeader>(
       `UPDATE payments SET status = 'succeeded', paid_at = NOW(), registration_id = ?,
-       stripe_charge_id = ?, stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ?)
+       stripe_charge_id = ?, stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ?),
+       stripe_transfer_id = COALESCE(?, stripe_transfer_id),
+       stripe_application_fee_id = COALESCE(?, stripe_application_fee_id)
        WHERE id = ?`,
       [
         registrationId,
         typeof pi.latest_charge === "string" ? pi.latest_charge : null,
         pi.id,
+        connectIds.transferId,
+        connectIds.applicationFeeId,
         pay.id,
       ],
     );
@@ -2580,24 +3034,7 @@ async function finalizeRegistrationAfterPayment(
 
     await conn.commit();
 
-    const athleteEmail = pay.athlete_email as string | undefined;
-    if (athleteEmail) {
-      const locale = resolveLocale(pay.athlete_preferred_language as string | undefined);
-      const mail = buildRegistrationConfirmedEmail({
-        locale,
-        firstName: String(pay.athlete_first_name || "Atleta"),
-        eventTitle: String(pay.event_title),
-        categoryName: String(category.name),
-        registrationNumber: regNumber,
-        appUrl: APP_URL,
-      });
-      void sendEmail({
-        to: athleteEmail,
-        subject: mail.subject,
-        html: mail.html,
-        text: mail.text,
-      });
-    }
+    await deliverRegistrationConfirmedEmail(registrationId);
 
     const [updated] = await pool.query<RowDataPacket[]>(
       `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.status, r.total_cents,
@@ -2724,7 +3161,7 @@ function buildApp() {
     handleStripeWebhook,
   );
 
-  app.use(express.json());
+  app.use(cdnAwareJsonBodyParser);
   app.use(express.urlencoded({ extended: true }));
   app.use(dbUnavailable);
 
@@ -2758,6 +3195,7 @@ function buildApp() {
     normalizeLocale,
     sendEmail,
     appUrl: APP_URL,
+    getStripeClient,
     processPaymentRefund,
     buildWelcomeStaffEmail: (params) =>
       buildWelcomeStaffEmail({
@@ -2765,6 +3203,30 @@ function buildApp() {
         firstName: params.firstName,
         audience: params.audience,
         appUrl: params.appUrl,
+      }),
+    buildEventSubmittedForApprovalEmail: (params) =>
+      buildEventSubmittedForApprovalEmail({
+        locale: params.locale as AppLocale,
+        firstName: params.firstName,
+        eventTitle: params.eventTitle,
+        appUrl: params.appUrl,
+      }),
+    buildEventApprovedEmail: (params) =>
+      buildEventApprovedEmail({
+        locale: params.locale as AppLocale,
+        firstName: params.firstName,
+        eventTitle: params.eventTitle,
+        appUrl: params.appUrl,
+        eventId: params.eventId,
+      }),
+    buildEventRejectedEmail: (params) =>
+      buildEventRejectedEmail({
+        locale: params.locale as AppLocale,
+        firstName: params.firstName,
+        eventTitle: params.eventTitle,
+        reason: params.reason,
+        appUrl: params.appUrl,
+        eventId: params.eventId,
       }),
     sendStaffLoginOtp: async ({ adminId, to, firstName, preferredLanguage }) => {
       const code = await createOtp("admin", adminId, "login");
@@ -2788,6 +3250,7 @@ function buildApp() {
     sendEmail,
     appUrl: APP_URL,
   });
+  registerPublicTeamRoutes(app, pool, TEAM_MEMBER_COUNT_SQL);
   registerBlogRoutes(app, {
     pool,
     requireAdmin,
@@ -3861,7 +4324,7 @@ function asyncHandler(
     req: Request,
     res: Response,
     next: NextFunction,
-  ) => void | Promise<void>,
+  ) => void | Promise<void | Response>,
 ): express.RequestHandler {
   return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -3874,6 +4337,12 @@ function registerMarketplaceRoutes(app: express.Express) {
       `SELECT id, slug, name, icon FROM sport_types WHERE is_active = 1 ORDER BY sort_order ASC`,
     );
     res.json({ sportTypes: rows });
+  });
+
+  const withNormalizedEventMedia = <T extends RowDataPacket>(row: T): T => ({
+    ...row,
+    hero_image_url: normalizeEventMediaUrl(row.hero_image_url as string | null),
+    banner_image_url: normalizeEventMediaUrl(row.banner_image_url as string | null),
   });
 
   const publishedEventSelect = `
@@ -3924,14 +4393,11 @@ function registerMarketplaceRoutes(app: express.Express) {
         };
       };
 
-      const [statsResult, featuredResult, upcomingResult, athletesResult, teamsResult] =
+      const [statsResult, eventsResult, athletesResult, teamsResult] =
         await Promise.allSettled([
           loadStats(),
           pool.query<RowDataPacket[]>(
-            `${publishedEventSelect} AND e.featured = 1 ORDER BY e.start_date ASC LIMIT 4`,
-          ),
-          pool.query<RowDataPacket[]>(
-            `${publishedEventSelect} AND e.start_date >= CURDATE() ORDER BY e.start_date ASC LIMIT 3`,
+            `${publishedEventSelect} ORDER BY e.start_date ASC LIMIT 50`,
           ),
           pool.query<RowDataPacket[]>(
             `SELECT a.first_name, a.last_name, g.xp_total, g.level
@@ -3960,17 +4426,15 @@ function registerMarketplaceRoutes(app: express.Express) {
       };
 
       logSectionFailure("stats", statsResult);
-      logSectionFailure("featured_events", featuredResult);
-      logSectionFailure("upcoming_events", upcomingResult);
+      logSectionFailure("events", eventsResult);
       logSectionFailure("top_athletes", athletesResult);
       logSectionFailure("top_teams", teamsResult);
 
       const stats =
         statsResult.status === "fulfilled" ? statsResult.value : emptyStats;
-      const featuredEvents =
-        featuredResult.status === "fulfilled" ? featuredResult.value[0] : [];
-      const upcomingEvents =
-        upcomingResult.status === "fulfilled" ? upcomingResult.value[0] : [];
+      const publishedEvents =
+        eventsResult.status === "fulfilled" ? eventsResult.value[0] : [];
+      const normalizedEvents = publishedEvents.map(withNormalizedEventMedia);
       const athleteRows =
         athletesResult.status === "fulfilled" ? athletesResult.value[0] : [];
       const teamRows =
@@ -3978,8 +4442,9 @@ function registerMarketplaceRoutes(app: express.Express) {
 
       res.json({
         stats,
-        featured_events: featuredEvents,
-        upcoming_events: upcomingEvents,
+        featured_events: [],
+        upcoming_events: normalizedEvents,
+        events: normalizedEvents,
         top_athletes: athleteRows.map((row, idx) => ({
           rank: idx + 1,
           first_name: row.first_name,
@@ -4089,7 +4554,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         offset,
       });
       res.json({
-        events: fuzzyResult.events,
+        events: fuzzyResult.events.map(withNormalizedEventMedia),
         total: fuzzyResult.total,
         limit,
         offset,
@@ -4150,7 +4615,7 @@ function registerMarketplaceRoutes(app: express.Express) {
     );
 
     res.json({
-      events: rows,
+      events: rows.map(withNormalizedEventMedia),
       total: Number(countRows[0]?.total ?? rows.length),
       limit,
       offset,
@@ -4159,7 +4624,7 @@ function registerMarketplaceRoutes(app: express.Express) {
 
   app.get("/api/events/filters/cities", async (_req, res) => {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT gc.id, gc.name AS city, gs.name AS state, COUNT(e.id) AS event_count
+      `SELECT gc.id, gc.name AS city, gs.name AS state, gc.lat, gc.lng, COUNT(e.id) AS event_count
        FROM geo_cities gc
        JOIN geo_states gs ON gs.id = gc.state_id AND gs.country = 'MX' AND gs.is_active = 1
        LEFT JOIN events e ON e.location_city = gc.name
@@ -4565,7 +5030,7 @@ function registerMarketplaceRoutes(app: express.Express) {
     const waiver = waivers[0] ?? null;
 
     res.json({
-      event,
+      event: withNormalizedEventMedia(event),
       categories: categoriesWithFees,
       registrationFields: (fields as RowDataPacket[]).map((f) => ({
         id: f.id,
@@ -4837,20 +5302,14 @@ function registerMarketplaceRoutes(app: express.Express) {
       }
 
       const [eventRows] = await pool.query<RowDataPacket[]>(
-        STRIPE_CONNECT_ENABLED
-          ? `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
-                    e.start_date, e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
-                    o.stripe_account_id, o.stripe_onboarding_complete,
-                    o.service_fee_percent AS org_fee_percent
-             FROM events e
-             JOIN organizers o ON o.id = e.organizer_id
-             WHERE e.slug = ? AND e.status = 'published' LIMIT 1`
-          : `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
-                    e.start_date, e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
-                    o.service_fee_percent AS org_fee_percent
-             FROM events e
-             JOIN organizers o ON o.id = e.organizer_id
-             WHERE e.slug = ? AND e.status = 'published' LIMIT 1`,
+        `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
+                e.start_date, e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
+                o.stripe_account_id, o.stripe_onboarding_complete, o.stripe_connect_status,
+                o.stripe_charges_enabled, o.stripe_payouts_enabled,
+                o.service_fee_percent AS org_fee_percent
+         FROM events e
+         JOIN organizers o ON o.id = e.organizer_id
+         WHERE e.slug = ? AND e.status = 'published' LIMIT 1`,
         [slug],
       );
       if (eventRows.length === 0) {
@@ -5176,7 +5635,29 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.status(503).json({ error: "Payment service unavailable" });
       }
 
+      let connectDestinationAccountId: string | null = null;
+      let connectChargeMode: "destination" = "destination";
+      if (totalCents > 0) {
+        const connectMode = await resolveCheckoutConnectMode(
+          pool,
+          event.organizer_id as number,
+          getStripeClient(),
+        );
+        if (connectMode.mode === "blocked") {
+          checkoutTrace("organizer-payouts-blocked", { code: connectMode.code });
+          return res.status(503).json({
+            error: "Registration payments are temporarily unavailable for this event",
+            code: connectMode.code,
+          });
+        }
+        connectDestinationAccountId = connectMode.stripeAccountId;
+      }
+
       checkoutTrace("payment-insert", { paymentPublicUuid: payUuid, totalCents });
+      const checkoutMetadataWithConnect = {
+        ...checkoutMetadata,
+        connect_charge_mode: connectChargeMode,
+      };
       const [payResult] = await pool.query<ResultSetHeader>(
         `INSERT INTO payments (
           public_uuid, idempotency_key, registration_id, athlete_id, organizer_id, event_id,
@@ -5195,7 +5676,7 @@ function registerMarketplaceRoutes(app: express.Express) {
           category.currency || "MXN",
           "pending",
           "stripe",
-          JSON.stringify(checkoutMetadata),
+          JSON.stringify(checkoutMetadataWithConnect),
         ],
       );
       const paymentId = payResult.insertId;
@@ -5205,7 +5686,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         paymentPublicUuid: payUuid,
         hasCustomer: Boolean(stripeCustomerId),
       });
-      const piParams = buildRegistrationPaymentIntentParams({
+      let piParams = buildRegistrationPaymentIntentParams({
         amount: totalCents,
         currency: (category.currency as string) || "mxn",
         metadata: {
@@ -5214,26 +5695,19 @@ function registerMarketplaceRoutes(app: express.Express) {
           athlete_id: String(athleteId),
           category_id: String(category.id),
           event_id: String(event.id),
+          organizer_id: String(event.organizer_id),
+          connect_charge_mode: connectChargeMode,
           ...(discountCodeId ? { discount_code_id: String(discountCodeId) } : {}),
         },
         eventTitle: String(event.title),
         customerId: stripeCustomerId,
       });
 
-      // Stripe Connect (destination charges + platform fee) — disabled for now.
-      // Set STRIPE_CONNECT_ENABLED = true when organizer onboarding is live.
-      if (STRIPE_CONNECT_ENABLED) {
-        const hasConnectDestination = Boolean(
-          event.stripe_account_id && event.stripe_onboarding_complete,
-        );
-        if (hasConnectDestination) {
-          piParams.transfer_data = {
-            destination: event.stripe_account_id as string,
-          };
-          if (serviceFeeCents > 0) {
-            piParams.application_fee_amount = serviceFeeCents;
-          }
-        }
+      if (totalCents > 0 && connectDestinationAccountId) {
+        piParams = applyConnectToPaymentIntent(piParams, {
+          destinationAccountId: connectDestinationAccountId,
+          applicationFeeCents: serviceFeeCents,
+        });
       }
 
       checkoutTrace("payment-intent-create", {
@@ -5247,10 +5721,20 @@ function registerMarketplaceRoutes(app: express.Express) {
           idempotencyKey: `pi_${payUuid}`,
         });
       } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Payment intent creation failed";
         checkoutTraceError("payment-intent-create", err, {
           paymentPublicUuid: payUuid,
         });
-        throw err;
+        await pool.query<ResultSetHeader>(
+          `UPDATE payments SET status = 'failed', failure_code = 'pi_create_failed', failure_message = ?
+           WHERE id = ? AND registration_id IS NULL`,
+          [message.slice(0, 500), paymentId],
+        );
+        return res.status(503).json({
+          error: "Could not initialize payment. Please try again.",
+          code: "payment_setup_failed",
+        });
       }
       const clientSecret = pi.client_secret;
       checkoutTrace("payment-intent-created", {
@@ -5336,13 +5820,18 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.json({
           status: "complete",
           registration: existing[0] ?? null,
+          confirmationEmail: await athleteLoginEmail(athleteId),
         });
       }
 
       if (pay.provider === "mock" && Number(pay.amount_cents) === 0) {
         const result = await confirmRegistrationPayment(payUuid, athleteId);
         if (result.success && result.registration) {
-          return res.json({ status: "complete", registration: result.registration });
+          return res.json({
+            status: "complete",
+            registration: result.registration,
+            confirmationEmail: await athleteLoginEmail(athleteId),
+          });
         }
         return res.status(402).json({
           status: "failed",
@@ -5357,7 +5846,11 @@ function registerMarketplaceRoutes(app: express.Express) {
         if (pi.status === "succeeded") {
           const result = await finalizeRegistrationAfterPayment(payUuid, pi);
           if (result.success && result.registration) {
-            return res.json({ status: "complete", registration: result.registration });
+            return res.json({
+              status: "complete",
+              registration: result.registration,
+              confirmationEmail: await athleteLoginEmail(athleteId),
+            });
           }
           return res.status(402).json({
             status: "failed",
@@ -5430,6 +5923,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       const r = result.registration;
       res.json({
         success: true,
+        confirmationEmail: await athleteLoginEmail(req.auth!.id),
         registration: {
           public_uuid: r.public_uuid,
           registration_number: r.registration_number,
@@ -6313,7 +6807,22 @@ function registerOrganizerRoutes(app: express.Express) {
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const rows = await listOrganizerMemberEvents(pool, req.auth!.id, organizerId);
-      res.json({ events: rows });
+      const events = await enrichStaffEventsWithPaymentAvailability(
+        pool,
+        rows.map((row) => ({
+          id: Number(row.id),
+          status: String(row.status),
+          organizer_id: Number(row.organizer_id ?? organizerId),
+          slug: String(row.slug),
+          title: String(row.title),
+          start_date: String(row.start_date),
+          registration_count: Number(row.registration_count ?? 0),
+          location_city: row.location_city != null ? String(row.location_city) : undefined,
+          sport_name: row.sport_name != null ? String(row.sport_name) : undefined,
+        })),
+        getStripeClient(),
+      );
+      res.json({ events });
     },
   );
 
@@ -6382,11 +6891,7 @@ function registerOrganizerRoutes(app: express.Express) {
         return res.status(400).json({ error: "Invalid event id" });
       }
 
-      const [eventRows] = await pool.query<RowDataPacket[]>(
-        "SELECT id FROM events WHERE id = ? AND organizer_id = ? LIMIT 1",
-        [eventId, organizerId],
-      );
-      if (eventRows.length === 0) {
+      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -6414,12 +6919,12 @@ function registerOrganizerRoutes(app: express.Express) {
         return res.status(400).json({ error: "Invalid event id" });
       }
 
-      const [eventRows] = await pool.query<RowDataPacket[]>(
-        "SELECT id FROM events WHERE id = ? AND organizer_id = ? LIMIT 1",
-        [eventId, organizerId],
-      );
-      if (eventRows.length === 0) {
+      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
         return res.status(404).json({ error: "Event not found" });
+      }
+      const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
+      if (!memberRole || !canOrganizerEditEvents(memberRole)) {
+        return res.status(403).json({ error: "Insufficient permissions to edit events" });
       }
 
       const raw = req.body?.sponsors;
@@ -6501,11 +7006,33 @@ function registerAdminRoutes(app: express.Express) {
          (SELECT COUNT(*) FROM athletes WHERE status = 'active' AND deleted_at IS NULL) AS athletes,
          (SELECT COUNT(*) FROM organizers WHERE status = 'active') AS organizers,
          (SELECT COUNT(*) FROM events WHERE status = 'published' AND deleted_at IS NULL) AS published_events,
+         (SELECT COUNT(*) FROM events WHERE status = 'pending_approval' AND deleted_at IS NULL) AS pending_approval_events,
          (SELECT COUNT(*) FROM registrations WHERE status = 'confirmed' AND deleted_at IS NULL) AS confirmed_registrations,
          (SELECT COALESCE(SUM(amount_cents), 0) FROM payments WHERE status = 'succeeded') AS total_revenue_cents`,
     );
     res.json({ stats: stats ?? {} });
   });
+
+  app.post(
+    "/api/admin/registrations/:registrationId/resend-confirmation",
+    requireAdmin,
+    async (req, res) => {
+      const registrationId = Number(req.params.registrationId);
+      if (!Number.isFinite(registrationId) || registrationId <= 0) {
+        return res.status(400).json({ error: "Invalid registration id" });
+      }
+      const result = await deliverRegistrationConfirmedEmail(registrationId, {
+        force: true,
+      });
+      if (!result.sent) {
+        return res.status(result.skipped ? 409 : 502).json({
+          error: result.error ?? "Could not send confirmation email",
+          skipped: result.skipped ?? false,
+        });
+      }
+      res.json({ ok: true, sent: true });
+    },
+  );
 
   app.get("/api/admin/athletes", requireAdmin, async (req, res) => {
     const q = String(req.query.q ?? "").trim();
@@ -6530,7 +7057,10 @@ function registerAdminRoutes(app: express.Express) {
       filters += " AND (e.title LIKE ? OR e.slug LIKE ? OR o.name LIKE ?)";
       params.push(like, like, like);
     }
-    if (status && ["draft", "published", "cancelled", "completed"].includes(status)) {
+    if (
+      status &&
+      ["draft", "pending_approval", "published", "cancelled", "completed"].includes(status)
+    ) {
       filters += " AND e.status = ?";
       params.push(status);
     }
@@ -6547,7 +7077,12 @@ function registerAdminRoutes(app: express.Express) {
        LIMIT 100`,
       params,
     );
-    res.json({ events: rows });
+    const events = await enrichStaffEventsWithPaymentAvailability(
+      pool,
+      rows as Array<{ id: number; status: string; organizer_id?: number | null }>,
+      getStripeClient(),
+    );
+    res.json({ events });
   });
 
   app.get("/api/admin/analytics", requireAdmin, async (_req, res) => {
@@ -6695,14 +7230,13 @@ function registerAdminRoutes(app: express.Express) {
 }
 
 // ============================================================================
-// ROUTES — WEBHOOKS (Stripe direct payments; Connect webhooks disabled for now)
+// ROUTES — WEBHOOKS (Stripe direct payments; Connect account.updated)
 // ============================================================================
-
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET?.trim() || "";
 
 async function handleStripeWebhook(req: Request, res: Response) {
   const stripe = getStripeClient();
-  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim() || "";
+  if (!stripe || !webhookSecret) {
     return res.status(503).json({ error: "Webhook not configured" });
   }
 
@@ -6716,7 +7250,7 @@ async function handleStripeWebhook(req: Request, res: Response) {
     event = stripe.webhooks.constructEvent(
       req.body as Buffer,
       signature,
-      STRIPE_WEBHOOK_SECRET,
+      webhookSecret,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Invalid signature";
@@ -6725,15 +7259,58 @@ async function handleStripeWebhook(req: Request, res: Response) {
   }
 
   try {
+    const claim = await claimStripeWebhookEvent(pool, event);
+    if (claim.action === "skip") {
+      return res.json({ received: true, duplicate: true, reason: claim.reason });
+    }
+
     if (event.type === "payment_intent.succeeded") {
       const pi = event.data.object as Stripe.PaymentIntent;
       const paymentUuid = pi.metadata?.payment_public_uuid;
       if (paymentUuid) {
         await finalizeRegistrationAfterPayment(paymentUuid, pi);
       }
+    } else if (event.type === "payment_intent.payment_failed") {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const paymentUuid = pi.metadata?.payment_public_uuid;
+      if (paymentUuid) {
+        await pool.query<ResultSetHeader>(
+          `UPDATE payments SET status = 'failed',
+             failure_code = ?, failure_message = ?
+           WHERE public_uuid = ? AND status IN ('pending', 'processing')`,
+          [
+            pi.last_payment_error?.code ?? "payment_failed",
+            (pi.last_payment_error?.message ?? "Payment failed").slice(0, 500),
+            paymentUuid,
+          ],
+        );
+      }
+    } else if (event.type === "account.updated") {
+      const account = event.data.object as Stripe.Account;
+      await handleStripeAccountUpdatedWebhook(pool, account);
+    } else if (event.type === "account.application.deauthorized") {
+      const accountId = (event.data.object as { id?: string }).id;
+      if (accountId) {
+        await handleStripeConnectDeauthorized(pool, accountId);
+      }
+    } else {
+      await pool.query<ResultSetHeader>(
+        `UPDATE stripe_webhook_events SET status = 'ignored', processed_at = NOW()
+         WHERE stripe_event_id = ?`,
+        [event.id],
+      );
+      return res.json({ received: true, ignored: true });
     }
+
+    await markStripeWebhookEventProcessed(pool, event.id);
   } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error("[stripe:webhook] handler error:", err);
+    try {
+      await markStripeWebhookEventFailed(pool, event.id, message);
+    } catch (markErr) {
+      console.error("[stripe:webhook] failed to mark event failed:", markErr);
+    }
     return res.status(500).json({ error: "Webhook handler failed" });
   }
 

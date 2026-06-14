@@ -16,6 +16,8 @@ import ClerkRouterProvider from "@/components/auth/ClerkRouterProvider";
 import I18nSync from "@/components/I18nSync";
 import ScrollToTop from "@/components/ScrollToTop";
 import RegistrationPaymentReturnHandler from "@/components/events/registration/RegistrationPaymentReturnHandler";
+import StaffLayout from "@/components/layouts/StaffLayout";
+import AthleteLayout from "@/components/layouts/AthleteLayout";
 
 const Index = lazy(() => import("./pages/Index"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -23,8 +25,6 @@ const AthleteLogin = lazy(() => import("./pages/auth/AthleteLogin"));
 const AthleteResetPassword = lazy(() => import("./pages/auth/AthleteResetPassword"));
 const StaffLogin = lazy(() => import("./pages/auth/StaffLogin"));
 const SsoCallback = lazy(() => import("./pages/auth/SsoCallback"));
-const AthleteLayout = lazy(() => import("./components/layouts/AthleteLayout"));
-const StaffLayout = lazy(() => import("./components/layouts/StaffLayout"));
 const AthleteDashboard = lazy(() => import("./pages/athlete/Dashboard"));
 const AthleteRegistrations = lazy(() => import("./pages/athlete/Registrations"));
 const AthleteEvents = lazy(() => import("./pages/athlete/Events"));
@@ -38,6 +38,7 @@ const StaffDashboard = lazy(() => import("./pages/staff/Dashboard"));
 const StaffAthletes = lazy(() => import("./pages/staff/Athletes"));
 const StaffPeople = lazy(() => import("./pages/staff/People"));
 const StaffPayments = lazy(() => import("./pages/staff/Payments"));
+const StaffPayouts = lazy(() => import("./pages/staff/Payouts"));
 const StaffEvents = lazy(() => import("./pages/staff/Events"));
 const AdminCreateEvent = lazy(() => import("./pages/staff/AdminCreateEvent"));
 const StaffBlogPosts = lazy(() => import("./pages/staff/BlogPosts"));
@@ -52,10 +53,12 @@ const StaffProfile = lazy(() => import("./pages/staff/Profile"));
 const StaffMessaging = lazy(() => import("./pages/staff/Messaging"));
 const EventsBrowse = lazy(() => import("./pages/events/EventsBrowse"));
 const EventDetail = lazy(() => import("./pages/events/EventDetail"));
+const CommunitiesBrowse = lazy(() => import("./pages/communities/CommunitiesBrowse"));
+const CommunityDetail = lazy(() => import("./pages/communities/CommunityDetail"));
 const BlogIndex = lazy(() => import("./pages/blog/BlogIndex"));
 const BlogPost = lazy(() => import("./pages/blog/BlogPost"));
-const PublicEventsLayout = lazy(
-  () => import("./components/layouts/PublicEventsLayout"),
+const PublicSiteLayout = lazy(
+  () => import("./components/layouts/PublicSiteLayout"),
 );
 
 const queryClient = new QueryClient();
@@ -72,245 +75,59 @@ function AppRoutes() {
   const routes = (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-          <Route path="/" element={<Index />} />
+          <Route element={<PublicSiteLayout />}>
+            <Route path="/" element={<Index />} />
+            <Route path="/events" element={<EventsBrowse />} />
+            <Route path="/events/:slug" element={<EventDetail />} />
+            <Route path="/communities" element={<CommunitiesBrowse />} />
+            <Route path="/communities/:slug" element={<CommunityDetail />} />
+            <Route path="/blog" element={<BlogIndex />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
+          </Route>
+
           <Route path="/login" element={<AthleteLogin />} />
           <Route path="/login/reset" element={<AthleteResetPassword />} />
           <Route path="/staff/login" element={<StaffLogin />} />
           <Route path="/sso-callback" element={<SsoCallback />} />
 
-          <Route element={<PublicEventsLayout />}>
-            <Route path="/events" element={<EventsBrowse />} />
-            <Route path="/events/:slug" element={<EventDetail />} />
+          <Route path="/portal" element={<AthleteLayout />}>
+            <Route
+              path="complete-profile"
+              element={<CompleteProfile />}
+              handle={{ allowIncompleteProfile: true }}
+            />
+            <Route index element={<AthleteDashboard />} />
+            <Route path="registrations" element={<AthleteRegistrations />} />
+            <Route path="events" element={<AthleteEvents />} />
+            <Route path="results" element={<AthleteResults />} />
+            <Route path="payment-methods" element={<AthletePaymentMethods />} />
+            <Route path="profile" element={<AthleteProfile />} />
+            <Route path="teams" element={<AthleteTeams />} />
+            <Route path="achievements" element={<AthleteAchievements />} />
           </Route>
 
-          <Route path="/blog" element={<BlogIndex />} />
-          <Route path="/blog/:slug" element={<BlogPost />} />
-
-          <Route
-            path="/portal/complete-profile"
-            element={
-              <AthleteLayout allowIncompleteProfile>
-                <CompleteProfile />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal"
-            element={
-              <AthleteLayout>
-                <AthleteDashboard />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/registrations"
-            element={
-              <AthleteLayout>
-                <AthleteRegistrations />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/events"
-            element={
-              <AthleteLayout>
-                <AthleteEvents />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/results"
-            element={
-              <AthleteLayout>
-                <AthleteResults />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/payment-methods"
-            element={
-              <AthleteLayout>
-                <AthletePaymentMethods />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/profile"
-            element={
-              <AthleteLayout>
-                <AthleteProfile />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/teams"
-            element={
-              <AthleteLayout>
-                <AthleteTeams />
-              </AthleteLayout>
-            }
-          />
-          <Route
-            path="/portal/achievements"
-            element={
-              <AthleteLayout>
-                <AthleteAchievements />
-              </AthleteLayout>
-            }
-          />
-
-          <Route
-            path="/staff"
-            element={
-              <StaffLayout>
-                <StaffDashboard />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/athletes"
-            element={
-              <StaffLayout>
-                <StaffAthletes />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/people"
-            element={
-              <StaffLayout>
-                <StaffPeople />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/payments"
-            element={
-              <StaffLayout>
-                <StaffPayments />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/events"
-            element={
-              <StaffLayout>
-                <StaffEvents />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/blog"
-            element={
-              <StaffLayout>
-                <StaffBlogPosts />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/blog/new"
-            element={
-              <StaffLayout>
-                <StaffBlogEditor />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/blog/:postId/edit"
-            element={
-              <StaffLayout>
-                <StaffBlogEditor />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/events/create"
-            element={
-              <StaffLayout>
-                <AdminCreateEvent />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/events/new"
-            element={
-              <StaffLayout>
-                <StaffEventEdit />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/events/:eventId"
-            element={
-              <StaffLayout>
-                <StaffEventHub />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/events/:eventId/edit"
-            element={
-              <StaffLayout>
-                <StaffEventEdit />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/events/:eventId/results"
-            element={
-              <StaffLayout>
-                <StaffEventResults />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/team"
-            element={
-              <StaffLayout>
-                <StaffTeam />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/registrations"
-            element={
-              <StaffLayout>
-                <StaffRegistrations />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/analytics"
-            element={
-              <StaffLayout>
-                <StaffAnalytics />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/profile"
-            element={
-              <StaffLayout>
-                <StaffProfile />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/settings"
-            element={
-              <StaffLayout>
-                <StaffProfile />
-              </StaffLayout>
-            }
-          />
-          <Route
-            path="/staff/messaging"
-            element={
-              <StaffLayout>
-                <StaffMessaging />
-              </StaffLayout>
-            }
-          />
+          <Route path="/staff" element={<StaffLayout />}>
+            <Route index element={<StaffDashboard />} />
+            <Route path="athletes" element={<StaffAthletes />} />
+            <Route path="people" element={<StaffPeople />} />
+            <Route path="payments" element={<StaffPayments />} />
+            <Route path="payouts" element={<StaffPayouts />} />
+            <Route path="events" element={<StaffEvents />} />
+            <Route path="blog" element={<StaffBlogPosts />} />
+            <Route path="blog/new" element={<StaffBlogEditor />} />
+            <Route path="blog/:postId/edit" element={<StaffBlogEditor />} />
+            <Route path="events/create" element={<AdminCreateEvent />} />
+            <Route path="events/new" element={<StaffEventEdit />} />
+            <Route path="events/:eventId" element={<StaffEventHub />} />
+            <Route path="events/:eventId/edit" element={<StaffEventEdit />} />
+            <Route path="events/:eventId/results" element={<StaffEventResults />} />
+            <Route path="team" element={<StaffTeam />} />
+            <Route path="registrations" element={<StaffRegistrations />} />
+            <Route path="analytics" element={<StaffAnalytics />} />
+            <Route path="profile" element={<StaffProfile />} />
+            <Route path="settings" element={<StaffProfile />} />
+            <Route path="messaging" element={<StaffMessaging />} />
+          </Route>
 
           <Route path="/admin/login" element={<Navigate to="/staff/login" replace />} />
           <Route path="/admin" element={<Navigate to="/staff" replace />} />

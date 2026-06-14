@@ -191,6 +191,7 @@ export default function WizardCheckoutStep({
     waitlistClaimMode,
     pending3dsClientSecret,
   } = useAppSelector((s) => s.registrationCheckout);
+  const athleteEmail = useAppSelector((s) => s.athleteAuth.user?.email);
 
   const [fieldsLocked, setFieldsLocked] = useState(false);
   const [discountInput, setDiscountInput] = useState(discountCode);
@@ -482,6 +483,11 @@ export default function WizardCheckoutStep({
 
   return (
     <div className="space-y-6">
+      {athleteEmail ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+          {t("registrationWizard.checkout.purchasingAs", { email: athleteEmail })}
+        </div>
+      ) : null}
       {uiPhase === "details" ? (
         <>
           <CheckoutOrderSummary

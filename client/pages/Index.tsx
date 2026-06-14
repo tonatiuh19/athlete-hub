@@ -3,13 +3,16 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import MetaHelmet, { DEFAULT_OG_IMAGE } from "@/components/MetaHelmet";
-import SiteFooter from "@/components/SiteFooter";
 import HomeHero from "@/components/home/HomeHero";
-import HomeNavbar from "@/components/home/HomeNavbar";
+import HomeSportTypesSection from "@/components/home/HomeSportTypesSection";
+import HomeEventsMapSection from "@/components/home/HomeEventsMapSection";
 import HomeInviteCrew from "@/components/home/HomeInviteCrew";
 import HomeBlogSection from "@/components/home/HomeBlogSection";
 import FeaturedEventsSkeleton from "@/components/home/FeaturedEventsSkeleton";
+import EventCardImage from "@/components/events/EventCardImage";
+import SportKindIcon from "@/components/events/SportKindIcon";
 import SectionHeader from "@/components/home/SectionHeader";
+import CommunityCard from "@/components/communities/CommunityCard";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchPublicHome } from "@/store/slices/publicHomeSlice";
@@ -21,7 +24,6 @@ import {
   Flame,
   ArrowRight,
   Calendar,
-  Footprints,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -32,6 +34,7 @@ const EventCard = ({
   date,
   distance,
   category,
+  sportSlug,
   imageUrl,
   joinLabel,
   slug,
@@ -41,6 +44,7 @@ const EventCard = ({
   date: string;
   distance: string;
   category: string;
+  sportSlug: string;
   imageUrl: string;
   joinLabel: string;
   slug?: string;
@@ -56,12 +60,15 @@ const EventCard = ({
       aria-label={title}
     />
     <div className="relative h-52 md:h-56 bg-gray-800 overflow-hidden shrink-0">
-      <img
+      <EventCardImage
         src={imageUrl}
-        alt=""
-        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+        sportSlug={sportSlug}
+        sportName={category}
+        displaySize="featured"
+        className="h-full w-full"
+        imgClassName="group-hover:scale-105 transition-transform duration-500"
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
       <span className="absolute top-4 right-4 px-3 py-1.5 bg-triboo-gradient text-primary-foreground text-xs font-bold rounded-full backdrop-blur shadow-glow-triboo">
         {category}
       </span>
@@ -82,7 +89,11 @@ const EventCard = ({
           <span className="line-clamp-1">{location}</span>
         </div>
         <div className="flex items-center gap-2.5">
-          <Footprints className="w-4 h-4 text-primary shrink-0" />
+          <SportKindIcon
+            sportSlug={sportSlug}
+            sportName={category}
+            className="w-4 h-4 text-primary"
+          />
           <span>{distance}</span>
         </div>
       </div>
@@ -100,64 +111,6 @@ const EventCard = ({
   </motion.div>
 );
 
-const CommunityCard = ({
-  name,
-  members,
-  activity,
-  imageUrl,
-  membersLabel,
-  streakLabel,
-  joinLabel,
-}: {
-  name: string;
-  members: number;
-  activity: string;
-  imageUrl: string;
-  membersLabel: string;
-  streakLabel: string;
-  joinLabel: string;
-}) => (
-  <motion.div
-    className="card-sport group overflow-hidden"
-    whileHover={{ y: -8 }}
-    transition={{ duration: 0.3 }}
-  >
-    <div className="relative h-44 bg-gray-800 overflow-hidden">
-      <img
-        src={imageUrl}
-        alt=""
-        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-    </div>
-    <div className="p-5 relative z-10">
-      <h3 className="text-lg font-bold text-white mb-3 group-hover:text-primary transition-colors">
-        {name}
-      </h3>
-      <div className="space-y-2 text-sm text-gray-400 mb-5">
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-primary" />
-          <span>
-            {members.toLocaleString()} {membersLabel}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-          <span>
-            {activity} {streakLabel}
-          </span>
-        </div>
-      </div>
-      <Link
-        to="/login"
-        className="block w-full px-4 py-2.5 text-center bg-primary/10 border border-primary/50 text-primary font-semibold rounded-lg hover:bg-triboo-gradient hover:text-primary-foreground hover:border-transparent transition-all duration-300"
-      >
-        {joinLabel}
-      </Link>
-    </div>
-  </motion.div>
-);
-
 export default function Index() {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
@@ -167,21 +120,18 @@ export default function Index() {
     dispatch(fetchPublicHome());
   }, [dispatch]);
 
-  const featuredEvents = useMemo(
-    () =>
-      (data?.featured_events.length
-        ? data.featured_events
-        : (data?.upcoming_events ?? [])
-      )
-        .slice(0, 4)
-        .map((ev) => mapEventToFeaturedCard(ev, i18n.language)),
-    [data, i18n.language],
+  const homeEventsRaw = useMemo(
+    () => data?.events ?? data?.upcoming_events ?? [],
+    [data],
+  );
+
+  const homeEvents = useMemo(
+    () => homeEventsRaw.map((ev) => mapEventToFeaturedCard(ev, i18n.language)),
+    [homeEventsRaw, i18n.language],
   );
 
   const spotlightEvent = useMemo(() => {
-    const pool = data?.upcoming_events.length
-      ? data.upcoming_events
-      : (data?.featured_events ?? []);
+    const pool = data?.events ?? data?.upcoming_events ?? [];
     return pool[0] ?? null;
   }, [data]);
 
@@ -226,9 +176,9 @@ export default function Index() {
           "athlete Triboo",
         ]}
       />
-      <HomeNavbar />
-
       <HomeHero />
+
+      <HomeSportTypesSection />
 
       {error ? (
         <div className="max-w-7xl mx-auto w-full min-w-0 px-4 md:px-6 mt-4">
@@ -239,20 +189,19 @@ export default function Index() {
         </div>
       ) : null}
 
-      {/* Featured Events — directly after hero */}
+      {/* Events — directly after hero */}
       {loading ? (
         <FeaturedEventsSkeleton />
-      ) : featuredEvents.length > 0 ? (
+      ) : homeEvents.length > 0 ? (
         <section
-          id="featured-events"
-          className="pt-6 pb-14 md:pt-8 md:pb-20 px-4 md:px-6 scroll-mt-[4.5rem]"
+          id="events"
+          className="pt-3 pb-14 md:pt-8 md:pb-20 px-4 md:px-6 scroll-mt-[4.5rem]"
         >
           <div className="max-w-7xl mx-auto w-full min-w-0">
             <SectionHeader
-              title={t("home.featured.title")}
-              subtitle={t("home.featured.subtitle")}
-              actionLabel={t("home.featured.viewAll")}
-              actionHref="/events"
+              title={t("home.events.title")}
+              subtitle={t("home.events.subtitle")}
+              hideOnMobile
             />
 
             <motion.div
@@ -260,9 +209,9 @@ export default function Index() {
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true }}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
             >
-              {featuredEvents.map((event) => (
+              {homeEvents.map((event) => (
                 <motion.div
                   key={event.slug}
                   variants={itemVariants}
@@ -274,15 +223,20 @@ export default function Index() {
                     date={event.date}
                     distance={event.distance}
                     category={event.category}
+                    sportSlug={event.sportSlug}
                     imageUrl={event.imageUrl}
                     slug={event.slug}
-                    joinLabel={t("home.featured.join")}
+                    joinLabel={t("home.events.join")}
                   />
                 </motion.div>
               ))}
             </motion.div>
           </div>
         </section>
+      ) : null}
+
+      {!loading && homeEventsRaw.length > 0 ? (
+        <HomeEventsMapSection events={homeEventsRaw} />
       ) : null}
 
       <HomeInviteCrew
@@ -305,7 +259,7 @@ export default function Index() {
               title={t("home.communities.title")}
               subtitle={t("home.communities.subtitle")}
               actionLabel={t("home.communities.joinTribe")}
-              actionHref="/login"
+              actionHref="/communities"
             />
 
             <motion.div
@@ -315,19 +269,17 @@ export default function Index() {
               viewport={{ once: true }}
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
             >
-              {topTeams.map((team) => (
+              {topTeams.map((team, index) => (
                 <motion.div key={team.id} variants={itemVariants}>
                   <CommunityCard
-                    name={team.name}
-                    members={team.member_count}
-                    activity="—"
-                    imageUrl={
-                      team.avatar_url ||
-                      "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=600&q=80&auto=format&fit=crop"
-                    }
-                    membersLabel={t("home.communities.members")}
-                    streakLabel={t("home.communities.streak")}
-                    joinLabel={t("home.communities.joinTribe")}
+                    team={{
+                      name: team.name,
+                      slug: team.slug,
+                      member_count: team.member_count,
+                      avatar_url: team.avatar_url,
+                      description: null,
+                    }}
+                    rank={index + 1}
                   />
                 </motion.div>
               ))}
@@ -617,8 +569,6 @@ export default function Index() {
           </motion.div>
         </div>
       </section>
-
-      <SiteFooter />
     </div>
   );
 }

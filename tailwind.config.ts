@@ -143,6 +143,7 @@ export default {
         "glow-triboo-lg": "0 0 50px rgba(242, 60, 53, 0.45)",
         "glow-blue": "0 0 30px rgba(242, 60, 53, 0.3)",
         "glow-purple": "0 0 30px rgba(255, 90, 31, 0.25)",
+        panel: "0 24px 60px rgba(2, 6, 23, 0.45)",
       },
     },
   },

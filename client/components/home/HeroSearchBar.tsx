@@ -7,6 +7,7 @@ import HeroSearchDropdown, {
   buildHeroSearchFlatItems,
   type HeroSearchFlatItem,
 } from "@/components/home/HeroSearchDropdown";
+import HeroMobileSearchPanel from "@/components/home/HeroMobileSearchPanel";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -131,13 +132,16 @@ export default function HeroSearchBar() {
   };
 
   return (
-    <div
-      ref={rootRef}
-      className={cn(
-        "relative w-full max-w-3xl min-w-0 group isolate",
-        open && "z-50",
-      )}
-    >
+    <>
+      <HeroMobileSearchPanel />
+
+      <div
+        ref={rootRef}
+        className={cn(
+          "relative w-full max-w-3xl min-w-0 group isolate hidden md:block",
+          open && "z-50",
+        )}
+      >
       <form onSubmit={handleSearch} className="relative z-10">
         <div
           className="absolute -inset-1 z-0 rounded-[1.35rem] bg-triboo-gradient opacity-20 blur-xl group-hover:opacity-35 transition-opacity duration-500 pointer-events-none"
@@ -222,5 +226,6 @@ export default function HeroSearchBar() {
         />
       </div>
     </div>
+    </>
   );
 }

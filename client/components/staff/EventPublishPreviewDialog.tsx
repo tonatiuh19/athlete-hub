@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
-import { Calendar, MapPin, Rocket, ShieldCheck, Users } from "lucide-react";
+import { Calendar, MapPin, Rocket, ShieldCheck, Users, AlertTriangle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,9 @@ export interface EventPublishPreviewDialogProps {
   requiresWaiver?: boolean;
   confirming: boolean;
   onConfirm: () => void;
+  payoutBlocked?: boolean;
+  payoutBlockedMessage?: string;
+  confirmLabel?: string;
 }
 
 export default function EventPublishPreviewDialog({
@@ -39,6 +42,9 @@ export default function EventPublishPreviewDialog({
   requiresWaiver = false,
   confirming,
   onConfirm,
+  payoutBlocked = false,
+  payoutBlockedMessage,
+  confirmLabel,
 }: EventPublishPreviewDialogProps) {
   const { t, i18n } = useTranslation();
   const dateLocale = getDateFnsLocale(i18n.language);
@@ -142,15 +148,27 @@ export default function EventPublishPreviewDialog({
           </div>
         </article>
 
+        {payoutBlocked && payoutBlockedMessage ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 flex items-start gap-2 text-sm text-destructive">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{payoutBlockedMessage}</span>
+          </div>
+        ) : null}
+
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t("staffPortal.eventEdit.preview.close")}
           </Button>
-          <Button type="button" className="btn-primary" disabled={confirming} onClick={onConfirm}>
+          <Button
+            type="button"
+            className="btn-primary"
+            disabled={confirming || payoutBlocked}
+            onClick={onConfirm}
+          >
             <Rocket className="w-4 h-4 mr-2" />
             {confirming
               ? t("staffPortal.eventEdit.preview.publishing")
-              : t("staffPortal.eventEdit.preview.confirmPublish")}
+              : confirmLabel ?? t("staffPortal.eventEdit.preview.confirmPublish")}
           </Button>
         </DialogFooter>
       </DialogContent>

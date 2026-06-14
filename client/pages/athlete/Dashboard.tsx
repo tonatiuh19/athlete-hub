@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import EventCardImage from "@/components/events/EventCardImage";
 import {
   Calendar,
   ChevronRight,
@@ -177,15 +178,16 @@ export default function AthleteDashboard() {
                 to={`/events/${ev.slug}`}
                 className="card-sport group overflow-hidden"
               >
-                {ev.hero_image_url && (
-                  <div className="aspect-video overflow-hidden">
-                    <img
-                      src={ev.hero_image_url}
-                      alt=""
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  </div>
-                )}
+                <div className="aspect-video overflow-hidden">
+                  <EventCardImage
+                    src={ev.hero_image_url}
+                    sportSlug={ev.sport_slug}
+                    sportName={ev.sport_name}
+                    displaySize="card"
+                    className="h-full w-full"
+                    imgClassName="group-hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
                 <div className="p-4">
                   <span className="text-[10px] uppercase tracking-wider text-cyan">
                     {ev.sport_name}

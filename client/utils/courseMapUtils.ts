@@ -1,6 +1,15 @@
 import type { CoursePoint, GeoJsonLineString } from "@shared/api";
+import {
+  buildRouteGeoJson,
+  getRouteImportSource,
+  parseRouteGeoJson,
+  type RouteImportSource,
+  type RouteLatLng,
+} from "@shared/courseGeoJson";
+import { MAX_ROUTE_POINTS } from "@shared/courseValidation";
 
-export type LatLng = { lat: number; lng: number };
+export type LatLng = RouteLatLng;
+export type { RouteImportSource };
 
 const EARTH_RADIUS_KM = 6371;
 
@@ -25,22 +34,47 @@ export function polylineLengthKm(points: LatLng[]): number {
   return Math.round(total * 1000) / 1000;
 }
 
-export function buildLineString(route: LatLng[]): GeoJsonLineString {
-  return {
-    type: "LineString",
-    coordinates: route.map((p) => [p.lng, p.lat]),
-  };
+export function dedupeConsecutiveRoutePoints(route: LatLng[]): LatLng[] {
+  if (route.length < 2) return route;
+  const out: LatLng[] = [route[0]];
+  for (let i = 1; i < route.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = route[i];
+    if (Math.abs(prev.lat - cur.lat) > 1e-7 || Math.abs(prev.lng - cur.lng) > 1e-7) {
+      out.push(cur);
+    }
+  }
+  return out;
+}
+
+/** Reduce dense GPS traces while preserving start/end. */
+export function simplifyRoute(route: LatLng[], maxPoints = MAX_ROUTE_POINTS): LatLng[] {
+  const deduped = dedupeConsecutiveRoutePoints(route);
+  if (deduped.length <= maxPoints) return deduped;
+  if (maxPoints < 2) return deduped.slice(0, 1);
+
+  const out: LatLng[] = [deduped[0]];
+  const innerSlots = maxPoints - 2;
+  const step = (deduped.length - 2) / innerSlots;
+  for (let i = 1; i <= innerSlots; i++) {
+    out.push(deduped[Math.min(deduped.length - 2, Math.round(i * step))]);
+  }
+  out.push(deduped[deduped.length - 1]);
+  return dedupeConsecutiveRoutePoints(out);
+}
+
+export function buildLineString(
+  route: LatLng[],
+  importSource?: RouteImportSource,
+): GeoJsonLineString | Record<string, unknown> {
+  return buildRouteGeoJson(route, importSource) as GeoJsonLineString | Record<string, unknown>;
 }
 
 export function parseLineString(route: GeoJsonLineString | Record<string, unknown>): LatLng[] {
-  if (route.type !== "LineString" || !Array.isArray(route.coordinates)) return [];
-  return route.coordinates
-    .map((c) => {
-      if (!Array.isArray(c) || c.length < 2) return null;
-      return { lat: Number(c[1]), lng: Number(c[0]) };
-    })
-    .filter((p): p is LatLng => p != null && Number.isFinite(p.lat) && Number.isFinite(p.lng));
+  return parseRouteGeoJson(route);
 }
+
+export { getRouteImportSource };
 
 /** Approximate km from start along the route polyline */
 export function kmAlongRoute(route: LatLng[], point: LatLng): number {
@@ -85,4 +119,25 @@ export function assignKmToPoints(route: LatLng[], points: CoursePoint[]): Course
     ...p,
     km: kmAlongRoute(route, { lat: p.lat, lng: p.lng }),
   }));
+}
+
+export function inferRouteImportSource(
+  route: LatLng[],
+  points: CoursePoint[],
+  geo: unknown,
+): RouteImportSource {
+  const stored = getRouteImportSource(geo);
+  if (stored) return stored;
+  if (route.length >= 20) return "gpx";
+  const start = points.find((p) => p.type === "start");
+  if (start && route.length >= 2) {
+    const first = route[0];
+    if (
+      Math.abs(start.lat - first.lat) < 0.0001 &&
+      Math.abs(start.lng - first.lng) < 0.0001
+    ) {
+      return "gpx";
+    }
+  }
+  return "manual";
 }

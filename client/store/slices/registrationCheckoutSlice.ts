@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import api from "@/lib/api";
+import api, { athleteAuthHeaders } from "@/lib/api";
 import { shouldInvalidateCheckoutForDiscount } from "@/utils/registrationCheckoutDiscount";
 import type {
   ConfirmRegistrationReject,
@@ -74,6 +74,8 @@ const initialState: RegistrationCheckoutState = {
   loadingPendingCheckout: false,
 };
 
+const athleteRequest = { headers: athleteAuthHeaders };
+
 export const fetchPaymentConfig = createAsyncThunk<PaymentConfigResponse>(
   "registrationCheckout/fetchPaymentConfig",
   async () => {
@@ -108,6 +110,7 @@ export const joinEventWaitlist = createAsyncThunk<
     const { data } = await api.post<{ entry: WaitlistEntry }>(
       `/events/${payload.slug}/waitlist`,
       { categoryId: payload.categoryId },
+      athleteRequest,
     );
     return data.entry;
   } catch (e: unknown) {
@@ -146,6 +149,7 @@ export const createRegistrationCheckout = createAsyncThunk<
         discountCode: payload.discountCode,
         waitlistEntryId: payload.waitlistEntryId,
       },
+      athleteRequest,
     );
     return data;
   } catch (e: unknown) {
@@ -188,6 +192,7 @@ export const confirmRegistration = createAsyncThunk<
         paymentIntentId: payload.paymentIntentId,
         paymentMethodId: payload.paymentMethodId,
       },
+      athleteRequest,
     );
     return data;
   } catch (e: unknown) {
@@ -223,6 +228,7 @@ export const fetchPendingCheckout = createAsyncThunk<
   try {
     const { data } = await api.get<{ pending: PendingCheckoutItem[] }>(
       `/athlete/pending-checkout?eventSlug=${encodeURIComponent(eventSlug)}`,
+      athleteRequest,
     );
     return data.pending[0] ?? null;
   } catch (e: unknown) {
@@ -243,6 +249,7 @@ export const resumeRegistrationCheckout = createAsyncThunk<
         paymentPublicUuid: payload.paymentPublicUuid,
         idempotencyKey: payload.idempotencyKey,
       },
+      athleteRequest,
     );
     return data;
   } catch (e: unknown) {
@@ -449,7 +456,11 @@ const slice = createSlice({
     b.addCase(resumeRegistrationCheckout.fulfilled, (s, a) => {
       s.loadingResume = false;
       if (a.payload.status === "complete" && a.payload.registration) {
-        s.confirmResult = { success: true, registration: a.payload.registration };
+        s.confirmResult = {
+          success: true,
+          registration: a.payload.registration,
+          confirmationEmail: a.payload.confirmationEmail,
+        };
         s.paymentFailed = false;
         s.pendingCheckout = null;
         s.step = "result";

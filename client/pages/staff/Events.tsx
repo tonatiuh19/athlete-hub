@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import { Calendar, ExternalLink, LayoutDashboard, LayoutGrid, List, MapPin, Pencil, Plus, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import StaffPaidEventPayoutAlert, {
+  eventNeedsPayoutAlert,
+} from "@/components/staff/StaffPaidEventPayoutAlert";
 import StaffEventsCalendarView from "@/components/staff/StaffEventsCalendarView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
+  clearEventDetail,
   fetchAdminEvents,
   fetchOrganizerEvents,
 } from "@/store/slices/staffPortalSlice";
@@ -29,8 +33,9 @@ export default function StaffEvents() {
   const dispatch = useAppDispatch();
   const { role, user } = useAppSelector((s) => s.staffAuth);
   const { events, loadingEvents, eventsError } = useAppSelector((s) => s.staffPortal);
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(() => searchParams.get("status") || "all");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [debounced, setDebounced] = useState("");
   const dateLocale = getDateFnsLocale(i18n.language);
@@ -40,22 +45,29 @@ export default function StaffEvents() {
     (user?.type === "organizer" && canOrganizerCreateEvents(user.role));
 
   useEffect(() => {
+    dispatch(clearEventDetail());
+  }, [dispatch]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [query]);
 
   useEffect(() => {
-    if (role === "admin") {
-      dispatch(
-        fetchAdminEvents({
-          q: debounced,
-          status: status === "all" ? undefined : status,
-        }),
-      );
-    } else if (role === "organizer") {
+    if (role !== "admin") return;
+    dispatch(
+      fetchAdminEvents({
+        q: debounced,
+        status: status === "all" ? undefined : status,
+      }),
+    );
+  }, [dispatch, role, debounced, status]);
+
+  useEffect(() => {
+    if (role === "organizer") {
       dispatch(fetchOrganizerEvents());
     }
-  }, [dispatch, role, debounced, status]);
+  }, [dispatch, role]);
 
   const reload = () => {
     if (isAdmin) {
@@ -70,16 +82,18 @@ export default function StaffEvents() {
     }
   };
 
-  const filteredOrganizerEvents =
-    role === "organizer" && debounced
-      ? events.filter(
-          (e) =>
-            e.title.toLowerCase().includes(debounced.toLowerCase()) ||
-            e.slug.toLowerCase().includes(debounced.toLowerCase()),
-        )
-      : events;
+  const filteredOrganizerEvents = events.filter((e) => {
+    if (role !== "organizer") return true;
+    if (status !== "all" && e.status !== status) return false;
+    if (!debounced) return true;
+    const q = debounced.toLowerCase();
+    return (
+      e.title.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
+    );
+  });
 
   const list = isAdmin ? events : filteredOrganizerEvents;
+  const blockedPaymentEvents = list.filter((ev) => eventNeedsPayoutAlert(ev));
 
   return (
     <div className="max-w-6xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
@@ -106,20 +120,21 @@ export default function StaffEvents() {
             className="pl-9"
           />
         </div>
-        {isAdmin ? (
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-full sm:w-44">
-              <SelectValue placeholder={t("staffPortal.events.statusFilter")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("staffPortal.events.statusAll")}</SelectItem>
-              <SelectItem value="draft">{t("staffPortal.events.statusDraft")}</SelectItem>
-              <SelectItem value="published">{t("staffPortal.events.statusPublished")}</SelectItem>
-              <SelectItem value="completed">{t("staffPortal.events.statusCompleted")}</SelectItem>
-              <SelectItem value="cancelled">{t("staffPortal.events.statusCancelled")}</SelectItem>
-            </SelectContent>
-          </Select>
-        ) : null}
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-full sm:w-44">
+            <SelectValue placeholder={t("staffPortal.events.statusFilter")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("staffPortal.events.statusAll")}</SelectItem>
+            <SelectItem value="draft">{t("staffPortal.events.statusDraft")}</SelectItem>
+            <SelectItem value="pending_approval">
+              {t("staffPortal.events.statusPendingApproval")}
+            </SelectItem>
+            <SelectItem value="published">{t("staffPortal.events.statusPublished")}</SelectItem>
+            <SelectItem value="completed">{t("staffPortal.events.statusCompleted")}</SelectItem>
+            <SelectItem value="cancelled">{t("staffPortal.events.statusCancelled")}</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="inline-flex rounded-xl border border-border p-0.5 bg-card/50 shrink-0">
           <Button
             type="button"
@@ -165,11 +180,23 @@ export default function StaffEvents() {
 
       <PortalErrorAlert error={eventsError} onRetry={reload} />
 
+      {blockedPaymentEvents.length > 0 ? (
+        <StaffPaidEventPayoutAlert isAdmin={isAdmin} />
+      ) : null}
+
       {loadingEvents ? (
         <p className="text-muted-foreground">{t("common.loading")}</p>
       ) : eventsError ? null : list.length === 0 ? (
-        <div className="card-sport p-8 text-center text-muted-foreground">
-          {t("staffPortal.events.empty")}
+        <div className="card-sport p-8 text-center space-y-4">
+          <p className="text-muted-foreground">{t("staffPortal.events.empty")}</p>
+          {!isAdmin && canCreate ? (
+            <Button asChild>
+              <Link to="/staff/events/new">
+                <Plus className="w-4 h-4 mr-2" />
+                {t("staffPortal.events.create")}
+              </Link>
+            </Button>
+          ) : null}
         </div>
       ) : viewMode === "calendar" ? (
         <StaffEventsCalendarView events={list} isAdmin={isAdmin} />
@@ -201,8 +228,11 @@ export default function StaffEvents() {
                     </span>
                   ) : null}
                 </p>
+                {eventNeedsPayoutAlert(ev) ? (
+                  <StaffPaidEventPayoutAlert isAdmin={isAdmin} compact className="mt-3" />
+                ) : null}
               </div>
-              <div className="flex items-center justify-between lg:flex-col lg:items-end gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 lg:flex-col lg:items-end lg:gap-3 shrink-0">
                 <div className="text-right">
                   <div className="text-xl font-bold text-cyan">{ev.registration_count}</div>
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider">

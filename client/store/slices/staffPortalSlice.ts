@@ -1,4 +1,5 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
+import i18n from "@/i18n";
 import api from "@/lib/api";
 import type {
   AdminAnalyticsResponse,
@@ -6,6 +7,8 @@ import type {
   AdminAthleteRow,
   AnalyticsTimeSeries,
   CheckInResponse,
+  CheckInWindowInfo,
+  CheckInWindowResponse,
   EventSponsor,
   EventSponsorInput,
   EventRegistrationFieldInput,
@@ -53,6 +56,9 @@ import type {
   AdminOrganizerLinkedEvent,
   AdminOrganizerCreateRequest,
   AdminOrganizerUpdateRequest,
+  OrganizerPayoutOnboardResponse,
+  OrganizerPayoutProfileUpdateRequest,
+  OrganizerPayoutStatusResponse,
   AdminStaffRow,
   AdminStaffCreateRequest,
   AdminStaffUpdateRequest,
@@ -97,6 +103,7 @@ interface StaffPortalState {
   loadingEventHubRegistrations: boolean;
   savingEvent: boolean;
   publishingEvent: boolean;
+  rejectingEventApproval: boolean;
   savingCategory: boolean;
   savingSponsors: boolean;
   savingFields: boolean;
@@ -195,8 +202,21 @@ interface StaffPortalState {
   bibError: string | null;
   athleteDetailError: string | null;
   lookupError: string | null;
+  checkInWindow: CheckInWindowInfo | null;
+  canBypassCheckInWindow: boolean;
+  loadingCheckInWindow: boolean;
   checkInError: string | null;
   checkInErrorCode: string | null;
+  payoutStatus: OrganizerPayoutStatusResponse | null;
+  loadingPayoutStatus: boolean;
+  payoutStatusError: string | null;
+  savingPayoutProfile: boolean;
+  onboardingPayouts: boolean;
+  syncingPayouts: boolean;
+  adminOrganizerConnect: OrganizerPayoutStatusResponse | null;
+  loadingAdminOrganizerConnect: boolean;
+  adminOrganizerConnectError: string | null;
+  adminConnectActionLoading: boolean;
   teamError: string | null;
 }
 
@@ -234,6 +254,7 @@ const initialState: StaffPortalState = {
   loadingEventHubRegistrations: false,
   savingEvent: false,
   publishingEvent: false,
+  rejectingEventApproval: false,
   savingCategory: false,
   savingSponsors: false,
   savingFields: false,
@@ -332,24 +353,40 @@ const initialState: StaffPortalState = {
   bibError: null,
   athleteDetailError: null,
   lookupError: null,
+  checkInWindow: null,
+  canBypassCheckInWindow: false,
+  loadingCheckInWindow: false,
   checkInError: null,
   checkInErrorCode: null,
+  payoutStatus: null,
+  loadingPayoutStatus: false,
+  payoutStatusError: null,
+  savingPayoutProfile: false,
+  onboardingPayouts: false,
+  syncingPayouts: false,
+  adminOrganizerConnect: null,
+  loadingAdminOrganizerConnect: false,
+  adminOrganizerConnectError: null,
+  adminConnectActionLoading: false,
   teamError: null,
 };
 
-function rejectMessage(e: unknown, fallback: string): string {
+function rejectMessage(e: unknown, fallbackKey: string): string {
   const err = e as { response?: { data?: { error?: string } } };
-  return err?.response?.data?.error || fallback;
+  return err?.response?.data?.error || i18n.t(fallbackKey);
 }
 
 function rejectStaffAction(
   e: unknown,
-  fallback: string,
-): { message: string; code?: string } {
-  const err = e as { response?: { data?: { error?: string; code?: string } } };
+  fallbackKey: string,
+): { message: string; code?: string; window?: CheckInWindowInfo } {
+  const err = e as {
+    response?: { data?: { error?: string; code?: string; window?: CheckInWindowInfo } };
+  };
   return {
-    message: err?.response?.data?.error || fallback,
+    message: err?.response?.data?.error || i18n.t(fallbackKey),
     code: err?.response?.data?.code,
+    window: err?.response?.data?.window,
   };
 }
 
@@ -358,6 +395,13 @@ function eventBasePath(role: StaffRole, eventId?: number): string {
     return eventId != null ? `/admin/events/${eventId}` : "/admin/events";
   }
   return eventId != null ? `/organizer/events/${eventId}` : "/organizer/events";
+}
+
+function hubEventBasePath(role: StaffRole, eventId: number | undefined): string | null {
+  if (eventId == null || !Number.isFinite(eventId)) {
+    return null;
+  }
+  return eventBasePath(role, eventId);
 }
 
 export const fetchStaffDashboard = createAsyncThunk<
@@ -369,7 +413,7 @@ export const fetchStaffDashboard = createAsyncThunk<
     const { data } = await api.get("/admin/dashboard");
     return data.stats as StaffDashboardStats;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load dashboard"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadDashboard"));
   }
 });
 
@@ -382,7 +426,7 @@ export const fetchStaffAnalytics = createAsyncThunk<
     const { data } = await api.get("/admin/analytics");
     return data as AdminAnalyticsResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load analytics"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadAnalytics"));
   }
 });
 
@@ -395,7 +439,7 @@ export const fetchAdminAnalyticsTimeSeries = createAsyncThunk<
     const { data } = await api.get("/admin/analytics/timeseries");
     return data as AnalyticsTimeSeries;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load chart data"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadChartData"));
   }
 });
 
@@ -408,7 +452,7 @@ export const fetchOrganizerAnalytics = createAsyncThunk<
     const { data } = await api.get("/organizer/analytics");
     return data as OrganizerAnalyticsResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load analytics"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadAnalytics"));
   }
 });
 
@@ -437,7 +481,7 @@ export const fetchAdminAthletes = createAsyncThunk<
     });
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load athletes"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadAthletes"));
   }
 });
 
@@ -450,7 +494,7 @@ export const fetchAdminAthleteDetail = createAsyncThunk<
     const { data } = await api.get(`/admin/athletes/${athleteId}`);
     return data as AdminAthleteDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load athlete"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadAthlete"));
   }
 });
 
@@ -463,7 +507,7 @@ export const updateAdminAthleteStatus = createAsyncThunk<
     const { data } = await api.patch(`/admin/athletes/${athleteId}`, { status });
     return data.athlete as AdminAthleteDetailResponse["athlete"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update athlete"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateAthlete"));
   }
 });
 
@@ -478,7 +522,7 @@ export const fetchAdminEvents = createAsyncThunk<
     });
     return data.events as StaffEventRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load events"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEvents"));
   }
 });
 
@@ -491,7 +535,7 @@ export const createAdminEvent = createAsyncThunk<
     const { data } = await api.post("/admin/events", body);
     return data as StaffEventDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not create event"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.createEvent"));
   }
 });
 
@@ -504,7 +548,7 @@ export const fetchAdminOrganizers = createAsyncThunk<
     const { data } = await api.get("/admin/organizers", { params: { q: q || undefined, limit: 30 } });
     return data.organizers as AdminOrganizerRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load organizers"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadOrganizers"));
   }
 });
 
@@ -526,7 +570,7 @@ export const fetchStaffOrganizers = createAsyncThunk<
     });
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load organizers"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadOrganizers"));
   }
 });
 
@@ -539,7 +583,7 @@ export const createStaffOrganizer = createAsyncThunk<
     const { data } = await api.post("/admin/organizers", body);
     return data.organizer as AdminOrganizerRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not create organizer"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.createOrganizer"));
   }
 });
 
@@ -552,7 +596,7 @@ export const fetchStaffOrganizerDetail = createAsyncThunk<
     const { data } = await api.get(`/admin/organizers/${organizerId}`);
     return data as AdminOrganizerDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load organizer"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadOrganizer"));
   }
 });
 
@@ -565,7 +609,7 @@ export const updateStaffOrganizer = createAsyncThunk<
     const { data } = await api.patch(`/admin/organizers/${organizerId}`, patch);
     return data.organizer as AdminOrganizerRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update organizer"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateOrganizer"));
   }
 });
 
@@ -586,7 +630,7 @@ export const inviteStaffOrganizerMember = createAsyncThunk<
     const { data } = await api.post(`/admin/organizers/${organizerId}/members`, payload);
     return data.members as AdminOrganizerDetailResponse["members"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not invite member"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.inviteMember"));
   }
 });
 
@@ -599,7 +643,7 @@ export const assignStaffOrganizerEvents = createAsyncThunk<
     const { data } = await api.post(`/admin/organizers/${organizerId}/events/assign`, { event_ids });
     return data.events as AdminOrganizerLinkedEvent[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not link events"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.linkEvents"));
   }
 });
 
@@ -621,7 +665,7 @@ export const updateStaffOrganizerMemberAccess = createAsyncThunk<
     );
     return data.members as AdminOrganizerDetailResponse["members"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update member access"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateMemberAccess"));
   }
 });
 
@@ -637,7 +681,7 @@ export const updateStaffOrganizerMember = createAsyncThunk<
     );
     return data.members as AdminOrganizerDetailResponse["members"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update member"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateMember"));
   }
 });
 
@@ -658,7 +702,7 @@ export const fetchStaffAdmins = createAsyncThunk<
     });
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load admins"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadAdmins"));
   }
 });
 
@@ -671,7 +715,7 @@ export const createStaffAdmin = createAsyncThunk<
     const { data } = await api.post("/admin/admins", body);
     return data.admin as AdminStaffRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not invite admin"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.inviteAdmin"));
   }
 });
 
@@ -684,7 +728,7 @@ export const updateStaffAdmin = createAsyncThunk<
     const { data } = await api.patch(`/admin/admins/${adminId}`, patch);
     return data.admin as AdminStaffRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update admin"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateAdmin"));
   }
 });
 
@@ -698,7 +742,7 @@ export const fetchStaffRegistrationDetail = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/registrations/${registrationId}`);
     return data as StaffRegistrationDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load registration"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadRegistration"));
   }
 });
 
@@ -712,7 +756,7 @@ export const createStaffRegistration = createAsyncThunk<
     const { data } = await api.post(`${base}/${eventId}/registrations`, body);
     return data as StaffRegistrationDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not create registration"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.createRegistration"));
   }
 });
 
@@ -737,7 +781,7 @@ export const fetchStaffPayments = createAsyncThunk<
     });
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load payments"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadPayments"));
   }
 });
 
@@ -751,20 +795,21 @@ export const fetchStaffPaymentDetail = createAsyncThunk<
     const { data } = await api.get<AdminPaymentDetailResponse>(`${basePath}/${paymentId}`);
     return data.payment;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load payment"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadPayment"));
   }
 });
 
 export const refundStaffPayment = createAsyncThunk<
   AdminPaymentRow,
-  { paymentId: number; reason?: string },
+  { paymentId: number; role: StaffRole; reason?: string },
   { rejectValue: string }
->("staffPortal/refundPayment", async ({ paymentId, reason }, { rejectWithValue }) => {
+>("staffPortal/refundPayment", async ({ paymentId, role, reason }, { rejectWithValue }) => {
   try {
-    const { data } = await api.post(`/admin/payments/${paymentId}/refund`, { reason });
+    const basePath = role === "organizer" ? "/organizer/payments" : "/admin/payments";
+    const { data } = await api.post(`${basePath}/${paymentId}/refund`, { reason });
     return data.payment as AdminPaymentRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not refund payment"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.refundPayment"));
   }
 });
 
@@ -781,7 +826,7 @@ export const fetchSponsorAnalytics = createAsyncThunk<
     const { data } = await api.get(path);
     return data as SponsorAnalyticsResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load sponsor analytics"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadSponsorAnalytics"));
   }
 });
 
@@ -795,7 +840,7 @@ export const fetchEventWaitlist = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/waitlist`);
     return data.entries as StaffWaitlistEntry[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load waitlist"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadWaitlist"));
   }
 });
 
@@ -810,7 +855,7 @@ export const offerWaitlistSpot = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/waitlist`);
     return data.entries as StaffWaitlistEntry[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not offer waitlist spot"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.offerWaitlistSpot"));
   }
 });
 
@@ -824,7 +869,7 @@ export const revokeWaitlistEntry = createAsyncThunk<
     const { data } = await api.post(`${base}/${eventId}/waitlist/revoke`, { waitlistEntryId });
     return data.entries as StaffWaitlistEntry[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not revoke waitlist entry"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.revokeWaitlistEntry"));
   }
 });
 
@@ -838,7 +883,7 @@ export const fetchResultSplits = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/results/${resultId}/splits`);
     return data.splits as ResultSplitRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load splits"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadSplits"));
   }
 });
 
@@ -852,7 +897,7 @@ export const updateResultSplits = createAsyncThunk<
     const { data } = await api.put(`${base}/${eventId}/results/${resultId}/splits`, { splits });
     return data.splits as ResultSplitRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save splits"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveSplits"));
   }
 });
 
@@ -865,7 +910,7 @@ export const fetchOrganizerEvents = createAsyncThunk<
     const { data } = await api.get("/organizer/events");
     return data.events as StaffEventRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load events"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEvents"));
   }
 });
 
@@ -878,7 +923,7 @@ export const fetchStaffEventDetail = createAsyncThunk<
     const { data } = await api.get(eventBasePath(role, eventId));
     return data as StaffEventDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load event"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEvent"));
   }
 });
 
@@ -891,7 +936,7 @@ export const createOrganizerEvent = createAsyncThunk<
     const { data } = await api.post("/organizer/events", body);
     return data as StaffEventDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not create event"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.createEvent"));
   }
 });
 
@@ -904,7 +949,7 @@ export const updateStaffEvent = createAsyncThunk<
     const { data } = await api.patch(eventBasePath(role, eventId), body);
     return data as StaffEventDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save event"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveEvent"));
   }
 });
 
@@ -917,7 +962,26 @@ export const publishStaffEvent = createAsyncThunk<
     const { data } = await api.post(`${eventBasePath(role, eventId)}/publish`);
     return data as StaffEventDetailResponse;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not publish event"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.publishEvent"));
+  }
+});
+
+export const rejectStaffEventApproval = createAsyncThunk<
+  StaffEventDetailResponse,
+  { eventId: number },
+  { rejectValue: string }
+>("staffPortal/rejectEventApproval", async ({ eventId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<{
+      event: StaffEventDetailResponse["event"];
+      categories?: StaffEventCategory[];
+    }>(`/admin/events/${eventId}/reject`);
+    return {
+      event: data.event,
+      categories: data.categories ?? [],
+    };
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.rejectEvent"));
   }
 });
 
@@ -931,7 +995,7 @@ export const addEventCategory = createAsyncThunk<
     const { data } = await api.post(`${base}/${eventId}/categories`, body);
     return data.categories as StaffEventCategory[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not add category"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.addCategory"));
   }
 });
 
@@ -945,7 +1009,7 @@ export const deleteEventCategory = createAsyncThunk<
     const { data } = await api.delete(`${base}/${eventId}/categories/${categoryId}`);
     return data.categories as StaffEventCategory[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not remove category"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.removeCategory"));
   }
 });
 
@@ -959,7 +1023,7 @@ export const fetchEventSponsors = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/sponsors`);
     return data.sponsors as EventSponsor[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load sponsors"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadSponsors"));
   }
 });
 
@@ -973,7 +1037,7 @@ export const updateEventSponsors = createAsyncThunk<
     const { data } = await api.put(`${base}/${eventId}/sponsors`, { sponsors });
     return data.sponsors as EventSponsor[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save sponsors"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveSponsors"));
   }
 });
 
@@ -987,7 +1051,7 @@ export const fetchEventHubSummary = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/summary`);
     return data.summary as StaffEventHubSummary;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load event summary"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEventSummary"));
   }
 });
 
@@ -1009,7 +1073,7 @@ export const fetchEventHubRegistrations = createAsyncThunk<
     });
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load registrations"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadRegistrations"));
   }
 });
 
@@ -1032,14 +1096,28 @@ export const fetchOrganizerRegistrations = createAsyncThunk<
     });
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load registrations"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadRegistrations"));
+  }
+});
+
+export const fetchCheckInWindow = createAsyncThunk<
+  CheckInWindowResponse,
+  { eventId: number; role?: StaffRole },
+  { rejectValue: string }
+>("staffPortal/checkInWindow", async ({ eventId, role = "organizer" }, { rejectWithValue }) => {
+  try {
+    const base = role === "admin" ? "/admin/events" : "/organizer/events";
+    const { data } = await api.get<CheckInWindowResponse>(`${base}/${eventId}/check-in/window`);
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadCheckInWindow"));
   }
 });
 
 export const lookupRegistration = createAsyncThunk<
   RegistrationLookupResponse["registration"],
   { q: string; eventId?: number; role?: StaffRole },
-  { rejectValue: string }
+  { rejectValue: { message: string; window?: CheckInWindowInfo } }
 >("staffPortal/lookupRegistration", async ({ q, eventId, role = "organizer" }, { rejectWithValue }) => {
   try {
     if (eventId != null) {
@@ -1050,32 +1128,214 @@ export const lookupRegistration = createAsyncThunk<
     const { data } = await api.get("/organizer/registrations/lookup", { params: { q } });
     return data.registration as RegistrationLookupResponse["registration"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Registration not found"));
+    const rejected = rejectStaffAction(e, "staffPortal.errors.registrationNotFound");
+    return rejectWithValue({ message: rejected.message, window: rejected.window });
   }
 });
 
 export const checkInRegistration = createAsyncThunk<
   CheckInResponse["registration"],
-  { registrationId: number; eventId?: number; role?: StaffRole; force?: boolean },
-  { rejectValue: { message: string; code?: string } }
->("staffPortal/checkIn", async ({ registrationId, eventId, role = "organizer", force }, { rejectWithValue }) => {
+  {
+    registrationId: number;
+    eventId?: number;
+    role?: StaffRole;
+    force?: boolean;
+    bypassWindow?: boolean;
+    method?: "qr_scan" | "manual" | "kiosk" | "api";
+  },
+  { rejectValue: { message: string; code?: string; window?: CheckInWindowInfo } }
+>("staffPortal/checkIn", async (
+  { registrationId, eventId, role = "organizer", force, bypassWindow, method = "manual" },
+  { rejectWithValue },
+) => {
   try {
-    const body = { method: "manual", ...(force ? { force: true } : {}) };
-    if (eventId != null) {
-      const base = role === "admin" ? "/admin/events" : "/organizer/events";
-      const { data } = await api.post(
-        `${base}/${eventId}/registrations/${registrationId}/check-in`,
-        body,
-      );
-      return data.registration as CheckInResponse["registration"];
+    const base = hubEventBasePath(role, eventId);
+    if (!base) {
+      return rejectWithValue({
+        message: i18n.t("staffPortal.errors.eventIdRequired"),
+      });
     }
+    const body = {
+      method,
+      ...(force ? { force: true } : {}),
+      ...(bypassWindow ? { bypass_window: true } : {}),
+    };
     const { data } = await api.post(
-      `/organizer/registrations/${registrationId}/check-in`,
+      `${base}/registrations/${registrationId}/check-in`,
       body,
     );
     return data.registration as CheckInResponse["registration"];
   } catch (e: unknown) {
-    return rejectWithValue(rejectStaffAction(e, "Check-in failed"));
+    return rejectWithValue(rejectStaffAction(e, "staffPortal.errors.checkInFailed"));
+  }
+});
+
+export const fetchOrganizerPayoutStatus = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  void,
+  { rejectValue: string }
+>("staffPortal/payoutStatus", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get<OrganizerPayoutStatusResponse>("/organizer/payouts/status");
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadPayoutStatus"));
+  }
+});
+
+export const updateOrganizerPayoutProfile = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  OrganizerPayoutProfileUpdateRequest,
+  { rejectValue: string }
+>("staffPortal/payoutProfile", async (body, { rejectWithValue }) => {
+  try {
+    const { data } = await api.patch<OrganizerPayoutStatusResponse>("/organizer/payouts/profile", body);
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.savePayoutProfile"));
+  }
+});
+
+export const acceptOrganizerPayoutTerms = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  void,
+  { rejectValue: string }
+>("staffPortal/payoutTerms", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>("/organizer/payouts/accept-terms");
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.acceptPayoutTerms"));
+  }
+});
+
+export const onboardOrganizerPayouts = createAsyncThunk<
+  OrganizerPayoutOnboardResponse,
+  void,
+  { rejectValue: string }
+>("staffPortal/payoutOnboard", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutOnboardResponse>("/organizer/payouts/onboard");
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.startStripeOnboarding"));
+  }
+});
+
+export const syncOrganizerPayouts = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  void,
+  { rejectValue: string }
+>("staffPortal/payoutSync", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>("/organizer/payouts/sync");
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.syncPayoutStatus"));
+  }
+});
+
+export const loginOrganizerPayoutDashboard = createAsyncThunk<
+  { url: string },
+  void,
+  { rejectValue: string }
+>("staffPortal/payoutLogin", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<{ url: string }>("/organizer/payouts/login");
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.openPayoutDashboard"));
+  }
+});
+
+export const fetchAdminOrganizerConnect = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  { organizerId: number },
+  { rejectValue: string }
+>("staffPortal/adminConnectStatus", async ({ organizerId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get<OrganizerPayoutStatusResponse>(
+      `/admin/organizers/${organizerId}/connect`,
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadConnectStatus"));
+  }
+});
+
+export const adminOnboardOrganizerConnect = createAsyncThunk<
+  OrganizerPayoutOnboardResponse,
+  { organizerId: number },
+  { rejectValue: string }
+>("staffPortal/adminConnectOnboard", async ({ organizerId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutOnboardResponse>(
+      `/admin/organizers/${organizerId}/connect/onboard`,
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.startAssistedOnboarding"));
+  }
+});
+
+export const adminSyncOrganizerConnect = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  { organizerId: number },
+  { rejectValue: string }
+>("staffPortal/adminConnectSync", async ({ organizerId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>(
+      `/admin/organizers/${organizerId}/connect/sync`,
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.syncConnectStatus"));
+  }
+});
+
+export const adminLinkOrganizerConnectAccount = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  { organizerId: number; stripe_account_id: string },
+  { rejectValue: string }
+>("staffPortal/adminConnectLink", async ({ organizerId, stripe_account_id }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>(
+      `/admin/organizers/${organizerId}/connect/link-account`,
+      { stripe_account_id },
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.linkStripeAccount"));
+  }
+});
+
+export const adminDisableOrganizerConnect = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  { organizerId: number },
+  { rejectValue: string }
+>("staffPortal/adminConnectDisable", async ({ organizerId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>(
+      `/admin/organizers/${organizerId}/connect/disable`,
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.disablePayouts"));
+  }
+});
+
+export const adminEnableOrganizerConnect = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  { organizerId: number },
+  { rejectValue: string }
+>("staffPortal/adminConnectEnable", async ({ organizerId }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>(
+      `/admin/organizers/${organizerId}/connect/enable`,
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.enablePayouts"));
   }
 });
 
@@ -1088,7 +1348,7 @@ export const fetchOrganizerMembers = createAsyncThunk<
     const { data } = await api.get("/organizer/members");
     return data.members as OrganizerMemberRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load team"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadTeam"));
   }
 });
 
@@ -1107,7 +1367,7 @@ export const inviteOrganizerMember = createAsyncThunk<
     const { data } = await api.post("/organizer/members", body);
     return data.members as OrganizerMemberRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not invite member"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.inviteMember"));
   }
 });
 
@@ -1120,7 +1380,7 @@ export const updateOrganizerMember = createAsyncThunk<
     const { data } = await api.patch(`/organizer/members/${memberId}`, body);
     return data.members as OrganizerMemberRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update member"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateMember"));
   }
 });
 
@@ -1134,7 +1394,7 @@ export const updateEventCategory = createAsyncThunk<
     const { data } = await api.patch(`${base}/${eventId}/categories/${categoryId}`, body);
     return data.categories as StaffEventCategory[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update category"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateCategory"));
   }
 });
 
@@ -1148,7 +1408,7 @@ export const fetchRegistrationFields = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/registration-fields`);
     return data.fields as EventRegistrationFieldRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load fields"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadFields"));
   }
 });
 
@@ -1164,7 +1424,7 @@ export const updateRegistrationFields = createAsyncThunk<
     });
     return data.fields as EventRegistrationFieldRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save fields"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveFields"));
   }
 });
 
@@ -1178,7 +1438,7 @@ export const fetchEventWaivers = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/waivers`);
     return data.waivers as EventWaiverRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load waivers"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadWaivers"));
   }
 });
 
@@ -1192,7 +1452,7 @@ export const updateEventWaivers = createAsyncThunk<
     const { data } = await api.put(`${base}/${eventId}/waivers`, { waivers });
     return data.waivers as EventWaiverRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save waivers"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveWaivers"));
   }
 });
 
@@ -1206,7 +1466,7 @@ export const fetchScheduleWaves = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/schedule-waves`);
     return data.waves as StaffScheduleWaveRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load waves"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadWaves"));
   }
 });
 
@@ -1220,7 +1480,7 @@ export const updateScheduleWaves = createAsyncThunk<
     const { data } = await api.put(`${base}/${eventId}/schedule-waves`, { waves });
     return data.waves as StaffScheduleWaveRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save waves"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveWaves"));
   }
 });
 
@@ -1234,7 +1494,7 @@ export const fetchEventCourse = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/course`);
     return (data.course as StaffEventCoursePayload) ?? null;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load course"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadCourse"));
   }
 });
 
@@ -1248,7 +1508,7 @@ export const updateEventCourse = createAsyncThunk<
     const { data } = await api.put(`${base}/${eventId}/course`, course);
     return data.course as StaffEventCoursePayload;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not save course"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveCourse"));
   }
 });
 
@@ -1262,7 +1522,7 @@ export const fetchDiscountCodes = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/discount-codes`);
     return data.discountCodes as StaffDiscountCodeRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load discount codes"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadDiscountCodes"));
   }
 });
 
@@ -1276,7 +1536,7 @@ export const createDiscountCode = createAsyncThunk<
     const { data } = await api.post(`${base}/${eventId}/discount-codes`, body);
     return data.discountCode as StaffDiscountCodeRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not create discount code"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.createDiscountCode"));
   }
 });
 
@@ -1290,7 +1550,7 @@ export const updateDiscountCode = createAsyncThunk<
     const { data } = await api.patch(`${base}/${eventId}/discount-codes/${codeId}`, patch);
     return data.discountCode as StaffDiscountCodeRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update discount code"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateDiscountCode"));
   }
 });
 
@@ -1304,7 +1564,7 @@ export const deleteDiscountCode = createAsyncThunk<
     await api.delete(`${base}/${eventId}/discount-codes/${codeId}`);
     return codeId;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not delete discount code"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.deleteDiscountCode"));
   }
 });
 
@@ -1314,15 +1574,14 @@ export const cancelRegistration = createAsyncThunk<
   { rejectValue: string }
 >("staffPortal/cancelRegistration", async ({ registrationId, eventId, role = "organizer" }, { rejectWithValue }) => {
   try {
-    if (eventId != null) {
-      const base = role === "admin" ? "/admin/events" : "/organizer/events";
-      const { data } = await api.patch(`${base}/${eventId}/registrations/${registrationId}/cancel`);
-      return data.registration as OrganizerRegistrationRow;
+    const base = hubEventBasePath(role, eventId);
+    if (!base) {
+      return rejectWithValue(i18n.t("staffPortal.errors.eventIdRequired"));
     }
-    const { data } = await api.patch(`/organizer/registrations/${registrationId}/cancel`);
+    const { data } = await api.patch(`${base}/registrations/${registrationId}/cancel`);
     return data.registration as OrganizerRegistrationRow;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not cancel registration"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.cancelRegistration"));
   }
 });
 
@@ -1332,17 +1591,11 @@ export const assignRegistrationBib = createAsyncThunk<
   { rejectValue: string }
 >("staffPortal/assignBib", async ({ registrationId, bib_number, eventId, role = "organizer" }, { rejectWithValue }) => {
   try {
-    if (eventId != null) {
-      const base = role === "admin" ? "/admin/events" : "/organizer/events";
-      const { data } = await api.patch(`${base}/${eventId}/registrations/${registrationId}/bib`, {
-        bib_number,
-      });
-      return {
-        id: data.registration.id as number,
-        bib_number: data.registration.bib_number as string | null,
-      };
+    const base = hubEventBasePath(role, eventId);
+    if (!base) {
+      return rejectWithValue(i18n.t("staffPortal.errors.eventIdRequired"));
     }
-    const { data } = await api.patch(`/organizer/registrations/${registrationId}/bib`, {
+    const { data } = await api.patch(`${base}/registrations/${registrationId}/bib`, {
       bib_number,
     });
     return {
@@ -1350,7 +1603,7 @@ export const assignRegistrationBib = createAsyncThunk<
       bib_number: data.registration.bib_number as string | null,
     };
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not assign bib"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.assignBib"));
   }
 });
 
@@ -1364,7 +1617,7 @@ export const fetchEventResults = createAsyncThunk<
     const { data } = await api.get(`${base}/${eventId}/results`);
     return data.results as StaffEventResultRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load results"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadResults"));
   }
 });
 
@@ -1381,7 +1634,7 @@ export const upsertEventResults = createAsyncThunk<
     }
     return data.results as StaffEventResultRow[];
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not import results"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.importResults"));
   }
 });
 
@@ -1397,7 +1650,7 @@ export const publishEventResults = createAsyncThunk<
     });
     return Number(data.published_count ?? 0);
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not publish results"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.publishResults"));
   }
 });
 
@@ -1411,7 +1664,7 @@ export const deleteEventResult = createAsyncThunk<
     await api.delete(`${base}/${eventId}/results/${resultId}`);
     return resultId;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not delete result"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.deleteResult"));
   }
 });
 
@@ -1427,7 +1680,7 @@ export const sendBulkMessage = createAsyncThunk<
     );
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not send messages"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.sendMessages"));
   }
 });
 
@@ -1437,21 +1690,17 @@ export const bulkAssignBibs = createAsyncThunk<
   { rejectValue: string }
 >("staffPortal/bulkAssignBibs", async ({ rows, eventId, role = "organizer" }, { rejectWithValue }) => {
   try {
-    if (eventId != null) {
-      const base = role === "admin" ? "/admin/events" : "/organizer/events";
-      const { data } = await api.post<BulkBibImportResponse>(
-        `${base}/${eventId}/registrations/bulk-bib`,
-        { rows },
-      );
-      return data;
+    const base = hubEventBasePath(role, eventId);
+    if (!base) {
+      return rejectWithValue(i18n.t("staffPortal.errors.eventIdRequired"));
     }
     const { data } = await api.post<BulkBibImportResponse>(
-      "/organizer/registrations/bulk-bib",
+      `${base}/registrations/bulk-bib`,
       { rows },
     );
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not import bib numbers"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.importBibNumbers"));
   }
 });
 
@@ -1465,7 +1714,7 @@ export const fetchEventMedia = createAsyncThunk<
     const { data } = await api.get<EventMediaResponse>(`${base}/${eventId}/media`);
     return data.media;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not load event media"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEventMedia"));
   }
 });
 
@@ -1479,7 +1728,7 @@ export const updateEventMedia = createAsyncThunk<
     const { data } = await api.put<EventMediaResponse>(`${base}/${eventId}/media`, { media });
     return data.media;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "Could not update event media"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateEventMedia"));
   }
 });
 
@@ -1518,6 +1767,7 @@ const slice = createSlice({
       state.lookupError = null;
       state.checkInError = null;
       state.checkInErrorCode = null;
+      state.checkInWindow = null;
     },
     clearStaffOrganizerDetail(state) {
       state.staffOrganizerDetail = null;
@@ -1725,6 +1975,19 @@ const slice = createSlice({
       s.publishError = a.payload || "Error publishing event";
     });
 
+    b.addCase(rejectStaffEventApproval.pending, (s) => {
+      s.rejectingEventApproval = true;
+      s.publishError = null;
+    });
+    b.addCase(rejectStaffEventApproval.fulfilled, (s, a) => {
+      s.rejectingEventApproval = false;
+      s.eventDetail = a.payload;
+    });
+    b.addCase(rejectStaffEventApproval.rejected, (s, a) => {
+      s.rejectingEventApproval = false;
+      s.publishError = a.payload || "Error rejecting event";
+    });
+
     b.addCase(addEventCategory.pending, (s) => {
       s.savingCategory = true;
       s.categoryError = null;
@@ -1786,7 +2049,22 @@ const slice = createSlice({
     });
     b.addCase(lookupRegistration.rejected, (s, a) => {
       s.lookingUp = false;
-      s.lookupError = a.payload || "Not found";
+      s.lookupError = a.payload?.message || "Not found";
+      if (a.payload?.window) {
+        s.checkInWindow = a.payload.window;
+      }
+    });
+
+    b.addCase(fetchCheckInWindow.pending, (s) => {
+      s.loadingCheckInWindow = true;
+    });
+    b.addCase(fetchCheckInWindow.fulfilled, (s, a) => {
+      s.loadingCheckInWindow = false;
+      s.checkInWindow = a.payload.window;
+      s.canBypassCheckInWindow = Boolean(a.payload.canBypassWindow);
+    });
+    b.addCase(fetchCheckInWindow.rejected, (s) => {
+      s.loadingCheckInWindow = false;
     });
 
     b.addCase(checkInRegistration.pending, (s) => {
@@ -1817,6 +2095,115 @@ const slice = createSlice({
       s.checkingIn = false;
       s.checkInError = a.payload?.message || "Check-in failed";
       s.checkInErrorCode = a.payload?.code ?? null;
+      if (a.payload?.window) {
+        s.checkInWindow = a.payload.window;
+      }
+    });
+
+    b.addCase(fetchOrganizerPayoutStatus.pending, (s) => {
+      s.loadingPayoutStatus = true;
+      s.payoutStatusError = null;
+    });
+    b.addCase(fetchOrganizerPayoutStatus.fulfilled, (s, a) => {
+      s.loadingPayoutStatus = false;
+      s.payoutStatus = a.payload;
+    });
+    b.addCase(fetchOrganizerPayoutStatus.rejected, (s, a) => {
+      s.loadingPayoutStatus = false;
+      s.payoutStatusError = a.payload || "Error loading payouts";
+    });
+
+    b.addCase(updateOrganizerPayoutProfile.pending, (s) => {
+      s.savingPayoutProfile = true;
+    });
+    b.addCase(updateOrganizerPayoutProfile.fulfilled, (s, a) => {
+      s.savingPayoutProfile = false;
+      s.payoutStatus = a.payload;
+    });
+    b.addCase(updateOrganizerPayoutProfile.rejected, (s) => {
+      s.savingPayoutProfile = false;
+    });
+
+    b.addCase(acceptOrganizerPayoutTerms.fulfilled, (s, a) => {
+      s.payoutStatus = a.payload;
+    });
+
+    b.addCase(onboardOrganizerPayouts.pending, (s) => {
+      s.onboardingPayouts = true;
+    });
+    b.addCase(onboardOrganizerPayouts.fulfilled, (s, a) => {
+      s.onboardingPayouts = false;
+      s.payoutStatus = a.payload;
+    });
+    b.addCase(onboardOrganizerPayouts.rejected, (s) => {
+      s.onboardingPayouts = false;
+    });
+
+    b.addCase(syncOrganizerPayouts.pending, (s) => {
+      s.syncingPayouts = true;
+    });
+    b.addCase(syncOrganizerPayouts.fulfilled, (s, a) => {
+      s.syncingPayouts = false;
+      s.payoutStatus = a.payload;
+    });
+    b.addCase(syncOrganizerPayouts.rejected, (s) => {
+      s.syncingPayouts = false;
+    });
+
+    b.addCase(fetchAdminOrganizerConnect.pending, (s) => {
+      s.loadingAdminOrganizerConnect = true;
+      s.adminOrganizerConnectError = null;
+    });
+    b.addCase(fetchAdminOrganizerConnect.fulfilled, (s, a) => {
+      s.loadingAdminOrganizerConnect = false;
+      s.adminOrganizerConnect = a.payload;
+    });
+    b.addCase(fetchAdminOrganizerConnect.rejected, (s, a) => {
+      s.loadingAdminOrganizerConnect = false;
+      s.adminOrganizerConnectError = a.payload || "Error loading Connect";
+    });
+
+    const adminConnectDone = (
+      s: typeof initialState,
+      a: { payload: OrganizerPayoutStatusResponse },
+    ) => {
+      s.adminConnectActionLoading = false;
+      s.adminOrganizerConnect = a.payload;
+    };
+    b.addCase(adminOnboardOrganizerConnect.pending, (s) => {
+      s.adminConnectActionLoading = true;
+    });
+    b.addCase(adminOnboardOrganizerConnect.fulfilled, adminConnectDone);
+    b.addCase(adminOnboardOrganizerConnect.rejected, (s) => {
+      s.adminConnectActionLoading = false;
+    });
+    b.addCase(adminSyncOrganizerConnect.pending, (s) => {
+      s.adminConnectActionLoading = true;
+    });
+    b.addCase(adminSyncOrganizerConnect.fulfilled, adminConnectDone);
+    b.addCase(adminSyncOrganizerConnect.rejected, (s) => {
+      s.adminConnectActionLoading = false;
+    });
+    b.addCase(adminLinkOrganizerConnectAccount.pending, (s) => {
+      s.adminConnectActionLoading = true;
+    });
+    b.addCase(adminLinkOrganizerConnectAccount.fulfilled, adminConnectDone);
+    b.addCase(adminLinkOrganizerConnectAccount.rejected, (s) => {
+      s.adminConnectActionLoading = false;
+    });
+    b.addCase(adminDisableOrganizerConnect.pending, (s) => {
+      s.adminConnectActionLoading = true;
+    });
+    b.addCase(adminDisableOrganizerConnect.fulfilled, adminConnectDone);
+    b.addCase(adminDisableOrganizerConnect.rejected, (s) => {
+      s.adminConnectActionLoading = false;
+    });
+    b.addCase(adminEnableOrganizerConnect.pending, (s) => {
+      s.adminConnectActionLoading = true;
+    });
+    b.addCase(adminEnableOrganizerConnect.fulfilled, adminConnectDone);
+    b.addCase(adminEnableOrganizerConnect.rejected, (s) => {
+      s.adminConnectActionLoading = false;
     });
 
     b.addCase(fetchOrganizerMembers.pending, (s) => {

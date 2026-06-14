@@ -65,7 +65,7 @@ export default function StaffRegistrationDetailSheet({
 
   const handleRefund = () => {
     if (!payment || !window.confirm(t("staffPortal.finance.refundConfirm"))) return;
-    dispatch(refundStaffPayment({ paymentId: payment.id }));
+    dispatch(refundStaffPayment({ paymentId: payment.id, role }));
   };
 
   return (

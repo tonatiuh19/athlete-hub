@@ -7,7 +7,7 @@ import {
 } from "../../server/eventsMarketplaceSearch";
 import type { RowDataPacket } from "mysql2/promise";
 
-function mockEvent(overrides: Partial<RowDataPacket> = {}): RowDataPacket {
+function mockEvent(overrides: Record<string, unknown> = {}): RowDataPacket {
   return {
     id: 1,
     slug: "maraton-cdmx",

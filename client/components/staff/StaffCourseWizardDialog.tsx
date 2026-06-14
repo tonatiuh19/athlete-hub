@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { parseLineString } from "@/utils/courseMapUtils";
 import type { StaffEventCoursePayload } from "@shared/api";
+import { isValidGeoCoordinate } from "@shared/courseValidation";
 import { cn } from "@/lib/utils";
 
 type WizardStep = "route" | "checkpoints" | "review";
@@ -29,6 +30,12 @@ interface StaffCourseWizardDialogProps {
   onEventLocationChange?: (lat: number, lng: number) => void;
 }
 
+function parseCoord(value: number | string | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function StaffCourseWizardDialog({
   open,
   onOpenChange,
@@ -42,23 +49,38 @@ export default function StaffCourseWizardDialog({
   const { t } = useTranslation();
   const [step, setStep] = useState<WizardStep>("route");
   const [draft, setDraft] = useState<StaffEventCoursePayload | null>(value);
+  const [routeSource, setRouteSource] = useState<"manual" | "gpx">("manual");
 
   useEffect(() => {
     if (open) {
       setStep("route");
       setDraft(value);
+      setRouteSource("manual");
     }
   }, [open, value]);
 
   const stepIndex = STEPS.indexOf(step);
   const routePoints = useMemo(
-    () => (draft ? parseLineString(draft.routeGeojson).length : 0),
+    () => (draft ? parseLineString(draft.routeGeojson) : []),
     [draft],
   );
-  const canNextRoute = routePoints >= 2;
+
+  const hasValidRoute = useMemo(() => {
+    if (routePoints.length < 2) return false;
+    return routePoints.every((p) => isValidGeoCoordinate(p.lat, p.lng));
+  }, [routePoints]);
+
+  const hasValidStart = useMemo(() => {
+    const lat = parseCoord(eventLat);
+    const lng = parseCoord(eventLng);
+    return lat != null && lng != null && isValidGeoCoordinate(lat, lng);
+  }, [eventLat, eventLng]);
+
+  const canNextRoute =
+    hasValidRoute && (routeSource === "gpx" || hasValidStart);
 
   const handleSave = () => {
-    if (!draft) return;
+    if (!draft || !canNextRoute) return;
     onSave(draft);
   };
 
@@ -114,7 +136,21 @@ export default function StaffCourseWizardDialog({
               );
             })}
           </ol>
-          <p className="text-xs text-muted-foreground">{t(`staffPortal.courseEditor.wizardDesc_${step}`)}</p>
+          <p className="text-xs text-muted-foreground">
+            {step === "route" && routeSource === "gpx"
+              ? t("staffPortal.courseEditor.wizardDesc_routeGpx")
+              : t(`staffPortal.courseEditor.wizardDesc_${step}`)}
+          </p>
+          {step === "route" && !canNextRoute && routePoints.length >= 2 ? (
+            <p className="text-xs text-destructive">
+              {t("staffPortal.courseEditor.invalidCoordinates")}
+            </p>
+          ) : null}
+          {step === "route" && routeSource === "manual" && !hasValidStart && routePoints.length >= 2 ? (
+            <p className="text-xs text-destructive">
+              {t("staffPortal.courseEditor.invalidStartLocation")}
+            </p>
+          ) : null}
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
@@ -124,6 +160,7 @@ export default function StaffCourseWizardDialog({
             eventLat={eventLat}
             eventLng={eventLng}
             onEventLocationChange={onEventLocationChange}
+            onRouteSourceChange={setRouteSource}
             active={open}
             focus={step}
             mapClassName="h-[min(58dvh,640px)] min-h-[320px]"

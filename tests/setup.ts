@@ -7,6 +7,7 @@ process.env.JWT_SECRET = "vitest-jwt-secret-not-for-production";
 process.env.STRIPE_SECRET_KEY = "";
 process.env.STRIPE_PUBLISHABLE_KEY = "";
 process.env.VITE_STRIPE_PUBLISHABLE_KEY = "";
+process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_smoke";
 
 import { vi } from "vitest";
 

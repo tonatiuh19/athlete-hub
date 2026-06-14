@@ -1,5 +1,39 @@
 import { useEffect } from "react";
+import L from "leaflet";
 import { useMap } from "react-leaflet";
+
+type FitPoint = { lat: number; lng: number };
+
+/** Fit map viewport to a route or point cluster (e.g. after GPX import). */
+export function MapFitBounds({
+  points,
+  active = true,
+  fitKey = 0,
+  padding = 40,
+}: {
+  points: FitPoint[];
+  active?: boolean;
+  fitKey?: number;
+  padding?: number;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!active || points.length === 0) return;
+
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lng], 15, { animate: true });
+      return;
+    }
+
+    const bounds = L.latLngBounds(
+      points.map((p) => [p.lat, p.lng] as [number, number]),
+    );
+    map.fitBounds(bounds, { padding: [padding, padding], maxZoom: 16, animate: true });
+  }, [map, active, fitKey, padding, points]);
+
+  return null;
+}
 
 /** Recompute map dimensions after mount, resize, and tab visibility changes. */
 export function MapInvalidateSize({ active = true }: { active?: boolean }) {

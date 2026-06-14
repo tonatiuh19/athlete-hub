@@ -21,6 +21,7 @@ import {
 import { useGridListState } from "@/hooks/useGridListState";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
 import { downloadCsv } from "@/utils/exportCsv";
+import { canRefundStaffPayments } from "@/utils/staffNav";
 import type { OrganizerRegistrationRow, StaffEventCategory, StaffRole } from "@shared/api";
 
 interface StaffEventRegistrationsPanelProps {
@@ -46,6 +47,8 @@ export default function StaffEventRegistrationsPanel({
     bulkBibResult,
     bulkBibError,
   } = useAppSelector((s) => s.staffPortal);
+  const { user } = useAppSelector((s) => s.staffAuth);
+  const canRefund = canRefundStaffPayments(role === "admin", user?.type === "organizer" ? user.role : undefined);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [bibDrafts, setBibDrafts] = useState<Record<number, string>>({});
@@ -372,7 +375,7 @@ export default function StaffEventRegistrationsPanel({
         role={role}
         open={selectedRegistrationId != null}
         onOpenChange={(open) => !open && setSelectedRegistrationId(null)}
-        allowRefund={role === "admin"}
+        allowRefund={canRefund}
       />
     </div>
   );

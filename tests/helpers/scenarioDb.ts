@@ -26,6 +26,9 @@ type PaymentRow = RowDataPacket & {
   provider: string;
   metadata_json: string | Record<string, unknown>;
   stripe_payment_intent_id: string | null;
+  stripe_charge_id: string | null;
+  stripe_transfer_id: string | null;
+  stripe_application_fee_id: string | null;
   paid_at: string | null;
   created_at: string;
 };
@@ -72,10 +75,32 @@ type DiscountCodeSeed = {
   event_id?: number | null;
 };
 
+export type OrganizerConnectSeed = {
+  status?: "active" | "suspended" | "inactive";
+  email?: string;
+  legal_name?: string | null;
+  billing_email?: string | null;
+  rfc?: string | null;
+  tax_regime?: string | null;
+  service_fee_percent?: number;
+  stripe_account_id?: string | null;
+  stripe_onboarding_complete?: number;
+  stripe_connect_status?: string;
+  stripe_charges_enabled?: number;
+  stripe_payouts_enabled?: number;
+  stripe_details_submitted?: number;
+  stripe_connect_onboarded_at?: string | null;
+  stripe_connect_last_synced_at?: string | null;
+  stripe_connect_onboarding_mode?: string | null;
+  payout_terms_accepted_at?: string | null;
+  payout_fee_acknowledged_at?: string | null;
+};
+
 export interface ScenarioSeed {
   requiresWaiver?: boolean;
   waivers?: Array<{ id: number; title: string; version: number }>;
   discountCodes?: DiscountCodeSeed[];
+  organizer?: OrganizerConnectSeed;
   category?: {
     name?: string;
     price_cents?: number;
@@ -109,6 +134,10 @@ export class RegistrationScenarioDb {
   readonly waiverSignatures: RowDataPacket[] = [];
   readonly fieldValues: RowDataPacket[] = [];
   readonly waitlist: WaitlistRow[] = [];
+  readonly webhookEvents = new Map<
+    string,
+    { status: string; event_type: string; error_message: string | null }
+  >();
 
   private nextPaymentId = 5000;
   private nextRegistrationId = 9000;
@@ -124,6 +153,8 @@ export class RegistrationScenarioDb {
   readonly discountCodes: Array<
     DiscountCodeSeed & { is_active: number; organizer_id: number }
   >;
+  readonly organizer: RowDataPacket;
+  athleteStripeCustomerId: string | null = null;
 
   constructor(seed: ScenarioSeed = {}) {
     this.requiresWaiver = seed.requiresWaiver ?? false;
@@ -178,6 +209,31 @@ export class RegistrationScenarioDb {
       min_purchase_cents: d.min_purchase_cents ?? null,
       max_uses: d.max_uses ?? null,
     }));
+
+    const org = seed.organizer ?? {};
+    this.organizer = {
+      organizer_id: SCENARIO.organizerId,
+      id: SCENARIO.organizerId,
+      email: org.email ?? "organizer@test.local",
+      legal_name: org.legal_name ?? null,
+      billing_email: org.billing_email ?? null,
+      rfc: org.rfc ?? null,
+      tax_regime: org.tax_regime ?? null,
+      service_fee_percent: org.service_fee_percent ?? 11,
+      status: org.status ?? "active",
+      stripe_account_id: org.stripe_account_id ?? null,
+      stripe_onboarding_complete: org.stripe_onboarding_complete ?? 0,
+      stripe_connect_status: org.stripe_connect_status ?? "not_started",
+      stripe_charges_enabled: org.stripe_charges_enabled ?? 0,
+      stripe_payouts_enabled: org.stripe_payouts_enabled ?? 0,
+      stripe_details_submitted: org.stripe_details_submitted ?? 0,
+      stripe_connect_onboarded_at: org.stripe_connect_onboarded_at ?? null,
+      stripe_connect_last_synced_at: org.stripe_connect_last_synced_at ?? null,
+      stripe_connect_onboarding_mode: org.stripe_connect_onboarding_mode ?? null,
+      payout_terms_accepted_at: org.payout_terms_accepted_at ?? null,
+      payout_fee_acknowledged_at: org.payout_fee_acknowledged_at ?? null,
+      deleted_at: null,
+    } as RowDataPacket;
 
     const confirmedCount = seed.confirmedRegistrationCount ?? 0;
     for (let i = 0; i < confirmedCount; i++) {
@@ -246,6 +302,18 @@ export class RegistrationScenarioDb {
     return this.payments.find((p) => p.public_uuid === uuid);
   }
 
+  private eventWithOrganizer(): RowDataPacket {
+    return {
+      ...this.event,
+      stripe_account_id: this.organizer.stripe_account_id,
+      stripe_onboarding_complete: this.organizer.stripe_onboarding_complete,
+      stripe_connect_status: this.organizer.stripe_connect_status,
+      stripe_charges_enabled: this.organizer.stripe_charges_enabled,
+      stripe_payouts_enabled: this.organizer.stripe_payouts_enabled,
+      org_fee_percent: this.organizer.service_fee_percent,
+    } as RowDataPacket;
+  }
+
   query = async (
     sql: string,
     params: unknown[] = [],
@@ -262,7 +330,158 @@ export class RegistrationScenarioDb {
     }
 
     if (q.includes("from events e") && q.includes("join organizers o") && q.includes("slug")) {
-      return [[{ ...this.event }], []];
+      return [[this.eventWithOrganizer()], []];
+    }
+
+    if (q.includes("select email from athletes") && q.includes("where id = ?") && q.includes("deleted_at is null")) {
+      const athleteId = Number(params[0]);
+      if (athleteId === SCENARIO.athleteId) {
+        return [[{ email: "athlete@test.local" }], []];
+      }
+      return [[], []];
+    }
+
+    if (
+      q.includes("select id, public_uuid, email, first_name, last_name, stripe_customer_id") &&
+      q.includes("from athletes")
+    ) {
+      const athleteId = Number(params[0]);
+      if (athleteId !== SCENARIO.athleteId) return [[], []];
+      return [
+        [
+          {
+            id: SCENARIO.athleteId,
+            public_uuid: "athlete-uuid-1001",
+            email: "athlete@test.local",
+            first_name: "Test",
+            last_name: "Athlete",
+            stripe_customer_id: this.athleteStripeCustomerId,
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (q.startsWith("update athletes set stripe_customer_id")) {
+      this.athleteStripeCustomerId = String(params[0]);
+      return [header(0, 1), []];
+    }
+
+    if (q.includes("from organizers o") && q.includes("where o.id = ?") && q.includes("deleted_at is null")) {
+      const organizerId = Number(params[0]);
+      if (organizerId !== SCENARIO.organizerId) return [[], []];
+      return [[{ ...this.organizer }], []];
+    }
+
+    if (q.includes("select stripe_connect_status from organizers") && q.includes("deleted_at is null")) {
+      const organizerId = Number(params[0]);
+      if (organizerId !== SCENARIO.organizerId) return [[], []];
+      return [[{ stripe_connect_status: this.organizer.stripe_connect_status }], []];
+    }
+
+    if (q.startsWith("update organizers set stripe_connect_last_synced_at")) {
+      this.organizer.stripe_connect_last_synced_at = new Date().toISOString();
+      return [header(0, 1), []];
+    }
+
+    if (q.startsWith("update organizers set") && q.includes("stripe_connect_status")) {
+      this.organizer.stripe_account_id = String(params[0]);
+      this.organizer.stripe_onboarding_complete = Number(params[1]);
+      this.organizer.stripe_connect_status = String(params[2]);
+      this.organizer.stripe_charges_enabled = Number(params[3]);
+      this.organizer.stripe_payouts_enabled = Number(params[4]);
+      this.organizer.stripe_details_submitted = Number(params[5]);
+      if (Number(params[6]) === 1 && !this.organizer.stripe_connect_onboarded_at) {
+        this.organizer.stripe_connect_onboarded_at = new Date().toISOString();
+      }
+      this.organizer.stripe_connect_last_synced_at = new Date().toISOString();
+      if (params[7] != null) {
+        this.organizer.stripe_connect_onboarding_mode = params[7];
+      }
+      return [header(0, 1), []];
+    }
+
+    if (q.includes("select requires_waiver from events")) {
+      return [[{ requires_waiver: this.requiresWaiver ? 1 : 0 }], []];
+    }
+
+    if (q.startsWith("update payments set status = 'failed'") && q.includes("failure_code")) {
+      const message = String(params[0]);
+      const payId = Number(params[1]);
+      const pay = this.payments.find((p) => p.id === payId);
+      if (pay) {
+        pay.status = "failed";
+        (pay as PaymentRow & { failure_code?: string; failure_message?: string }).failure_code =
+          "pi_create_failed";
+        (pay as PaymentRow & { failure_message?: string }).failure_message = message;
+      }
+      return [header(0, pay ? 1 : 0), []];
+    }
+
+    if (q.includes("insert into stripe_webhook_events")) {
+      const eventId = String(params[0]);
+      if (this.webhookEvents.has(eventId)) {
+        const err = new Error("Duplicate entry") as Error & { code?: string };
+        err.code = "ER_DUP_ENTRY";
+        throw err;
+      }
+      this.webhookEvents.set(eventId, {
+        status: "processing",
+        event_type: String(params[1]),
+        error_message: null,
+      });
+      return [header(this.webhookEvents.size, 1), []];
+    }
+
+    if (q.includes("select status from stripe_webhook_events")) {
+      const eventId = String(params[0]);
+      const row = this.webhookEvents.get(eventId);
+      return [row ? [{ status: row.status }] : [], []];
+    }
+
+    if (q.includes("update stripe_webhook_events") && q.includes("status = 'processing'")) {
+      const eventId = String(params[0]);
+      const row = this.webhookEvents.get(eventId);
+      if (row) {
+        row.status = "processing";
+        row.error_message = null;
+      }
+      return [header(0, row ? 1 : 0), []];
+    }
+
+    if (q.includes("update stripe_webhook_events") && q.includes("status = 'processed'")) {
+      const eventId = String(params[0]);
+      const row = this.webhookEvents.get(eventId);
+      if (row) row.status = "processed";
+      return [header(0, row ? 1 : 0), []];
+    }
+
+    if (q.includes("update stripe_webhook_events") && q.includes("status = 'ignored'")) {
+      const eventId = String(params[0]);
+      const row = this.webhookEvents.get(eventId);
+      if (row) row.status = "ignored";
+      return [header(0, row ? 1 : 0), []];
+    }
+
+    if (q.includes("update stripe_webhook_events") && q.includes("status = 'failed'")) {
+      const eventId = String(params[1]);
+      const row = this.webhookEvents.get(eventId);
+      if (row) {
+        row.status = "failed";
+        row.error_message = String(params[0]);
+      }
+      return [header(0, row ? 1 : 0), []];
+    }
+
+    if (q.startsWith("update payments set stripe_payment_intent_id")) {
+      const piId = String(params[0]);
+      const payId = Number(params[1]);
+      const pay = this.payments.find((p) => p.id === payId);
+      if (pay) {
+        pay.stripe_payment_intent_id = piId;
+        pay.status = "processing";
+      }
+      return [header(0, pay ? 1 : 0), []];
     }
 
     if (q.includes("select date_of_birth, gender from athletes")) {
@@ -422,6 +641,9 @@ export class RegistrationScenarioDb {
         provider: String(params[11]),
         metadata_json: String(params[12]),
         stripe_payment_intent_id: null,
+        stripe_charge_id: null,
+        stripe_transfer_id: null,
+        stripe_application_fee_id: null,
         paid_at: q.includes("paid_at") ? new Date().toISOString() : null,
         created_at: new Date().toISOString(),
       } as PaymentRow;
@@ -700,12 +922,20 @@ export class RegistrationScenarioDb {
 
     if (q.startsWith("update payments set status = 'succeeded'")) {
       const regId = Number(params[0]);
-      const payId = Number(params[3]);
+      const chargeId = params[1] != null ? String(params[1]) : null;
+      const piId = params[2] != null ? String(params[2]) : null;
+      const transferId = params[3] != null ? String(params[3]) : null;
+      const appFeeId = params[4] != null ? String(params[4]) : null;
+      const payId = Number(params[5] ?? params[3]);
       const pay = this.payments.find((p) => p.id === payId);
       if (pay) {
         pay.status = "succeeded";
         pay.registration_id = regId;
         pay.paid_at = new Date().toISOString();
+        if (chargeId) pay.stripe_charge_id = chargeId;
+        if (piId) pay.stripe_payment_intent_id = piId;
+        if (transferId) pay.stripe_transfer_id = transferId;
+        if (appFeeId) pay.stripe_application_fee_id = appFeeId;
       }
       return [header(0, 1), []];
     }
@@ -923,5 +1153,48 @@ export const seeds = {
         applies_to: "total",
       },
     ],
+  }),
+  paidConnectReady: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 80_000, capacity: 100 },
+    organizer: {
+      legal_name: "Trail MX SA",
+      rfc: "TRM123456ABC",
+      billing_email: "billing@trail.mx",
+      payout_terms_accepted_at: "2026-01-01 00:00:00",
+      payout_fee_acknowledged_at: "2026-01-01 00:00:00",
+      stripe_account_id: "acct_test_ready",
+      stripe_onboarding_complete: 1,
+      stripe_connect_status: "ready",
+      stripe_charges_enabled: 1,
+      stripe_payouts_enabled: 1,
+      stripe_details_submitted: 1,
+      stripe_connect_onboarded_at: "2026-01-01 00:00:00",
+    },
+  }),
+  paidConnectNotReady: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 50_000, capacity: 100 },
+    organizer: {
+      stripe_account_id: "acct_test_pending",
+      stripe_connect_status: "pending",
+      stripe_charges_enabled: 0,
+      stripe_payouts_enabled: 0,
+    },
+  }),
+  paidConnectDisabled: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 50_000, capacity: 100 },
+    organizer: {
+      legal_name: "Trail MX SA",
+      rfc: "TRM123456ABC",
+      billing_email: "billing@trail.mx",
+      payout_terms_accepted_at: "2026-01-01 00:00:00",
+      payout_fee_acknowledged_at: "2026-01-01 00:00:00",
+      stripe_account_id: "acct_test_disabled",
+      stripe_connect_status: "disabled",
+      stripe_charges_enabled: 0,
+      stripe_payouts_enabled: 0,
+    },
   }),
 };

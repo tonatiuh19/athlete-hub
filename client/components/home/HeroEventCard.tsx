@@ -8,6 +8,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import {
+  buildEventMediaSrcSet,
+  eventMediaSizesAttr,
+  optimizeEventMediaUrl,
+  type EventMediaDisplaySize,
+} from "@/lib/cdn-url";
 
 const MotionLink = motion.create(Link);
 
@@ -69,6 +75,11 @@ function EventImage({
 }) {
   const [failed, setFailed] = useState(false);
   const FallbackIcon = FALLBACK_ICONS[event.accent];
+  const displaySize: EventMediaDisplaySize =
+    layout === "poster" ? "featured" : "card";
+  const imageSrc = optimizeEventMediaUrl(event.imageUrl, displaySize) ?? event.imageUrl;
+  const srcSet = buildEventMediaSrcSet(event.imageUrl, displaySize);
+  const sizes = eventMediaSizesAttr(displaySize);
   const heightClass =
     layout === "poster"
       ? "h-[260px] sm:h-[280px]"
@@ -80,7 +91,9 @@ function EventImage({
     <div className={`relative shrink-0 overflow-hidden ${layout === "poster" ? "rounded-t-2xl" : "rounded-t-xl"} ${heightClass}`}>
       {!failed ? (
         <img
-          src={event.imageUrl}
+          src={imageSrc}
+          srcSet={srcSet}
+          sizes={srcSet ? sizes : undefined}
           alt=""
           loading="lazy"
           decoding="async"

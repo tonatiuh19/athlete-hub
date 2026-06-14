@@ -1,4 +1,5 @@
 import type { Pool } from "mysql2/promise";
+import type Stripe from "stripe";
 
 export type TestActorType = "athlete" | "organizer" | "admin";
 
@@ -12,6 +13,8 @@ export interface TestAuthPayload {
 
 let testPoolOverride: Pool | null = null;
 let testAuthBypass: TestAuthPayload | null = null;
+/** When set in test mode, overrides real Stripe client construction. */
+let testStripeClientOverride: Stripe | null | undefined;
 
 export function isTestMode(): boolean {
   return process.env.ATHLETE_HUB_TEST_MODE === "1";
@@ -33,9 +36,18 @@ export function getTestAuthBypass(): TestAuthPayload | null {
   return testAuthBypass;
 }
 
+export function setTestStripeClient(client: Stripe | null | undefined): void {
+  testStripeClientOverride = client;
+}
+
+export function getTestStripeClientOverride(): Stripe | null | undefined {
+  return testStripeClientOverride;
+}
+
 export function resetTestEnvironment(): void {
   testPoolOverride = null;
   testAuthBypass = null;
+  testStripeClientOverride = undefined;
   testResetCodeGenerator = null;
   testClerkProfileResolver = null;
   capturedTestEmails.length = 0;

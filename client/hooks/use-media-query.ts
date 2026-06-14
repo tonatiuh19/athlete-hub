@@ -32,7 +32,7 @@ export function useMapPanelHeight(options?: {
         setHeight(w < 640 ? 280 : w < 1024 ? 360 : 480);
         return;
       }
-      setHeight(w < 640 ? 340 : w < 1024 ? 440 : 560);
+      setHeight(w < 640 ? 300 : w < 1024 ? 440 : 560);
     };
     update();
     window.addEventListener("resize", update);

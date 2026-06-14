@@ -14,11 +14,11 @@ export default function SiteFooter() {
   const { t } = useTranslation();
 
   return (
-    <footer className="border-t border-border bg-triboo-black py-12 md:py-16 px-4 md:px-6">
+    <footer className="border-t border-border bg-triboo-black py-12 md:py-16 px-4 md:px-6 mb-24 md:mb-0">
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 md:gap-12 mb-10 md:mb-12">
           <div className="lg:col-span-1 space-y-4">
-            <TribooLogo surface="dark" className="h-10 w-[200px]" />
+            <TribooLogo surface="dark" className="h-10 w-full max-w-[200px]" />
             <p className="text-muted-foreground text-sm leading-relaxed">
               {t("home.footer.tagline")}
             </p>
@@ -35,7 +35,7 @@ export default function SiteFooter() {
                 </Link>
               </li>
               <li>
-                <Link to="/#communities" className="hover:text-primary transition-colors duration-300">
+                <Link to="/communities" className="hover:text-primary transition-colors duration-300">
                   {t("home.navCommunities")}
                 </Link>
               </li>

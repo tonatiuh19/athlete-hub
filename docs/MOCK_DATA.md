@@ -11,24 +11,24 @@ Seed data is applied via `database/migrations/20260531_120001_seed_mock_data.sql
 | Organizer | `owner@runmexico.test` | Run Mexico — owner |
 | Organizer | `ops@runmexico.test` | Run Mexico — operations |
 | Organizer | `owner@pacificendurance.test` | Pacific Endurance |
-| Athlete | `felix.gomez@example.com` | Has Maratón CDMX registration |
-| Athlete | `maria.lopez@example.com` | Has 10K Polanco registration |
-| Athlete | `carlos.ruiz@example.com` | Has Trail Nevado registration |
-| Athlete | `ana.torres@example.com` | Hyrox 2025 + results |
-| Athlete | `diego.martinez@example.com` | Hyrox 2025 Pro + results |
+| Athlete | `felix.gomez@example.com` | Has Gran Carrera Urbana registration |
+| Athlete | `maria.lopez@example.com` | Has 10K Nocturna registration |
+| Athlete | `carlos.ruiz@example.com` | Has Desafío Trail Alto registration |
+| Athlete | `ana.torres@example.com` | Desafío Híbrido 2025 + results |
+| Athlete | `diego.martinez@example.com` | Desafío Híbrido 2025 Pro + results |
 | Athlete | `lucia.herrera@example.com` | Pending triathlon registration |
 
 OTP codes are sent via Resend (email) or logged to console in dry-run mode.
 
 ## Sample events (API slugs)
 
-| Slug | Status | Featured |
-|------|--------|----------|
-| `maraton-cdmx-2026` | published | yes |
-| `trail-nevado-toluca-2026` | published | yes |
-| `triatlon-acapulco-2026` | published | no |
-| `carrera-10k-polanco-2026` | published | no |
-| `hyrox-mexico-city-2025` | completed | no (has results) |
+| Slug | Title | Status | Featured |
+|------|-------|--------|----------|
+| `maraton-cdmx-2026` | Gran Carrera Urbana 42K 2026 | published | yes |
+| `trail-nevado-toluca-2026` | Desafío Trail Alto 2026 | published | yes |
+| `triatlon-acapulco-2026` | Triatlón Sprint & Olímpico 2026 | published | no |
+| `carrera-10k-polanco-2026` | 10K Nocturna 2026 | published | no |
+| `hyrox-mexico-city-2025` | Desafío Híbrido 2025 | completed | no (has results) |
 
 All published mock events with `requires_waiver = 1` must have at least one active row in `event_waivers`. The seed migration inserts waivers for every such event; migration `20260604_200000_seed_missing_event_waivers.sql` backfills older databases. Smoke test: `tests/smoke/seed-waiver-integrity.spec.ts`.
 

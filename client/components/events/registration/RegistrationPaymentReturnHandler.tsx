@@ -22,6 +22,8 @@ import {
 } from "@/utils/registrationSessionStorage";
 import { fetchEventDetail } from "@/store/slices/marketplaceSlice";
 import { hasOAuthCallbackParams } from "@/utils/ssoReturnStorage";
+import { resolvePublicEventSlugFromPathname } from "@/utils/registrationEventSlug";
+import { isStaffConsolePath } from "@/utils/staffConsolePath";
 
 const SESSION_KEY = "triboo_registration_checkout";
 const RESUME_GUARD_KEY = "triboo_registration_resume_guard";
@@ -41,8 +43,9 @@ function stubCategoryFromSession(
 }
 
 function resolveEventSlug(pathname: string): string | null {
-  const pathMatch = pathname.match(/\/events\/([^/]+)/);
-  if (pathMatch?.[1]) return pathMatch[1];
+  if (isStaffConsolePath(pathname)) return null;
+  const fromPath = resolvePublicEventSlugFromPathname(pathname);
+  if (fromPath) return fromPath;
   return loadAnyRegistrationSession()?.eventSlug ?? null;
 }
 

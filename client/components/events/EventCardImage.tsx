@@ -1,6 +1,12 @@
 import { useState } from "react";
-import { Footprints, Zap, Waves, Bike } from "lucide-react";
+import SportKindIcon from "@/components/events/SportKindIcon";
 import { resolveSportKind } from "@/utils/sportKind";
+import {
+  buildEventMediaSrcSet,
+  eventMediaSizesAttr,
+  optimizeEventMediaUrl,
+  type EventMediaDisplaySize,
+} from "@/lib/cdn-url";
 import { cn } from "@/lib/utils";
 
 const SPORT_GRADIENTS: Record<string, string> = {
@@ -12,6 +18,7 @@ const SPORT_GRADIENTS: Record<string, string> = {
   ocr: "from-amber-500/25 to-orange-400/15",
   fitness: "from-blue-500/25 to-cyan/15",
   virtual: "from-purple-accent/30 to-cyan/15",
+  fishing: "from-primary/25 to-accent/20",
   default: "from-cyan/20 to-purple-accent/20",
 };
 
@@ -20,11 +27,9 @@ function sportGradient(sportSlug?: string, sportName?: string): string {
 }
 
 function SportIcon({ sportSlug, sportName }: { sportSlug?: string; sportName?: string }) {
-  const kind = resolveSportKind(sportSlug, sportName);
-  if (kind === "triathlon") return <Waves className="w-8 h-8 text-cyan/40" />;
-  if (kind === "cycling") return <Bike className="w-8 h-8 text-cyan/40" />;
-  if (kind === "hyrox") return <Zap className="w-8 h-8 text-cyan/40" />;
-  return <Footprints className="w-8 h-8 text-cyan/40" />;
+  return (
+    <SportKindIcon sportSlug={sportSlug} sportName={sportName} className="w-8 h-8 text-cyan/40" />
+  );
 }
 
 interface EventCardImageProps {
@@ -33,6 +38,9 @@ interface EventCardImageProps {
   sportName?: string;
   className?: string;
   imgClassName?: string;
+  /** Smaller variants load faster on cards and list thumbnails. */
+  displaySize?: EventMediaDisplaySize;
+  fetchPriority?: "high" | "low" | "auto";
 }
 
 export default function EventCardImage({
@@ -41,18 +49,27 @@ export default function EventCardImage({
   sportName,
   className,
   imgClassName,
+  displaySize = "card",
+  fetchPriority = "auto",
 }: EventCardImageProps) {
   const [failed, setFailed] = useState(false);
-  const showFallback = !src || failed;
+  const resolvedSrc = optimizeEventMediaUrl(src, displaySize);
+  const srcSet = buildEventMediaSrcSet(src, displaySize);
+  const sizes = eventMediaSizesAttr(displaySize);
+  const showFallback = !resolvedSrc || failed;
 
   return (
     <div className={cn("relative overflow-hidden bg-surface-dark", className)}>
       {!showFallback ? (
         <img
-          src={src}
+          src={resolvedSrc}
+          srcSet={srcSet}
+          sizes={srcSet ? sizes : undefined}
           alt=""
           className={cn("w-full h-full object-cover", imgClassName)}
-          loading="lazy"
+          loading={fetchPriority === "high" ? "eager" : "lazy"}
+          decoding="async"
+          fetchPriority={fetchPriority}
           onError={() => setFailed(true)}
         />
       ) : (

@@ -19,6 +19,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchStaffPayments, refundStaffPayment } from "@/store/slices/staffPortalSlice";
 import { useGridListState } from "@/hooks/useGridListState";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
+import { canRefundStaffPayments } from "@/utils/staffNav";
 import type { AdminPaymentRow, StaffRole } from "@shared/api";
 
 interface StaffPaymentsPanelProps {
@@ -34,13 +35,13 @@ export default function StaffPaymentsPanel({
 }: StaffPaymentsPanelProps) {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
-  const {
-    staffPayments,
+  const { staffPayments,
     staffPaymentsPagination,
     loadingStaffPayments,
     staffPaymentsError,
     refundingPayment,
   } = useAppSelector((s) => s.staffPortal);
+  const { user } = useAppSelector((s) => s.staffAuth);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [status, setStatus] = useState("all");
@@ -48,6 +49,8 @@ export default function StaffPaymentsPanel({
   const dateLocale = getDateFnsLocale(i18n.language);
   const numLocale = getNumberLocale(i18n.language);
   const isAdmin = role === "admin";
+  const organizerRole = user?.type === "organizer" ? user.role : undefined;
+  const canRefund = canRefundStaffPayments(isAdmin, organizerRole);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -80,7 +83,7 @@ export default function StaffPaymentsPanel({
 
   const handleRefund = (paymentId: number) => {
     if (!window.confirm(t("staffPortal.finance.refundConfirm"))) return;
-    dispatch(refundStaffPayment({ paymentId })).then((result) => {
+    dispatch(refundStaffPayment({ paymentId, role })).then((result) => {
       if (refundStaffPayment.fulfilled.match(result)) reload();
     });
   };
@@ -175,7 +178,7 @@ export default function StaffPaymentsPanel({
       },
     );
 
-    if (isAdmin) {
+    if (canRefund) {
       cols.push({
         key: "actions",
         label: "",
@@ -201,7 +204,7 @@ export default function StaffPaymentsPanel({
     }
 
     return cols;
-  }, [t, dateLocale, numLocale, refundingPayment, isAdmin, onSelectAthlete]);
+  }, [t, dateLocale, numLocale, refundingPayment, canRefund, onSelectAthlete, role]);
 
   return (
     <div className="space-y-4">

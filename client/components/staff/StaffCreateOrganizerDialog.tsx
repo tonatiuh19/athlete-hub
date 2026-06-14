@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { format } from "date-fns";
-import { CalendarDays, Loader2, Plus } from "lucide-react";
+import { CalendarDays, Loader2, Plus, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { slugify } from "@shared/slugify";
+import GeoCitySelector from "@/components/geo/GeoCitySelector";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -16,9 +18,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchGeoStates } from "@/store/slices/geoSlice";
 import { createStaffOrganizer, fetchAdminEvents } from "@/store/slices/staffPortalSlice";
+import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
 import { getDateFnsLocale } from "@/utils/dateLocale";
+import { isCatalogCitySelectionValid } from "@/utils/geoCityValidation";
 
 const schema = Yup.object({
   name: Yup.string().trim().required("Required"),
@@ -32,8 +38,11 @@ interface StaffCreateOrganizerDialogProps {
   onCreated?: () => void;
 }
 
+const ORGANIZER_SLUG_MAX = 80;
+
 export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrganizerDialogProps) {
   const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const dispatch = useAppDispatch();
   const { savingStaffOrganizer, staffOrganizerSaveError, events, loadingEvents } = useAppSelector(
     (s) => s.staffPortal,
@@ -41,13 +50,22 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
   const [open, setOpen] = useState(false);
   const [eventQuery, setEventQuery] = useState("");
   const [selectedEventIds, setSelectedEventIds] = useState<number[]>([]);
+  const [serviceFeePercent, setServiceFeePercent] = useState(11);
+  const [geoStateId, setGeoStateId] = useState<number | null>(null);
+  const [geoCityId, setGeoCityId] = useState<number | null>(null);
+  const [slugEdited, setSlugEdited] = useState(false);
   const dateLocale = getDateFnsLocale(i18n.language);
 
   useEffect(() => {
     if (open) {
       dispatch(fetchAdminEvents({}));
+      dispatch(fetchGeoStates("MX"));
       setEventQuery("");
       setSelectedEventIds([]);
+      setServiceFeePercent(11);
+      setGeoStateId(null);
+      setGeoCityId(null);
+      setSlugEdited(false);
     }
   }, [open, dispatch]);
 
@@ -81,6 +99,15 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
     },
     validationSchema: schema,
     onSubmit: async (values, { resetForm, setFieldValue }) => {
+      if (!isCatalogCitySelectionValid(geoCityId, values.city)) {
+        toast({
+          title: t("geo.citySelector.invalidSelectionTitle"),
+          description: t("geo.citySelector.supportMessageAdmin"),
+          variant: "destructive",
+        });
+        return;
+      }
+
       const result = await dispatch(
         createStaffOrganizer({
           name: values.name.trim(),
@@ -93,17 +120,41 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
           owner_first_name: values.owner_first_name.trim(),
           owner_last_name: values.owner_last_name.trim(),
           event_ids: selectedEventIds.length > 0 ? selectedEventIds : undefined,
+          service_fee_percent: serviceFeePercent,
         }),
       );
       if (createStaffOrganizer.fulfilled.match(result)) {
         resetForm();
         setFieldValue("country", "MX");
         setSelectedEventIds([]);
+        setServiceFeePercent(11);
+        setGeoStateId(null);
+        setGeoCityId(null);
+        setSlugEdited(false);
         setOpen(false);
         onCreated?.();
       }
     },
   });
+
+  const handleNameChange = (name: string) => {
+    void formik.setFieldValue("name", name);
+    if (!slugEdited) {
+      void formik.setFieldValue("slug", slugify(name, ORGANIZER_SLUG_MAX));
+    }
+  };
+
+  const handleSlugChange = (raw: string) => {
+    setSlugEdited(true);
+    void formik.setFieldValue("slug", slugify(raw, ORGANIZER_SLUG_MAX));
+  };
+
+  const regenerateSlug = () => {
+    setSlugEdited(false);
+    void formik.setFieldValue("slug", slugify(formik.values.name, ORGANIZER_SLUG_MAX));
+  };
+
+  const slugPreview = formik.values.slug.trim() || slugify(formik.values.name, ORGANIZER_SLUG_MAX);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -121,7 +172,13 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
         <form onSubmit={formik.handleSubmit} className="space-y-4 mt-2">
           <div className="space-y-2">
             <Label htmlFor="org-name">{t("staffPortal.staffManagement.fieldOrgName")}</Label>
-            <Input id="org-name" {...formik.getFieldProps("name")} />
+            <Input
+              id="org-name"
+              name="name"
+              value={formik.values.name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              onBlur={formik.handleBlur}
+            />
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -129,20 +186,66 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
               <Input id="org-email" type="email" {...formik.getFieldProps("email")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="org-city">{t("staffPortal.staffManagement.fieldCity")}</Label>
-              <Input id="org-city" {...formik.getFieldProps("city")} />
-            </div>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="org-slug">{t("staffPortal.staffManagement.fieldSlug")}</Label>
-              <Input id="org-slug" placeholder="auto" {...formik.getFieldProps("slug")} />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="org-phone">{t("staffPortal.staffManagement.fieldPhone")}</Label>
               <Input id="org-phone" {...formik.getFieldProps("phone")} />
             </div>
           </div>
+
+          <GeoCitySelector
+            stateId={geoStateId}
+            cityId={geoCityId}
+            cityName={formik.values.city}
+            staffRole="admin"
+            onChange={(sel) => {
+              setGeoStateId(sel.stateId);
+              setGeoCityId(sel.geoCityId);
+              void formik.setFieldValue("city", sel.city);
+            }}
+          />
+
+          <div className="space-y-2">
+            <Label htmlFor="org-slug">{t("staffPortal.staffManagement.fieldSlug")}</Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {t("staffPortal.staffManagement.slugHelp")}
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="org-slug"
+                name="slug"
+                value={formik.values.slug}
+                onChange={(e) => handleSlugChange(e.target.value)}
+                onBlur={formik.handleBlur}
+                placeholder={t("staffPortal.staffManagement.slugPlaceholder")}
+                className="font-mono text-sm"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                title={t("staffPortal.staffManagement.regenerateSlug")}
+                onClick={regenerateSlug}
+                disabled={!formik.values.name.trim()}
+              >
+                <Sparkles className="w-4 h-4" />
+              </Button>
+            </div>
+            {slugPreview ? (
+              <p className="text-xs text-muted-foreground font-mono">/{slugPreview}</p>
+            ) : null}
+            {!slugEdited && formik.values.name.trim() ? (
+              <p className="text-xs text-muted-foreground">
+                {t("staffPortal.staffManagement.slugAutoHint")}
+              </p>
+            ) : null}
+          </div>
+
+          <StaffFeeCalculatorCard
+            serviceFeePercent={serviceFeePercent}
+            feeEditable
+            onFeePercentChange={setServiceFeePercent}
+            compact
+          />
 
           <div className="border-t border-border pt-4 space-y-3">
             <p className="text-sm font-medium">{t("staffPortal.staffManagement.ownerSection")}</p>

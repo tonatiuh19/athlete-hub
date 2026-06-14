@@ -26,7 +26,7 @@ export default function MapEventPreview({ event }: MapEventPreviewProps) {
         className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 rounded-lg"
       />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-white truncate group-hover:text-cyan transition-colors">
+        <p className="text-sm font-bold text-white line-clamp-2 leading-normal group-hover:text-cyan transition-colors">
           {event.title}
         </p>
         <p className="flex items-center gap-1 text-[11px] text-gray-400 mt-0.5 truncate">

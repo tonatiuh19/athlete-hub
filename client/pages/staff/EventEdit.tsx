@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFormik } from "formik";
+import { useFormik, type FormikProps } from "formik";
 import * as Yup from "yup";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -21,7 +21,10 @@ import StaffCourseWizardDialog from "@/components/staff/StaffCourseWizardDialog"
 import StaffEventCategoriesSection from "@/components/staff/StaffEventCategoriesSection";
 import StaffEventWaiversSection from "@/components/staff/StaffEventWaiversSection";
 import EventAssetUpload from "@/components/staff/EventAssetUpload";
-import RichHtmlEditor from "@/components/blog/RichHtmlEditor";
+import { resolveEventImageRole } from "@/constants/eventImageContexts";
+import RichHtmlEditor, {
+  type RichHtmlEditorHandle,
+} from "@/components/blog/RichHtmlEditor";
 import EventPublishPreviewDialog from "@/components/staff/EventPublishPreviewDialog";
 import StaffEventPublishChecklist, {
   computeEventPublishReadiness,
@@ -45,6 +48,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import GeoCitySelector from "@/components/geo/GeoCitySelector";
+import { cn } from "@/lib/utils";
 import {
   enforceCatalogCityOnEventBody,
   isCatalogCitySelectionValid,
@@ -53,7 +57,6 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchGeoCities, fetchGeoStates } from "@/store/slices/geoSlice";
 import { fetchSportTypes } from "@/store/slices/marketplaceSlice";
 import {
-  clearEventDetail,
   createDiscountCode,
   createOrganizerEvent,
   deleteDiscountCode,
@@ -66,7 +69,10 @@ import {
   fetchRegistrationFields,
   fetchScheduleWaves,
   fetchStaffEventDetail,
+  fetchOrganizerPayoutStatus,
+  fetchAdminOrganizerConnect,
   publishStaffEvent,
+  rejectStaffEventApproval,
   updateDiscountCode,
   updateEventCourse,
   updateEventMedia,
@@ -83,13 +89,29 @@ import type {
   SponsorTier,
   StaffDiscountCodeInput,
   StaffEventCoursePayload,
+  StaffEventDetail,
   StaffMediaAssetRow,
   StaffScheduleWaveInput,
 } from "@shared/api";
 import { getNumberLocale } from "@/utils/dateLocale";
-import { buildStaffEventBody } from "@/utils/buildStaffEventBody";
+import {
+  buildEventEditFormValues,
+  buildStaffEventBody,
+  type EventEditFormValues,
+} from "@/utils/buildStaffEventBody";
+import { isStaffEventCreateRoute } from "@/utils/staffEventRoutes";
+import { isEventEndBeforeStart } from "@/utils/staffEventDateValidation";
+import {
+  checkInCloseWouldBeCapped,
+  defaultCheckInWindowBounds,
+  normalizeFormDatetimeLocal,
+  validateCheckInWindowFields,
+  type CheckInWindowValidationError,
+} from "@shared/checkInWindow";
 import { fromDatetimeLocal, toDatetimeLocal } from "@/utils/datetimeLocal";
 import { uploadEventAssetToCdn } from "@/lib/cdn-upload";
+import { normalizeCdnUploadUrl } from "@/lib/cdn-url";
+import { prepareEventImageFile } from "@/utils/eventImageUpload";
 import {
   createBlobPreviewUrl,
   revokeBlobUrl,
@@ -101,15 +123,17 @@ import {
   canOrganizerEditEvents,
 } from "@/utils/staffNav";
 
-const eventSchema = Yup.object({
-  title: Yup.string().trim().required("Required").max(255),
-  sport_type_id: Yup.number().min(1, "Required").required("Required"),
-  start_date: Yup.string().required("Required"),
-});
+const CHECK_IN_VALIDATION_KEYS: Record<CheckInWindowValidationError, string> = {
+  pair_required: "staffPortal.eventEdit.fieldCheckInErrorPair",
+  opens_not_before_closes: "staffPortal.eventEdit.fieldCheckInErrorOrder",
+  opens_after_event_end: "staffPortal.eventEdit.fieldCheckInErrorOpensAfterEnd",
+  closes_after_event_end: "staffPortal.eventEdit.fieldCheckInErrorClosesAfterEnd",
+};
 
 export default function StaffEventEdit() {
+  const location = useLocation();
   const { eventId: eventIdParam } = useParams<{ eventId: string }>();
-  const isNew = eventIdParam === "new";
+  const isNew = isStaffEventCreateRoute(location.pathname, eventIdParam);
   const eventId = isNew ? null : Number(eventIdParam);
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
@@ -138,7 +162,12 @@ export default function StaffEventEdit() {
     savingEvent,
     saveEventError,
     publishingEvent,
+    rejectingEventApproval,
     publishError,
+    payoutStatus,
+    adminOrganizerConnect,
+    loadingPayoutStatus,
+    loadingAdminOrganizerConnect,
     savingSponsors,
     sponsorsError,
     savingFields,
@@ -157,10 +186,17 @@ export default function StaffEventEdit() {
   const [uploadingAssets, setUploadingAssets] = useState(false);
   const [heroPendingFile, setHeroPendingFile] = useState<File | null>(null);
   const [heroPreviewUrl, setHeroPreviewUrl] = useState<string | null>(null);
+  const [bannerPendingFile, setBannerPendingFile] = useState<File | null>(null);
+  const [bannerPreviewUrl, setBannerPreviewUrl] = useState<string | null>(null);
   const sponsorPendingRef = useRef<Map<number, File>>(new Map());
   const mediaPendingRef = useRef<Map<number, File>>(new Map());
   const descriptionPendingByUrlRef = useRef<Map<string, File>>(new Map());
   const descriptionDraftUploadIdRef = useRef(`event_draft_${Date.now()}`);
+  const descriptionEditorRef = useRef<RichHtmlEditorHandle>(null);
+  const descriptionHtmlRef = useRef("");
+  const hydratedEventIdRef = useRef<number | null>(null);
+  const formValuesRef = useRef(buildEventEditFormValues(undefined, []));
+  const formikRef = useRef<FormikProps<EventEditFormValues> | null>(null);
   const [fieldDrafts, setFieldDrafts] = useState<EventRegistrationFieldInput[]>([]);
   const [sponsorDrafts, setSponsorDrafts] = useState<EventSponsorInput[]>([]);
   const [waveDrafts, setWaveDrafts] = useState<StaffScheduleWaveInput[]>([]);
@@ -175,6 +211,45 @@ export default function StaffEventEdit() {
   const [geoStateId, setGeoStateId] = useState<number | null>(null);
   const [geoCityId, setGeoCityId] = useState<number | null>(null);
   const [geoLegacySearchResolved, setGeoLegacySearchResolved] = useState(false);
+
+  const eventSchema = useMemo(
+    () =>
+      Yup.object({
+        title: Yup.string()
+          .trim()
+          .required(t("staffPortal.eventEdit.validation.required"))
+          .max(255),
+        sport_type_id: Yup.number()
+          .min(1, t("staffPortal.eventEdit.validation.required"))
+          .required(t("staffPortal.eventEdit.validation.required")),
+        start_date: Yup.string().required(t("staffPortal.eventEdit.validation.required")),
+        end_date: Yup.string(),
+        check_in_opens_at: Yup.string(),
+        check_in_closes_at: Yup.string(),
+      })
+        .test("end-after-start", function (values) {
+          if (!values.end_date?.trim()) return true;
+          if (!isEventEndBeforeStart(values.start_date, values.end_date)) return true;
+          return this.createError({
+            path: "end_date",
+            message: t("staffPortal.eventEdit.validation.endBeforeStart"),
+          });
+        })
+        .test("check-in-window", function (values) {
+          const err = validateCheckInWindowFields({
+            checkInOpensAt: values.check_in_opens_at,
+            checkInClosesAt: values.check_in_closes_at,
+            startDate: values.start_date,
+            endDate: values.end_date,
+          });
+          if (!err) return true;
+          return this.createError({
+            path: err === "pair_required" ? "check_in_opens_at" : "check_in_closes_at",
+            message: t(CHECK_IN_VALIDATION_KEYS[err]),
+          });
+        }),
+    [t],
+  );
   const geoStates = useAppSelector((s) => s.geo.states);
   const geoCitiesByState = useAppSelector((s) => s.geo.citiesByStateId);
   const numLocale = getNumberLocale(i18n.language);
@@ -217,16 +292,15 @@ export default function StaffEventEdit() {
   useEffect(() => {
     dispatch(fetchSportTypes());
     dispatch(fetchGeoStates("MX"));
-    return () => {
-      dispatch(clearEventDetail());
-    };
   }, [dispatch]);
 
   useEffect(() => {
     if (!isNew && eventId && role) {
+      const cachedId = eventDetail?.event?.id;
+      if (cachedId === eventId) return;
       dispatch(fetchStaffEventDetail({ eventId, role }));
     }
-  }, [dispatch, isNew, eventId, role]);
+  }, [dispatch, isNew, eventId, role, eventDetail?.event?.id]);
 
   useEffect(() => {
     if (canManageSponsors && eventId && role) {
@@ -309,50 +383,38 @@ export default function StaffEventEdit() {
   }, [eventCourse]);
 
   const event = eventDetail?.event;
+  const organizerAccessDenied =
+    isOrganizer &&
+    !isAdmin &&
+    ((isNew && !canCreateEvents) || (!isNew && !canEditEvents));
 
-  if (isOrganizer && !isAdmin) {
-    if (isNew && !canCreateEvents) {
-      return <Navigate to="/staff/events" replace />;
-    }
-    if (!isNew && !canEditEvents) {
-      return <Navigate to="/staff/events" replace />;
-    }
-  }
+  const defaultFormValues = useMemo(
+    () => buildEventEditFormValues(undefined, sportTypes),
+    [sportTypes],
+  );
+
+  const savedEventLocation = useMemo(
+    () =>
+      event
+        ? { city: event.location_city, state: event.location_state }
+        : undefined,
+    [event?.location_city, event?.location_state],
+  );
 
   const formik = useFormik({
-    enableReinitialize: true,
-    initialValues: {
-      title: event?.title ?? "",
-      slug: event?.slug ?? "",
-      sport_type_id: event?.sport_type_id ?? (sportTypes[0]?.id ?? 0),
-      short_description: event?.short_description ?? "",
-      description: event?.description ?? "",
-      status: event?.status ?? "draft",
-      visibility: event?.visibility ?? "public",
-      featured: Boolean(event?.featured),
-      requires_waiver: Boolean(event?.requires_waiver),
-      start_date: toDatetimeLocal(event?.start_date),
-      end_date: toDatetimeLocal(event?.end_date),
-      registration_opens_at: toDatetimeLocal(event?.registration_opens_at),
-      registration_closes_at: toDatetimeLocal(event?.registration_closes_at),
-      location_city: event?.location_city ?? "",
-      location_state: event?.location_state ?? "",
-      location_name: event?.location_name ?? "",
-      location_lat:
-        event?.location_lat != null && event.location_lat !== ""
-          ? String(event.location_lat)
-          : "",
-      location_lng:
-        event?.location_lng != null && event.location_lng !== ""
-          ? String(event.location_lng)
-          : "",
-      hero_image_url: event?.hero_image_url ?? "",
-      max_registrations: event?.max_registrations?.toString() ?? "",
-    },
+    enableReinitialize: false,
+    initialValues: defaultFormValues,
     validationSchema: eventSchema,
     onSubmit: async (values) => {
       if (!role) return;
-      if (!isCatalogCitySelectionValid(geoCityId, values.location_city)) {
+      if (
+        !isCatalogCitySelectionValid(
+          geoCityId,
+          values.location_city,
+          savedEventLocation,
+          values.location_state,
+        )
+      ) {
         toast({
           title: t("geo.citySelector.invalidSelectionTitle"),
           description: isAdmin
@@ -365,10 +427,13 @@ export default function StaffEventEdit() {
       setUploadingAssets(true);
       try {
         let heroUrl = values.hero_image_url.trim() || null;
-        if (heroPendingFile && eventId) {
+        if (heroPendingFile) {
+          const heroUploadId =
+            eventId != null ? `event_${eventId}_hero` : `${descriptionUploadId}_hero`;
+          const preparedHero = await prepareEventImageFile(heroPendingFile, "hero");
           heroUrl = await uploadEventAssetToCdn(
-            heroPendingFile,
-            `event_${eventId}_hero`,
+            preparedHero,
+            heroUploadId,
             isAdmin,
             "hero",
           );
@@ -378,10 +443,31 @@ export default function StaffEventEdit() {
           void formik.setFieldValue("hero_image_url", heroUrl ?? "");
         }
 
-        let description = values.description;
+        let bannerUrl = values.banner_image_url.trim() || null;
+        if (bannerPendingFile) {
+          const bannerUploadId =
+            eventId != null ? `event_${eventId}_banner` : `${descriptionUploadId}_banner`;
+          const preparedBanner = await prepareEventImageFile(bannerPendingFile, "banner");
+          bannerUrl = await uploadEventAssetToCdn(
+            preparedBanner,
+            bannerUploadId,
+            isAdmin,
+            "hero",
+          );
+          setBannerPendingFile(null);
+          if (bannerPreviewUrl?.startsWith("blob:")) revokeBlobUrl(bannerPreviewUrl);
+          setBannerPreviewUrl(bannerUrl);
+          void formik.setFieldValue("banner_image_url", bannerUrl ?? "");
+        }
+
+        let description =
+          descriptionEditorRef.current?.getHtml() ??
+          descriptionHtmlRef.current ??
+          values.description;
+        descriptionHtmlRef.current = description;
         if (descriptionPendingByUrlRef.current.size > 0) {
           description = await uploadPendingHtmlImages({
-            html: values.description,
+            html: description,
             pendingByUrl: descriptionPendingByUrlRef.current,
             uploadId: descriptionUploadId,
             isAdmin,
@@ -398,21 +484,52 @@ export default function StaffEventEdit() {
         const body = enforceCatalogCityOnEventBody(
           buildStaffEventBody(values, {
             hero_image_url: heroUrl,
+            banner_image_url: bannerUrl,
             description: description.trim() || null,
           }),
           geoCityId,
+          savedEventLocation,
         );
 
         if (isNew) {
           const result = await dispatch(createOrganizerEvent(body));
           if (createOrganizerEvent.fulfilled.match(result)) {
-            navigate(`/staff/events/${result.payload.event.id}/edit`, { replace: true });
+            const newEventId = result.payload.event.id;
+            toast({
+              title: t("staffPortal.eventEdit.createSuccess"),
+              description: t("staffPortal.eventEdit.createSuccessHint"),
+            });
+            navigate(`/staff/events/${newEventId}/edit`, { replace: true });
+            return;
+          }
+          if (createOrganizerEvent.rejected.match(result)) {
+            toast({
+              title: t("staffPortal.eventEdit.createFailed"),
+              description: result.payload ?? t("staffPortal.eventEdit.createFailed"),
+              variant: "destructive",
+            });
           }
           return;
         }
 
         if (eventId) {
-          await dispatch(updateStaffEvent({ eventId, role, body }));
+          const updateResult = await dispatch(updateStaffEvent({ eventId, role, body }));
+          if (updateStaffEvent.fulfilled.match(updateResult)) {
+            hydratedEventIdRef.current = updateResult.payload.event.id;
+            const savedValues = buildEventEditFormValues(
+              updateResult.payload.event,
+              sportTypes,
+            );
+            descriptionHtmlRef.current = savedValues.description;
+            void formik.resetForm({ values: savedValues });
+            toast({ title: t("staffPortal.eventEdit.saveSuccess") });
+          } else if (updateStaffEvent.rejected.match(updateResult)) {
+            toast({
+              title: t("staffPortal.eventEdit.saveFailed"),
+              description: updateResult.payload ?? t("staffPortal.eventEdit.saveFailed"),
+              variant: "destructive",
+            });
+          }
         }
       } finally {
         setUploadingAssets(false);
@@ -420,12 +537,44 @@ export default function StaffEventEdit() {
     },
   });
 
+  formikRef.current = formik;
+  formValuesRef.current = formik.values;
+
+  const applySavedEventToForm = useCallback(
+    (savedEvent: StaffEventDetail) => {
+      const values = buildEventEditFormValues(savedEvent, sportTypes);
+      descriptionHtmlRef.current = values.description;
+      void formikRef.current?.resetForm({ values });
+    },
+    [sportTypes],
+  );
+
   useEffect(() => {
-    if (!event?.location_city) {
-      setGeoStateId(null);
-      setGeoCityId(null);
+    if (isNew) {
+      hydratedEventIdRef.current = null;
       return;
     }
+    if (eventId != null && hydratedEventIdRef.current !== eventId) {
+      hydratedEventIdRef.current = null;
+    }
+  }, [eventId, isNew]);
+
+  useEffect(() => {
+    if (isNew || !event?.id) return;
+    if (hydratedEventIdRef.current === event.id) return;
+    hydratedEventIdRef.current = event.id;
+    applySavedEventToForm(event);
+  }, [isNew, event, applySavedEventToForm]);
+
+  useEffect(() => {
+    if (sportTypes.length === 0) return;
+    if (formik.values.sport_type_id > 0) return;
+    void formik.setFieldValue("sport_type_id", sportTypes[0]!.id);
+  }, [sportTypes, formik.values.sport_type_id, formik]);
+
+  // Hydrate picker from a saved event only — never reset while the user is selecting on create.
+  useEffect(() => {
+    if (isNew || !event?.location_city) return;
     if (geoStates.length === 0) return;
 
     const stateMatch = geoStates.find(
@@ -442,11 +591,19 @@ export default function StaffEventEdit() {
     }
   }, [
     dispatch,
+    isNew,
     event?.location_city,
     event?.location_state,
     geoStates,
     geoCitiesByState,
   ]);
+
+  useEffect(() => {
+    if (!isNew) return;
+    setGeoStateId(null);
+    setGeoCityId(null);
+    setGeoLegacySearchResolved(false);
+  }, [isNew]);
 
   useEffect(() => {
     if (!event?.location_city || geoStateId == null) return;
@@ -476,9 +633,15 @@ export default function StaffEventEdit() {
 
   useEffect(() => {
     if (event?.hero_image_url && !heroPendingFile) {
-      setHeroPreviewUrl(event.hero_image_url);
+      setHeroPreviewUrl(normalizeCdnUploadUrl(event.hero_image_url));
     }
   }, [event?.hero_image_url, heroPendingFile]);
+
+  useEffect(() => {
+    if (event?.banner_image_url && !bannerPendingFile) {
+      setBannerPreviewUrl(normalizeCdnUploadUrl(event.banner_image_url));
+    }
+  }, [event?.banner_image_url, bannerPendingFile]);
 
   useEffect(() => {
     if (event?.id) {
@@ -509,6 +672,88 @@ export default function StaffEventEdit() {
       return Boolean(w.content_html?.trim());
     });
 
+  const checkInAutoWindowHint = useMemo(() => {
+    if (formik.values.check_in_opens_at || formik.values.check_in_closes_at) {
+      return null;
+    }
+    const startWall = normalizeFormDatetimeLocal(formik.values.start_date);
+    if (!startWall) return null;
+    const endWall = normalizeFormDatetimeLocal(formik.values.end_date);
+    return defaultCheckInWindowBounds(startWall, endWall);
+  }, [
+    formik.values.check_in_closes_at,
+    formik.values.check_in_opens_at,
+    formik.values.end_date,
+    formik.values.start_date,
+  ]);
+
+  const endDateBeforeStart = useMemo(
+    () => isEventEndBeforeStart(formik.values.start_date, formik.values.end_date),
+    [formik.values.end_date, formik.values.start_date],
+  );
+
+  const citySelectionIncomplete =
+    Boolean(formik.values.location_city.trim()) && geoCityId == null;
+
+  const checkInCapHint = useMemo(() => {
+    if (!formik.values.check_in_closes_at) return null;
+    if (
+      !checkInCloseWouldBeCapped({
+        checkInClosesAt: formik.values.check_in_closes_at,
+        startDate: formik.values.start_date,
+        endDate: formik.values.end_date,
+      })
+    ) {
+      return null;
+    }
+    const startWall = normalizeFormDatetimeLocal(formik.values.start_date);
+    if (!startWall) return null;
+    const endWall = normalizeFormDatetimeLocal(formik.values.end_date);
+    return defaultCheckInWindowBounds(startWall, endWall).closesAtLocal;
+  }, [
+    formik.values.check_in_closes_at,
+    formik.values.end_date,
+    formik.values.start_date,
+  ]);
+
+  const hasPaidCategories = useMemo(
+    () => (eventDetail?.categories ?? []).some((c) => c.is_active && Number(c.price_cents) > 0),
+    [eventDetail?.categories],
+  );
+
+  useEffect(() => {
+    if (isAdmin && hasPaidCategories && event?.organizer_id) {
+      void dispatch(fetchAdminOrganizerConnect({ organizerId: event.organizer_id }));
+    } else if (!isAdmin && isOrganizer && hasPaidCategories) {
+      void dispatch(fetchOrganizerPayoutStatus());
+    }
+  }, [dispatch, event?.organizer_id, hasPaidCategories, isAdmin, isOrganizer]);
+
+  const eventOrganizerPayoutReady = isAdmin
+    ? adminOrganizerConnect?.payoutReady
+    : payoutStatus?.payoutReady;
+
+  const loadingPayoutGate = hasPaidCategories
+    ? isAdmin
+      ? loadingAdminOrganizerConnect && !adminOrganizerConnect
+      : loadingPayoutStatus && !payoutStatus
+    : false;
+
+  const payoutPublishBlocked =
+    hasPaidCategories &&
+    (loadingPayoutGate || eventOrganizerPayoutReady !== true) &&
+    (isOrganizer || isAdmin);
+
+  const showPayoutBlockedBanner = payoutPublishBlocked && !loadingPayoutGate;
+
+  const handlePayoutSetupNavigate = () => {
+    if (isAdmin) {
+      navigate("/staff/people?tab=organizers");
+    } else {
+      navigate("/staff/payouts");
+    }
+  };
+
   const publishReadiness = useMemo(
     () =>
       computeEventPublishReadiness({
@@ -527,36 +772,60 @@ export default function StaffEventEdit() {
           return Boolean(w.content_html?.trim());
         }),
         hasCourse: Boolean(courseDraft?.routeGeojson),
+        hasPaidCategories,
+        payoutReady: hasPaidCategories
+          ? loadingPayoutGate
+            ? null
+            : eventOrganizerPayoutReady === true
+          : undefined,
       }),
     [
       activeWaivers,
       courseDraft?.routeGeojson,
       eventDetail?.categories?.length,
+      eventOrganizerPayoutReady,
       formik.values,
+      hasPaidCategories,
       heroPreviewUrl,
+      loadingPayoutGate,
     ],
   );
+
+  const publishBlocked =
+    !publishReadiness.hasTitle ||
+    !publishReadiness.hasSport ||
+    !publishReadiness.hasStartDate ||
+    !publishReadiness.hasCategory ||
+    waiverPublishBlocked ||
+    payoutPublishBlocked;
 
   const handleEventLocationFromCourse = useCallback(
     (lat: number, lng: number) => {
       void formik.setFieldValue("location_lat", String(lat));
       void formik.setFieldValue("location_lng", String(lng));
       if (!eventId || !role) return;
+      const latestValues = formValuesRef.current;
+      const latestDescription =
+        descriptionEditorRef.current?.getHtml() ?? descriptionHtmlRef.current;
       void dispatch(
         updateStaffEvent({
           eventId,
           role,
           body: enforceCatalogCityOnEventBody(
-            buildStaffEventBody(formik.values, {
-              location_lat: lat,
-              location_lng: lng,
-            }),
+            buildStaffEventBody(
+              { ...latestValues, description: latestDescription },
+              {
+                location_lat: lat,
+                location_lng: lng,
+              },
+            ),
             geoCityId,
+            savedEventLocation,
           ),
         }),
       );
     },
-    [dispatch, eventId, formik, geoCityId, role],
+    [dispatch, eventId, geoCityId, role, savedEventLocation],
   );
 
   if (isNew && isAdmin) {
@@ -571,10 +840,37 @@ export default function StaffEventEdit() {
     if (!eventId || !role) return;
     const result = await dispatch(publishStaffEvent({ eventId, role }));
     if (publishStaffEvent.fulfilled.match(result)) {
-      formik.setFieldValue("status", "published");
+      formik.setFieldValue(
+        "status",
+        isAdmin ? "published" : "pending_approval",
+      );
       setPublishPreviewOpen(false);
     }
   };
+
+  const handleRejectApproval = async () => {
+    if (!eventId || !isAdmin) return;
+    const result = await dispatch(rejectStaffEventApproval({ eventId }));
+    if (rejectStaffEventApproval.fulfilled.match(result)) {
+      formik.setFieldValue("status", "draft");
+    }
+  };
+
+  const eventStatus = event?.status ?? formik.values.status;
+  const showOrganizerSubmit =
+    isOrganizer && !isAdmin && eventStatus === "draft";
+  const showAdminPublish =
+    isAdmin && eventStatus !== "published" && eventStatus !== "cancelled";
+  const showPendingBanner = eventStatus === "pending_approval";
+  const rejectionReason =
+    event?.approval_rejection_reason?.trim() || null;
+  const showRejectionBanner =
+    !isAdmin && eventStatus === "draft" && Boolean(rejectionReason);
+  const publishActionLabel = isAdmin
+    ? eventStatus === "pending_approval"
+      ? t("staffPortal.eventEdit.approvePublish")
+      : t("staffPortal.eventEdit.publish")
+    : t("staffPortal.eventEdit.submitForApproval");
 
   const handleSaveSponsors = async () => {
     if (!eventId || !role) return;
@@ -582,8 +878,9 @@ export default function StaffEventEdit() {
     try {
       const next = [...sponsorDrafts];
       for (const [index, file] of sponsorPendingRef.current.entries()) {
+        const prepared = await prepareEventImageFile(file, "sponsor");
         const url = await uploadEventAssetToCdn(
-          file,
+          prepared,
           `event_${eventId}_sponsor_${index}`,
           isAdmin,
           "sponsor",
@@ -621,8 +918,10 @@ export default function StaffEventEdit() {
     try {
       const next = [...mediaDrafts];
       for (const [index, file] of mediaPendingRef.current.entries()) {
+        const role = mediaDrafts[index]?.asset_type === "banner" ? "banner" : "gallery";
+        const prepared = await prepareEventImageFile(file, role);
         const url = await uploadEventAssetToCdn(
-          file,
+          prepared,
           `event_${eventId}_media_${index}`,
           isAdmin,
           "image",
@@ -692,6 +991,22 @@ export default function StaffEventEdit() {
     ? t("staffPortal.eventEdit.createTitle")
     : t("staffPortal.eventEdit.editTitle");
 
+  if (organizerAccessDenied) {
+    return <Navigate to="/staff/events" replace />;
+  }
+
+  const awaitingEventLoad =
+    !isNew && !eventDetailError && (loadingEventDetail || eventDetail?.event?.id !== eventId);
+
+  if (awaitingEventLoad) {
+    return (
+      <div className="max-w-4xl mx-auto w-full min-w-0 px-4 py-16 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p>{t("common.loading")}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
       <MetaHelmet title={pageTitle} description={t("staffPortal.eventEdit.subtitle")} />
@@ -700,7 +1015,7 @@ export default function StaffEventEdit() {
         <div>
           <Link
             to="/staff/events"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-cyan mb-2"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary mb-2"
           >
             <ArrowLeft className="w-4 h-4" />
             {t("staffPortal.eventEdit.back")}
@@ -713,19 +1028,48 @@ export default function StaffEventEdit() {
             {t("staffPortal.eventEdit.subtitle")}
           </p>
         </div>
-        {!isNew && event?.status !== "published" ? (
+        {showAdminPublish ? (
           <Button
-            variant="outline"
-            className="border-cyan text-cyan shrink-0"
-            disabled={publishingEvent || !publishReadiness.hasCategory || waiverPublishBlocked}
+            className="btn-primary shrink-0"
+            disabled={publishingEvent || publishBlocked}
             onClick={() => setPublishPreviewOpen(true)}
           >
-            {publishingEvent ? (
+            {publishingEvent || loadingPayoutGate ? (
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
             ) : (
               <Rocket className="w-4 h-4 mr-2" />
             )}
-            {t("staffPortal.eventEdit.publish")}
+            {loadingPayoutGate ? t("staffPortal.payouts.loading") : publishActionLabel}
+          </Button>
+        ) : null}
+        {showOrganizerSubmit ? (
+          <Button
+            className="btn-primary shrink-0"
+            disabled={publishingEvent || publishBlocked}
+            onClick={() => setPublishPreviewOpen(true)}
+          >
+            {publishingEvent || loadingPayoutGate ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <Rocket className="w-4 h-4 mr-2" />
+            )}
+            {loadingPayoutGate
+              ? t("staffPortal.payouts.loading")
+              : publishActionLabel}
+          </Button>
+        ) : null}
+        {isAdmin && eventStatus === "pending_approval" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
+            disabled={rejectingEventApproval}
+            onClick={() => void handleRejectApproval()}
+          >
+            {rejectingEventApproval ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : null}
+            {t("staffPortal.eventEdit.rejectApproval")}
           </Button>
         ) : null}
         {!isNew && eventId ? (
@@ -755,6 +1099,51 @@ export default function StaffEventEdit() {
         }}
       />
 
+      {loadingPayoutGate ? (
+        <div className="rounded-xl border border-border bg-muted/30 p-4 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          {t("staffPortal.eventEdit.payoutGateLoading")}
+        </div>
+      ) : null}
+
+      {showPendingBanner ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm text-foreground">
+          {isAdmin
+            ? t("staffPortal.eventEdit.pendingApprovalBannerAdmin")
+            : t("staffPortal.eventEdit.pendingApprovalBannerOrganizer")}
+        </div>
+      ) : null}
+
+      {showRejectionBanner ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-foreground space-y-1">
+          <p className="font-medium text-destructive">
+            {t("staffPortal.eventEdit.rejectionBannerTitle")}
+          </p>
+          <p className="text-muted-foreground">
+            {t("staffPortal.eventEdit.rejectionBannerBody", { reason: rejectionReason })}
+          </p>
+        </div>
+      ) : null}
+
+      {showPayoutBlockedBanner ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-sm text-destructive">
+            {isAdmin
+              ? t("staffPortal.payouts.publishBlockedBannerAdmin")
+              : t("staffPortal.payouts.publishBlockedBanner")}
+          </p>
+          <Button asChild variant="outline" size="sm" className="border-destructive/40 shrink-0">
+            {isAdmin ? (
+              <Link to="/staff/people?tab=organizers">
+                {t("staffPortal.payouts.publishBlockedCtaAdmin")}
+              </Link>
+            ) : (
+              <Link to="/staff/payouts">{t("staffPortal.payouts.publishBlockedCta")}</Link>
+            )}
+          </Button>
+        </div>
+      ) : null}
+
       <EventPublishPreviewDialog
         open={publishPreviewOpen}
         onOpenChange={setPublishPreviewOpen}
@@ -765,23 +1154,42 @@ export default function StaffEventEdit() {
         waiverCount={activeWaivers.length}
         requiresWaiver={formik.values.requires_waiver}
         confirming={publishingEvent}
+        payoutBlocked={payoutPublishBlocked}
+        payoutBlockedMessage={
+          loadingPayoutGate
+            ? t("staffPortal.eventEdit.payoutGateLoading")
+            : isAdmin
+              ? t("staffPortal.payouts.publishBlockedBannerAdmin")
+              : t("staffPortal.payouts.publishBlockedBanner")
+        }
+        confirmLabel={
+          isAdmin
+            ? t("staffPortal.eventEdit.preview.confirmPublish")
+            : t("staffPortal.eventEdit.preview.confirmSubmitApproval")
+        }
         onConfirm={() => void handlePublish()}
       />
 
-      {loadingEventDetail && !isNew ? (
-        <p className="text-muted-foreground">{t("common.loading")}</p>
-      ) : (
-        <>
+      <>
           {!isNew ? (
             <StaffEventPublishChecklist
               readiness={publishReadiness}
               onNavigate={setTab}
+              onPayoutSetupClick={handlePayoutSetupNavigate}
               className="lg:hidden"
             />
           ) : null}
         <Tabs value={tab} onValueChange={setTab} className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
-          <div className="w-full lg:w-56 shrink-0 space-y-4">
-            <VerticalTabsList aria-label={t("staffPortal.eventEdit.sectionsLabel")}>
+          <div
+            className={cn(
+              "w-full lg:w-56 shrink-0 flex flex-col gap-4 min-h-0",
+              "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100dvh-2rem)]",
+            )}
+          >
+            <VerticalTabsList
+              aria-label={t("staffPortal.eventEdit.sectionsLabel")}
+              className="max-h-[min(280px,45vh)] lg:max-h-none lg:flex-1 lg:min-h-0"
+            >
             <VerticalTabsTrigger value="details">{t("staffPortal.eventEdit.tabDetails")}</VerticalTabsTrigger>
             {!isNew ? (
               <VerticalTabsTrigger value="categories">
@@ -807,6 +1215,7 @@ export default function StaffEventEdit() {
               <StaffEventPublishChecklist
                 readiness={publishReadiness}
                 onNavigate={setTab}
+                onPayoutSetupClick={handlePayoutSetupNavigate}
                 className="hidden lg:block"
               />
             ) : null}
@@ -831,11 +1240,11 @@ export default function StaffEventEdit() {
                 <div className="space-y-2">
                   <Label htmlFor="sport_type_id">{t("staffPortal.eventEdit.fieldSport")}</Label>
                   <Select
-                    value={String(formik.values.sport_type_id)}
+                    value={formik.values.sport_type_id > 0 ? String(formik.values.sport_type_id) : ""}
                     onValueChange={(v) => formik.setFieldValue("sport_type_id", Number(v))}
                   >
                     <SelectTrigger id="sport_type_id">
-                      <SelectValue />
+                      <SelectValue placeholder={t("staffPortal.eventEdit.fieldSportPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
                       {sportTypes.map((st) => (
@@ -845,6 +1254,9 @@ export default function StaffEventEdit() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {formik.touched.sport_type_id && formik.errors.sport_type_id ? (
+                    <p className="text-xs text-destructive">{formik.errors.sport_type_id}</p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -854,71 +1266,156 @@ export default function StaffEventEdit() {
                     type="datetime-local"
                     {...formik.getFieldProps("start_date")}
                   />
+                  {formik.touched.start_date && formik.errors.start_date ? (
+                    <p className="text-xs text-destructive">{formik.errors.start_date}</p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="end_date">{t("staffPortal.eventEdit.fieldEnd")}</Label>
                   <Input id="end_date" type="datetime-local" {...formik.getFieldProps("end_date")} />
+                  {endDateBeforeStart ? (
+                    <p className="text-xs text-destructive">
+                      {t("staffPortal.eventEdit.validation.endBeforeStart")}
+                    </p>
+                  ) : formik.values.end_date ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("staffPortal.eventEdit.fieldEndHint")}
+                    </p>
+                  ) : null}
+                  {formik.touched.end_date && formik.errors.end_date ? (
+                    <p className="text-xs text-destructive">{formik.errors.end_date}</p>
+                  ) : null}
                 </div>
 
-                <GeoCitySelector
-                  stateId={geoStateId}
-                  cityId={geoCityId}
-                  cityName={formik.values.location_city}
-                  stateName={formik.values.location_state}
-                  staffRole={isAdmin ? "admin" : "organizer"}
-                  legacySearchResolved={geoLegacySearchResolved}
-                  onChange={(sel) => {
-                    setGeoStateId(sel.stateId);
-                    setGeoCityId(sel.geoCityId);
-                    setGeoLegacySearchResolved(false);
-                    void formik.setFieldValue("location_city", sel.city);
-                    void formik.setFieldValue("location_state", sel.state);
-                    if (!sel.city) {
-                      void formik.setFieldValue("location_lat", "");
-                      void formik.setFieldValue("location_lng", "");
-                      return;
-                    }
-                    if (sel.lat != null) {
-                      void formik.setFieldValue("location_lat", String(sel.lat));
-                    }
-                    if (sel.lng != null) {
-                      void formik.setFieldValue("location_lng", String(sel.lng));
-                    }
-                  }}
-                />
-
-                <div className="space-y-2">
-                  <Label htmlFor="location_name">{t("staffPortal.eventEdit.fieldVenue")}</Label>
-                  <Input id="location_name" {...formik.getFieldProps("location_name")} />
+                <div className="sm:col-span-2 rounded-xl border border-border/60 bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold">{t("staffPortal.eventEdit.fieldCheckInSection")}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t("staffPortal.eventEdit.fieldCheckInSectionHint")}
+                    </p>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="check_in_opens_at">
+                        {t("staffPortal.eventEdit.fieldCheckInOpens")}
+                      </Label>
+                      <Input
+                        id="check_in_opens_at"
+                        type="datetime-local"
+                        {...formik.getFieldProps("check_in_opens_at")}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="check_in_closes_at">
+                        {t("staffPortal.eventEdit.fieldCheckInCloses")}
+                      </Label>
+                      <Input
+                        id="check_in_closes_at"
+                        type="datetime-local"
+                        {...formik.getFieldProps("check_in_closes_at")}
+                      />
+                    </div>
+                  </div>
+                  {checkInAutoWindowHint ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("staffPortal.eventEdit.fieldCheckInAutoHint", {
+                        opens: checkInAutoWindowHint.opensAtLocal,
+                        closes: checkInAutoWindowHint.closesAtLocal,
+                      })}
+                    </p>
+                  ) : null}
+                  {checkInCapHint ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("staffPortal.eventEdit.fieldCheckInCapHint", { closes: checkInCapHint })}
+                    </p>
+                  ) : null}
+                  {(formik.touched.check_in_opens_at || formik.touched.check_in_closes_at) &&
+                  (formik.errors.check_in_opens_at || formik.errors.check_in_closes_at) ? (
+                    <p className="text-xs text-destructive">
+                      {formik.errors.check_in_opens_at || formik.errors.check_in_closes_at}
+                    </p>
+                  ) : null}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="location_lat">{t("staffPortal.eventEdit.fieldLat")}</Label>
-                  <Input
-                    id="location_lat"
-                    type="number"
-                    step="any"
-                    placeholder="19.4326"
-                    {...formik.getFieldProps("location_lat")}
+                <div className="sm:col-span-2 rounded-xl border border-border/60 bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {t("staffPortal.eventEdit.locationSection")}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t("staffPortal.eventEdit.locationSectionHint")}
+                    </p>
+                  </div>
+
+                  <GeoCitySelector
+                    className="w-full"
+                    stateId={geoStateId}
+                    cityId={geoCityId}
+                    cityName={formik.values.location_city}
+                    stateName={formik.values.location_state}
+                    staffRole={isAdmin ? "admin" : "organizer"}
+                    legacySearchResolved={geoLegacySearchResolved}
+                    onChange={(sel) => {
+                      setGeoStateId(sel.stateId);
+                      setGeoCityId(sel.geoCityId);
+                      setGeoLegacySearchResolved(false);
+                      void formik.setFieldValue("location_city", sel.city);
+                      void formik.setFieldValue("location_state", sel.state);
+                      if (!sel.city) {
+                        void formik.setFieldValue("location_lat", "");
+                        void formik.setFieldValue("location_lng", "");
+                        return;
+                      }
+                      if (sel.lat != null) {
+                        void formik.setFieldValue("location_lat", String(sel.lat));
+                      }
+                      if (sel.lng != null) {
+                        void formik.setFieldValue("location_lng", String(sel.lng));
+                      }
+                    }}
                   />
+
+                  {citySelectionIncomplete ? (
+                    <p className="text-xs text-destructive">
+                      {t("staffPortal.eventEdit.validation.cityFromCatalog")}
+                    </p>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                      <Label htmlFor="location_name">{t("staffPortal.eventEdit.fieldVenue")}</Label>
+                      <Input id="location_name" {...formik.getFieldProps("location_name")} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="location_lat">{t("staffPortal.eventEdit.fieldLat")}</Label>
+                      <Input
+                        id="location_lat"
+                        type="number"
+                        step="any"
+                        placeholder="19.4326"
+                        {...formik.getFieldProps("location_lat")}
+                      />
+                    </div>
+
+                    <div className="space-y-2 sm:col-span-2 lg:col-span-2">
+                      <Label htmlFor="location_lng">{t("staffPortal.eventEdit.fieldLng")}</Label>
+                      <Input
+                        id="location_lng"
+                        type="number"
+                        step="any"
+                        placeholder="-99.1332"
+                        {...formik.getFieldProps("location_lng")}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t("staffPortal.eventEdit.fieldLocationHint")}
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="location_lng">{t("staffPortal.eventEdit.fieldLng")}</Label>
-                  <Input
-                    id="location_lng"
-                    type="number"
-                    step="any"
-                    placeholder="-99.1332"
-                    {...formik.getFieldProps("location_lng")}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("staffPortal.eventEdit.fieldLocationHint")}
-                  </p>
-                </div>
-
-                {!isNew ? (
+                {!isNew && isAdmin ? (
                   <>
                     <div className="space-y-2">
                       <Label htmlFor="status">{t("staffPortal.eventEdit.fieldStatus")}</Label>
@@ -930,9 +1427,17 @@ export default function StaffEventEdit() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {["draft", "published", "completed", "cancelled"].map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s}
+                          {(
+                            [
+                              ["draft", "staffPortal.events.statusDraft"],
+                              ["pending_approval", "staffPortal.events.statusPendingApproval"],
+                              ["published", "staffPortal.events.statusPublished"],
+                              ["completed", "staffPortal.events.statusCompleted"],
+                              ["cancelled", "staffPortal.events.statusCancelled"],
+                            ] as const
+                          ).map(([value, labelKey]) => (
+                            <SelectItem key={value} value={value}>
+                              {t(labelKey)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -949,9 +1454,9 @@ export default function StaffEventEdit() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {["public", "private", "unlisted"].map((s) => (
+                          {(["public", "private", "unlisted"] as const).map((s) => (
                             <SelectItem key={s} value={s}>
-                              {s}
+                              {t(`staffPortal.eventEdit.visibility.${s}`)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -991,6 +1496,8 @@ export default function StaffEventEdit() {
                   <Label>{t("staffPortal.eventEdit.fieldHero")}</Label>
                   <EventAssetUpload
                     kind="image"
+                    imageRole="hero"
+                    staffIsAdmin={isAdmin}
                     previewUrl={heroPreviewUrl}
                     onSelectFile={(file) => {
                       if (heroPreviewUrl?.startsWith("blob:")) revokeBlobUrl(heroPreviewUrl);
@@ -1011,6 +1518,35 @@ export default function StaffEventEdit() {
                   />
                   <p className="text-xs text-muted-foreground">
                     {t("staffPortal.eventEdit.fieldHeroHint")}
+                  </p>
+                </div>
+
+                <div className="sm:col-span-2 space-y-2">
+                  <Label>{t("staffPortal.eventEdit.fieldBanner")}</Label>
+                  <EventAssetUpload
+                    kind="image"
+                    imageRole="banner"
+                    staffIsAdmin={isAdmin}
+                    previewUrl={bannerPreviewUrl}
+                    onSelectFile={(file) => {
+                      if (bannerPreviewUrl?.startsWith("blob:")) revokeBlobUrl(bannerPreviewUrl);
+                      setBannerPendingFile(file);
+                      setBannerPreviewUrl(createBlobPreviewUrl(file));
+                    }}
+                    onClear={() => {
+                      if (bannerPreviewUrl?.startsWith("blob:")) revokeBlobUrl(bannerPreviewUrl);
+                      setBannerPendingFile(null);
+                      setBannerPreviewUrl(null);
+                      void formik.setFieldValue("banner_image_url", "");
+                    }}
+                  />
+                  <Input
+                    id="banner_image_url"
+                    placeholder={t("staffPortal.eventEdit.fieldBannerUrlFallback")}
+                    {...formik.getFieldProps("banner_image_url")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.eventEdit.fieldBannerHint")}
                   </p>
                 </div>
 
@@ -1056,15 +1592,28 @@ export default function StaffEventEdit() {
                     {t("staffPortal.eventEdit.fieldDescHint")}
                   </p>
                   <RichHtmlEditor
+                    ref={descriptionEditorRef}
                     value={formik.values.description}
-                    onChange={(html) => void formik.setFieldValue("description", html)}
+                    onChange={(html) => {
+                      descriptionHtmlRef.current = html;
+                      void formik.setFieldValue("description", html);
+                    }}
                     onStageImage={stageDescriptionImage}
                     placeholder={t("staffPortal.eventEdit.fieldDescPlaceholder")}
                   />
                 </div>
               </div>
 
-              <Button type="submit" disabled={savingEvent || uploadingAssets} className="w-full sm:w-auto">
+              <Button
+                type="submit"
+                disabled={
+                  savingEvent ||
+                  uploadingAssets ||
+                  sportTypes.length === 0 ||
+                  formik.values.sport_type_id <= 0
+                }
+                className="w-full sm:w-auto"
+              >
                 {savingEvent || uploadingAssets ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : (
@@ -1131,6 +1680,8 @@ export default function StaffEventEdit() {
                       <div className="sm:col-span-12">
                         <EventAssetUpload
                           kind="image"
+                          imageRole="sponsor"
+                          staffIsAdmin={isAdmin}
                           compact
                           previewUrl={s.logo_url ?? null}
                           onSelectFile={(file) => {
@@ -1163,7 +1714,7 @@ export default function StaffEventEdit() {
                           {(["title", "gold", "silver", "bronze", "partner"] as SponsorTier[]).map(
                             (tier) => (
                               <SelectItem key={tier} value={tier}>
-                                {tier}
+                                {t(`staffPortal.eventEdit.sponsorTier.${tier}`)}
                               </SelectItem>
                             ),
                           )}
@@ -1253,10 +1804,10 @@ export default function StaffEventEdit() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {["text", "textarea", "select", "checkbox", "number", "date"].map(
+                            {(["text", "textarea", "select", "checkbox", "number", "date"] as const).map(
                               (type) => (
                                 <SelectItem key={type} value={type}>
-                                  {type}
+                                  {t(`staffPortal.eventEdit.fieldType.${type}`)}
                                 </SelectItem>
                               ),
                             )}
@@ -1771,6 +2322,8 @@ export default function StaffEventEdit() {
                           />
                           <EventAssetUpload
                             kind="image"
+                            imageRole={resolveEventImageRole(m.asset_type)}
+                            staffIsAdmin={isAdmin}
                             compact
                             previewUrl={
                               m.url.startsWith("blob:") || m.url.startsWith("http")
@@ -1846,8 +2399,7 @@ export default function StaffEventEdit() {
           ) : null}
           </div>
         </Tabs>
-        </>
-      )}
+      </>
     </div>
   );
 }

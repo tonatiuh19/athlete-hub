@@ -1,11 +1,97 @@
 import type { LatLng } from "@/utils/courseMapUtils";
 import type { ElevationProfilePoint } from "@shared/api";
-import { haversineKm, polylineLengthKm } from "@/utils/courseMapUtils";
+import { MAX_GPX_FILE_BYTES } from "@shared/courseValidation";
+import { haversineKm, polylineLengthKm, simplifyRoute } from "@/utils/courseMapUtils";
 
 export interface GpxParseResult {
   route: LatLng[];
   elevationProfile: ElevationProfilePoint[];
   elevationGainM: number;
+  simplified: boolean;
+  source: "track" | "route" | "waypoints";
+}
+
+const GPX_MIME_TYPES = new Set([
+  "application/gpx+xml",
+  "application/xml",
+  "text/xml",
+  "application/octet-stream",
+  "",
+]);
+
+/** iOS/iPad often sends GPX as octet-stream or with an empty MIME type. */
+export function isGpxFile(file: File): boolean {
+  if (file.name.toLowerCase().endsWith(".gpx")) return true;
+  return GPX_MIME_TYPES.has(file.type.trim().toLowerCase());
+}
+
+export function isGpxFileWithinSizeLimit(file: File): boolean {
+  return file.size > 0 && file.size <= MAX_GPX_FILE_BYTES;
+}
+
+export async function readGpxFileText(file: File): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read GPX file"));
+    reader.readAsText(file);
+  });
+}
+
+function findElementsByLocalName(root: ParentNode, localName: string): Element[] {
+  const wanted = localName.toLowerCase();
+  const out: Element[] = [];
+  root.querySelectorAll("*").forEach((node) => {
+    if (node.localName?.toLowerCase() === wanted) {
+      out.push(node);
+    }
+  });
+  return out;
+}
+
+function pointsFromTrackContainer(container: Element): Element[] {
+  const direct = Array.from(container.querySelectorAll("trkpt"));
+  if (direct.length > 0) return direct;
+  return findElementsByLocalName(container, "trkpt");
+}
+
+function pointsFromRouteContainer(container: Element): Element[] {
+  const direct = Array.from(container.querySelectorAll("rtept"));
+  if (direct.length > 0) return direct;
+  return findElementsByLocalName(container, "rtept");
+}
+
+function collectGpxTrackPoints(doc: Document): { points: Element[]; source: GpxParseResult["source"] } {
+  const tracks = findElementsByLocalName(doc, "trk");
+  if (tracks.length > 0) {
+    const points = pointsFromTrackContainer(tracks[0]);
+    if (points.length > 0) return { points, source: "track" };
+  }
+
+  const routes = findElementsByLocalName(doc, "rte");
+  if (routes.length > 0) {
+    const points = pointsFromRouteContainer(routes[0]);
+    if (points.length > 0) return { points, source: "route" };
+  }
+
+  const waypoints = findElementsByLocalName(doc, "wpt");
+  if (waypoints.length >= 2) {
+    return { points: waypoints, source: "waypoints" };
+  }
+
+  return { points: [], source: "track" };
+}
+
+function readElevation(node: Element): number {
+  const eleNode =
+    node.querySelector("ele") ??
+    Array.from(node.children).find((child) => child.localName?.toLowerCase() === "ele");
+  const ele = eleNode ? parseFloat(eleNode.textContent || "") : NaN;
+  return Number.isFinite(ele) ? ele : NaN;
 }
 
 /** Parse GPX track or route points into lat/lng pairs and elevation profile. */
@@ -13,25 +99,57 @@ export function parseGpxFile(text: string): GpxParseResult {
   const parser = new DOMParser();
   const doc = parser.parseFromString(text, "application/xml");
   if (doc.querySelector("parsererror")) {
-    return { route: [], elevationProfile: [], elevationGainM: 0 };
+    return { route: [], elevationProfile: [], elevationGainM: 0, simplified: false, source: "track" };
   }
 
+  const { points: pointNodes, source } = collectGpxTrackPoints(doc);
   const route: LatLng[] = [];
   const elevations: number[] = [];
-  doc.querySelectorAll("trkpt, rtept").forEach((pt) => {
+
+  pointNodes.forEach((pt) => {
     const lat = parseFloat(pt.getAttribute("lat") || "");
     const lng = parseFloat(pt.getAttribute("lon") || "");
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     route.push({ lat, lng });
-    const eleNode = pt.querySelector("ele");
-    const ele = eleNode ? parseFloat(eleNode.textContent || "") : NaN;
-    elevations.push(Number.isFinite(ele) ? ele : NaN);
+    elevations.push(readElevation(pt));
   });
 
-  const elevationProfile = buildElevationProfileFromRoute(route, elevations);
+  const beforeCount = route.length;
+  const simplifiedRoute = simplifyRoute(route);
+  const simplifiedElevations =
+    simplifiedRoute.length === beforeCount
+      ? elevations
+      : resampleElevations(route, elevations, simplifiedRoute);
+
+  const elevationProfile = buildElevationProfileFromRoute(simplifiedRoute, simplifiedElevations);
   const elevationGainM = computeElevationGain(elevationProfile);
 
-  return { route, elevationProfile, elevationGainM };
+  return {
+    route: simplifiedRoute,
+    elevationProfile,
+    elevationGainM,
+    simplified: simplifiedRoute.length < beforeCount,
+    source,
+  };
+}
+
+function resampleElevations(
+  originalRoute: LatLng[],
+  elevations: number[],
+  simplifiedRoute: LatLng[],
+): number[] {
+  return simplifiedRoute.map((point) => {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    originalRoute.forEach((candidate, idx) => {
+      const dist = haversineKm(point, candidate);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = idx;
+      }
+    });
+    return elevations[bestIdx];
+  });
 }
 
 /** @deprecated Use parseGpxFile */

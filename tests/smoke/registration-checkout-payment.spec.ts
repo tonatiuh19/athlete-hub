@@ -9,7 +9,7 @@ const baseCheckout = {
   serviceFeeCents: 7200,
   currency: "MXN",
   categoryName: "Trail 10K",
-  eventTitle: "Trail Nevado",
+  eventTitle: "Desafío Trail Alto",
 };
 
 describe("smoke: registration checkout payment readiness", () => {

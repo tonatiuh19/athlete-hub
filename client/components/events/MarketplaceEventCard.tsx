@@ -24,8 +24,8 @@ export default function MarketplaceEventCard({
   const numLocale = getNumberLocale(i18n.language);
 
   const className = cn(
-    "group relative overflow-hidden rounded-xl border transition-all duration-300 text-left w-full",
-    compact ? "flex flex-row items-stretch min-h-[108px]" : "flex flex-col h-full",
+    "group relative rounded-xl border transition-all duration-300 text-left w-full",
+    compact ? "flex flex-row items-stretch min-h-[120px]" : "flex flex-col h-full overflow-hidden",
     selected
       ? "border-cyan/60 shadow-[0_0_24px_rgba(0,229,255,0.18)] bg-surface-dark/95 ring-1 ring-cyan/20"
       : "border-gray-700/50 bg-surface-dark/70 hover:border-cyan/35 hover:shadow-[0_0_20px_rgba(0,229,255,0.1)]",
@@ -36,9 +36,10 @@ export default function MarketplaceEventCard({
       src={event.hero_image_url}
       sportSlug={event.sport_slug}
       sportName={event.sport_name}
+      displaySize={compact ? "thumb" : "card"}
       className={cn(
         "relative shrink-0 overflow-hidden",
-        compact ? "w-[108px] sm:w-[120px] self-stretch min-h-[108px]" : "aspect-[16/10] w-full",
+        compact ? "w-[108px] sm:w-[120px] self-stretch min-h-[120px] rounded-l-xl overflow-hidden" : "aspect-[16/10] w-full",
       )}
       imgClassName="group-hover:scale-105 transition-transform duration-500"
     />
@@ -82,18 +83,18 @@ export default function MarketplaceEventCard({
   );
 
   const body = (
-    <div className={cn("flex flex-col flex-1 min-w-0", compact ? "p-3 gap-1.5 justify-center" : "p-4 gap-2.5")}>
+    <div className={cn("flex flex-col flex-1 min-w-0", compact ? "p-3 gap-1.5 justify-start" : "p-4 gap-2.5")}>
       <h3
         className={cn(
-          "font-bold text-white group-hover:text-cyan transition-colors",
-          compact ? "text-sm line-clamp-2 leading-snug" : "text-base line-clamp-2",
+          "font-bold text-white group-hover:text-cyan transition-colors line-clamp-2 leading-normal",
+          compact ? "text-sm" : "text-base",
         )}
       >
         {event.title}
       </h3>
 
       {!compact && event.short_description && (
-        <p className="text-xs text-gray-400 line-clamp-2">{event.short_description}</p>
+        <p className="hidden sm:block text-xs text-gray-400 line-clamp-2">{event.short_description}</p>
       )}
 
       <div className="flex items-center gap-1.5 text-[11px] text-gray-400">

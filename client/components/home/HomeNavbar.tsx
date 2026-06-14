@@ -12,7 +12,7 @@ import { useHomeNavScroll } from "./useHomeNavScroll";
 const NAV_SECTIONS = [
   { key: "home.navEvents", href: "/events" },
   { key: "home.navBlog", href: "/blog" },
-  { key: "home.navCommunities", href: "/#communities" },
+  { key: "home.navCommunities", href: "/communities" },
   { key: "home.navLeaderboards", href: "/#leaderboards" },
 ] as const;
 
@@ -107,8 +107,11 @@ export default function HomeNavbar() {
         aria-hidden
       />
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 h-[4.5rem] flex items-center justify-between gap-3 min-w-0">
-        <TribooLogo surface="dark" className="h-9 sm:h-10" />
+      <div className="relative max-w-7xl mx-auto px-4 md:px-6 h-[4.5rem] flex items-center justify-center md:justify-between gap-3 min-w-0">
+        <TribooLogo
+          surface="dark"
+          className="h-9 sm:h-10 md:relative md:left-auto md:translate-x-0"
+        />
 
         <nav className="hidden md:flex items-center gap-1">
           {NAV_SECTIONS.map(({ key, href }) =>
@@ -142,7 +145,7 @@ export default function HomeNavbar() {
           )}
         </nav>
 
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="hidden md:flex items-center gap-2 sm:gap-3 shrink-0">
           {token && !user && loading ? (
             <div className="h-9 w-24 sm:w-28 rounded-xl bg-white/10 animate-pulse" aria-hidden />
           ) : isLoggedIn && user ? (

@@ -175,10 +175,11 @@ export class AthleteAuthScenarioDb {
     }
 
     if (
-      q.includes("select id, password_hash, google_id, apple_id, clerk_user_id") &&
       q.includes("from athletes") &&
+      q.includes("where email = ?") &&
       q.includes("status = 'active'") &&
-      q.includes("deleted_at is null")
+      q.includes("deleted_at is null") &&
+      q.includes("password_hash")
     ) {
       const email = String(params[0]).toLowerCase();
       const row = this.athletes.find(

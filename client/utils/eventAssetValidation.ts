@@ -1,10 +1,28 @@
 import type { TFunction } from "i18next";
-
-const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const DOC_TYPES = ["application/pdf"];
-const GPX_TYPES = ["application/gpx+xml", "application/xml", "text/xml"];
+import { isGpxFile } from "@/utils/gpxParse";
 
 export type EventAssetKind = "image" | "document" | "gpx";
+
+const IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+];
+const DOC_TYPES = ["application/pdf"];
+
+function isHeicFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+  return (
+    name.endsWith(".heic") ||
+    name.endsWith(".heif") ||
+    type.includes("heic") ||
+    type.includes("heif")
+  );
+}
 
 export function validateEventAssetFile(
   file: File,
@@ -19,7 +37,7 @@ export function validateEventAssetFile(
 
   const name = file.name.toLowerCase();
   if (kind === "image") {
-    if (!IMAGE_TYPES.includes(file.type)) {
+    if (!IMAGE_TYPES.includes(file.type) && !isHeicFile(file)) {
       return t("staffPortal.eventEdit.assetValidation.imageType");
     }
     return null;
@@ -31,7 +49,7 @@ export function validateEventAssetFile(
     return null;
   }
   if (kind === "gpx") {
-    if (!GPX_TYPES.includes(file.type) && !name.endsWith(".gpx")) {
+    if (!isGpxFile(file)) {
       return t("staffPortal.eventEdit.assetValidation.gpxType");
     }
     return null;

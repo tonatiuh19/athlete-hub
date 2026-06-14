@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { HERO_VIDEO_POSTER_IMAGE } from "@/constants/eventImages";
 
 export const HERO_VIDEO_URL =
   "https://disruptinglabs.com/data/athlete-hub/assets/videos/16097957_960_540_24fps.mp4";
 
-export const HERO_POSTER_URL =
-  "https://images.unsplash.com/photo-1571008887538-b36bb08c457a?w=1920&q=80&auto=format&fit=crop";
+export const HERO_POSTER_URL = HERO_VIDEO_POSTER_IMAGE;
 
 export default function HeroVideoBackground() {
   const videoRef = useRef<HTMLVideoElement>(null);

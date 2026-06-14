@@ -85,6 +85,8 @@ export interface FilterCity {
   city: string;
   state?: string;
   event_count: number;
+  lat?: number | string | null;
+  lng?: number | string | null;
 }
 
 export interface GeoState {
@@ -655,6 +657,7 @@ export interface RegistrationResumeResponse {
   status: "checkout" | "complete" | "failed" | "expired";
   checkout?: RegistrationCheckoutResponse;
   registration?: RegistrationConfirmResponse["registration"];
+  confirmationEmail?: string;
   error?: string;
 }
 
@@ -821,6 +824,8 @@ export interface RegistrationConfirmResponse {
   success: boolean;
   requiresAction?: boolean;
   clientSecret?: string;
+  /** Athlete login email — confirmation is always sent here (never staff email) */
+  confirmationEmail?: string;
   registration?: {
     public_uuid: string;
     registration_number: string;
@@ -838,6 +843,7 @@ export interface StaffDashboardStats {
   athletes?: number;
   organizers?: number;
   published_events?: number;
+  pending_approval_events?: number;
   confirmed_registrations?: number;
   total_revenue_cents?: number;
 }
@@ -853,6 +859,8 @@ export interface StaffEventRow {
   sport_name?: string;
   organizer_name?: string;
   location_city?: string;
+  has_paid_categories?: boolean;
+  payments_available?: boolean;
 }
 
 export interface AdminAthleteRow {
@@ -1074,6 +1082,8 @@ export interface StaffEventDetail {
   end_date?: string | null;
   registration_opens_at?: string | null;
   registration_closes_at?: string | null;
+  check_in_opens_at?: string | null;
+  check_in_closes_at?: string | null;
   timezone?: string;
   location_name?: string | null;
   location_city?: string | null;
@@ -1082,11 +1092,16 @@ export interface StaffEventDetail {
   location_lat?: number | string | null;
   location_lng?: number | string | null;
   hero_image_url?: string | null;
+  banner_image_url?: string | null;
   registration_count: number;
   max_registrations?: number | null;
   requires_waiver?: boolean | number;
+  submitted_for_approval_at?: string | null;
+  approval_rejection_reason?: string | null;
   sport_name?: string;
   organizer_name?: string;
+  has_paid_categories?: boolean;
+  payments_available?: boolean;
 }
 
 export interface StaffEventCategory {
@@ -1130,6 +1145,8 @@ export interface StaffEventHubSummary {
   revenue_cents: number;
   waitlist_count: number;
   categories: StaffEventCategorySummary[];
+  has_paid_categories?: boolean;
+  payments_available?: boolean;
 }
 
 export interface StaffEventHubSummaryResponse {
@@ -1153,6 +1170,8 @@ export interface StaffEventUpsertRequest {
   end_date?: string | null;
   registration_opens_at?: string | null;
   registration_closes_at?: string | null;
+  check_in_opens_at?: string | null;
+  check_in_closes_at?: string | null;
   location_city?: string | null;
   location_state?: string | null;
   location_name?: string | null;
@@ -1218,6 +1237,26 @@ export interface CheckInResponse {
     athlete_first_name: string;
     athlete_last_name: string;
   };
+}
+
+export interface CheckInWindowInfo {
+  eventId: number;
+  eventTitle: string;
+  open: boolean;
+  status: "open" | "not_yet" | "closed" | "invalid_timezone";
+  timezone: string;
+  opensAt: string;
+  closesAt: string;
+  opensAtLocal: string;
+  closesAtLocal: string;
+  firstEventDay: string;
+  lastEventDay: string;
+  usesCustomWindow: boolean;
+}
+
+export interface CheckInWindowResponse {
+  window: CheckInWindowInfo;
+  canBypassWindow?: boolean;
 }
 
 export interface OrganizerMemberRow {
@@ -1395,6 +1434,15 @@ export interface AdminOrganizerDetail extends AdminOrganizerRow {
   billing_email?: string | null;
   stripe_account_id?: string | null;
   stripe_onboarding_complete?: number | boolean;
+  stripe_connect_status?: StripeConnectStatus;
+  stripe_charges_enabled?: number | boolean;
+  stripe_payouts_enabled?: number | boolean;
+  stripe_details_submitted?: number | boolean;
+  stripe_connect_onboarded_at?: string | null;
+  stripe_connect_last_synced_at?: string | null;
+  stripe_connect_onboarding_mode?: "self" | "admin" | null;
+  payout_terms_accepted_at?: string | null;
+  payout_fee_acknowledged_at?: string | null;
   service_fee_percent?: number | string;
   rfc?: string | null;
 }
@@ -1427,6 +1475,9 @@ export interface AdminOrganizerCreateRequest {
   owner_first_name: string;
   owner_last_name: string;
   event_ids?: number[];
+  service_fee_percent?: number;
+  legal_name?: string;
+  rfc?: string;
 }
 
 export interface AdminOrganizerUpdateRequest {
@@ -1437,6 +1488,85 @@ export interface AdminOrganizerUpdateRequest {
   country?: string;
   phone?: string;
   status?: "pending" | "active" | "suspended" | "inactive";
+  service_fee_percent?: number;
+  legal_name?: string;
+  billing_email?: string;
+  rfc?: string;
+  tax_regime?: string;
+}
+
+export type StripeConnectStatus =
+  | "not_started"
+  | "pending"
+  | "action_required"
+  | "ready"
+  | "restricted"
+  | "disabled";
+
+export interface PayoutChecklistItem {
+  key: string;
+  complete: boolean;
+  required: boolean;
+}
+
+export interface OrganizerConnectInfo {
+  organizer_id: number;
+  email: string;
+  legal_name?: string | null;
+  billing_email?: string | null;
+  rfc?: string | null;
+  tax_regime?: string | null;
+  service_fee_percent: number;
+  stripe_account_id?: string | null;
+  stripe_onboarding_complete?: boolean | number;
+  stripe_connect_status: StripeConnectStatus;
+  stripe_charges_enabled: boolean;
+  stripe_payouts_enabled: boolean;
+  stripe_details_submitted: boolean;
+  stripe_connect_onboarded_at?: string | null;
+  stripe_connect_last_synced_at?: string | null;
+  stripe_connect_onboarding_mode?: "self" | "admin" | null;
+  payout_terms_accepted_at?: string | null;
+  payout_fee_acknowledged_at?: string | null;
+  requirements_currently_due?: string[];
+  requirements_eventually_due?: string[];
+  requirements_disabled_reason?: string | null;
+}
+
+export interface OrganizerPayoutStatusResponse {
+  organizer: OrganizerConnectInfo;
+  tribooChecklist: { items: PayoutChecklistItem[]; complete: boolean };
+  stripeChecklist: { items: PayoutChecklistItem[]; complete: boolean };
+  payoutReady: boolean;
+  serviceFeePercent: number;
+}
+
+export interface OrganizerPayoutOnboardResponse extends OrganizerPayoutStatusResponse {
+  url: string;
+}
+
+export interface OrganizerPayoutLoginResponse {
+  url: string;
+}
+
+export interface OrganizerPayoutProfileUpdateRequest {
+  legal_name?: string;
+  billing_email?: string;
+  rfc?: string;
+  tax_regime?: string;
+}
+
+export interface CheckoutBreakdownPreview {
+  inscriptionCents: number;
+  serviceFeePercent: number;
+  serviceFeeCents: number;
+  totalCents: number;
+  organizerReceivesCents: number;
+  platformFeeCents: number;
+  inscriptionBaseCents: number;
+  inscriptionIvaCents: number;
+  serviceFeeBaseCents: number;
+  serviceFeeIvaCents: number;
 }
 
 export interface AdminStaffRow {
@@ -1667,10 +1797,40 @@ export interface PublicTeamPreview {
   avatar_url?: string | null;
 }
 
+export interface PublicTeamListItem extends PublicTeamPreview {
+  description?: string | null;
+  created_at: string;
+}
+
+export interface PublicTeamsListResponse {
+  teams: PublicTeamListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PublicTeamMemberPreview {
+  first_name: string;
+  last_name: string;
+  avatar_url?: string | null;
+  role: string;
+}
+
+export interface PublicTeamDetailResponse {
+  team: PublicTeamListItem & {
+    owner_first_name: string;
+    owner_last_name: string;
+  };
+  members_preview: PublicTeamMemberPreview[];
+}
+
 export interface PublicHomeDataResponse {
   stats: PublicPlatformStats;
+  /** @deprecated Home uses `events`; kept empty for backward compatibility */
   featured_events: EventListItem[];
+  /** All published public events (same as `events`) */
   upcoming_events: EventListItem[];
+  events: EventListItem[];
   top_athletes: PublicLeaderboardAthlete[];
   top_teams: PublicTeamPreview[];
 }
@@ -1754,6 +1914,15 @@ export interface BlogImageUploadResponse {
   ok: boolean;
   url: string;
   path: string;
+}
+
+export interface StaffFetchImageRequest {
+  url: string;
+}
+
+export interface StaffFetchImageResponse {
+  dataBase64: string;
+  mimeType: string;
 }
 
 export interface BlogSlugCheckResponse {

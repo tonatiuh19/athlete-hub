@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import StaffPaidEventPayoutAlert, {
+  eventNeedsPayoutAlert,
+} from "@/components/staff/StaffPaidEventPayoutAlert";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchStaffDashboard,
@@ -67,6 +70,26 @@ export default function StaffDashboard() {
       </div>
 
       <PortalErrorAlert error={dashboardError || eventsError || analyticsError} onRetry={reload} />
+
+      {!isAdmin && events.some((ev) => eventNeedsPayoutAlert(ev)) ? (
+        <StaffPaidEventPayoutAlert />
+      ) : null}
+
+      {isAdmin && (dashboardStats?.pending_approval_events ?? 0) > 0 ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-sm">
+            {t("staffPortal.dashboard.pendingApprovalBanner", {
+              count: dashboardStats?.pending_approval_events ?? 0,
+            })}
+          </p>
+          <Link
+            to="/staff/events?status=pending_approval"
+            className="text-sm font-semibold text-primary hover:underline shrink-0"
+          >
+            {t("staffPortal.dashboard.reviewPendingEvents")}
+          </Link>
+        </div>
+      ) : null}
 
       {isAdmin && dashboardStats && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -156,9 +179,9 @@ export default function StaffDashboard() {
 
       {!isAdmin && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">{t("staffPortal.dashboard.yourEvents")}</h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <Link to="/staff/analytics" className="text-sm text-cyan hover:underline inline-flex items-center gap-1">
                 {t("staffPortal.dashboard.viewAnalytics")}
                 <ChevronRight className="w-4 h-4" />

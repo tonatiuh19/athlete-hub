@@ -4,6 +4,7 @@ import { MapPin, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import EventCardImage from "@/components/events/EventCardImage";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchMarketplaceEvents } from "@/store/slices/athletePortalSlice";
 import { getNumberLocale } from "@/utils/dateLocale";
@@ -53,15 +54,14 @@ export default function AthleteEvents() {
               className="card-sport group overflow-hidden hover:shadow-glow-cyan transition-shadow"
             >
               <div className="aspect-[16/10] bg-surface-dark overflow-hidden relative">
-                {ev.hero_image_url ? (
-                  <img
-                    src={ev.hero_image_url}
-                    alt=""
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-cyan/20 to-purple-accent/20" />
-                )}
+                <EventCardImage
+                  src={ev.hero_image_url}
+                  sportSlug={ev.sport_slug}
+                  sportName={ev.sport_name}
+                  displaySize="card"
+                  className="h-full w-full"
+                  imgClassName="group-hover:scale-105 transition-transform duration-500"
+                />
                 {ev.featured ? (
                   <span className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-cyan text-navy-deep text-[10px] font-bold uppercase">
                     {t("athletePortal.events.featured")}

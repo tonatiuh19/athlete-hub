@@ -22,6 +22,12 @@ export function setStaffToken(t: string | null) {
   else localStorage.removeItem(STAFF_TOKEN_KEY);
 }
 
+/** Force axios to attach the athlete JWT (never staff) for portal / checkout calls */
+export const athleteAuthHeaders = { "X-Auth-Realm": "athlete" } as const;
+
+/** Force axios to attach the staff JWT for console / admin / organizer calls */
+export const staffAuthHeaders = { "X-Auth-Realm": "staff" } as const;
+
 function isStaffRoute(url: string) {
   return (
     url.startsWith("/admin") ||
@@ -62,7 +68,9 @@ api.interceptors.response.use(
   (err) => {
     if (err?.response?.status === 401) {
       const url: string = err?.config?.url || "";
-      if (isStaffRoute(url)) {
+      const realm = err?.config?.headers?.["X-Auth-Realm"];
+      const staffContext = realm === "staff" || (!realm && isStaffRoute(url));
+      if (staffContext) {
         setStaffToken(null);
         if (!window.location.pathname.startsWith("/staff/login")) {
           window.location.href = "/staff/login";

@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import api, { getAthleteToken, setAthleteToken } from "@/lib/api";
+import api, { athleteAuthHeaders, getAthleteToken, setAthleteToken } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
 import type {
   AthleteAuthSessionResponse,
@@ -54,6 +54,8 @@ const initialState: AthleteAuthState = {
   error: null,
   passwordResetSent: false,
 };
+
+const athleteRequest = { headers: athleteAuthHeaders };
 
 export const checkAthleteEmail = createAsyncThunk<
   { exists: boolean; hasPassword: boolean; hasSocialLogin: boolean },
@@ -184,7 +186,7 @@ export const syncAthleteClerk = createAsyncThunk<
 export const fetchAthleteMe = createAsyncThunk<{ athlete: AthleteUser }>(
   "athleteAuth/me",
   async () => {
-    const { data } = await api.get("/athlete/me");
+    const { data } = await api.get("/athlete/me", athleteRequest);
     return {
       athlete: mapAthleteApiRow(data.athlete as Record<string, unknown>),
     };
@@ -197,7 +199,7 @@ export const updateAthleteProfile = createAsyncThunk<
   { rejectValue: string }
 >("athleteAuth/updateProfile", async (payload, { rejectWithValue }) => {
   try {
-    const { data } = await api.patch("/athlete/me", payload);
+    const { data } = await api.patch("/athlete/me", payload, athleteRequest);
     return {
       athlete: mapAthleteApiRow(data.athlete as Record<string, unknown>),
     };
@@ -217,7 +219,7 @@ export const updateAthleteLanguage = createAsyncThunk<
   try {
     const { data } = await api.patch("/athlete/preferences", {
       preferred_language: normalizeLocale(locale),
-    });
+    }, athleteRequest);
     return data;
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -231,7 +233,7 @@ export const uploadAthleteAvatar = createAsyncThunk<
   { rejectValue: string }
 >("athleteAuth/uploadAvatar", async (payload, { rejectWithValue }) => {
   try {
-    const { data } = await api.post("/athlete/avatar", payload);
+    const { data } = await api.post("/athlete/avatar", payload, athleteRequest);
     return { avatar_url: data.avatar_url as string };
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -247,7 +249,7 @@ export const removeAthleteAvatar = createAsyncThunk<
   { rejectValue: string }
 >("athleteAuth/removeAvatar", async (_, { rejectWithValue }) => {
   try {
-    await api.delete("/athlete/avatar");
+    await api.delete("/athlete/avatar", athleteRequest);
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
     return rejectWithValue(
@@ -258,7 +260,7 @@ export const removeAthleteAvatar = createAsyncThunk<
 
 export const athleteLogout = createAsyncThunk("athleteAuth/logout", async () => {
   try {
-    await api.post("/auth/logout", {}, { headers: { "X-Auth-Realm": "athlete" } });
+    await api.post("/auth/logout", {}, { headers: athleteAuthHeaders });
   } catch {
     /* ignore */
   }

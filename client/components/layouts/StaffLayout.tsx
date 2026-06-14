@@ -1,5 +1,5 @@
-import { ReactNode, useEffect, useState } from "react";
-import { Link, NavLink, Navigate, useNavigate } from "react-router-dom";
+import { Suspense, useEffect, useState } from "react";
+import { Link, NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   LogOut,
@@ -13,7 +13,15 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { staffLogout, fetchStaffMe } from "@/store/slices/staffAuthSlice";
 import { getStaffNav } from "@/utils/staffNav";
 
-export default function StaffLayout({ children }: { children: ReactNode }) {
+function StaffPageFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
+
+export default function StaffLayout() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -212,7 +220,9 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           <div className="hidden lg:flex justify-end mb-4">
             <LanguageSwitcher variant="ghost" />
           </div>
-          {children}
+          <Suspense fallback={<StaffPageFallback />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

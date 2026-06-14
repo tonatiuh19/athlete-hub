@@ -56,41 +56,49 @@ export const fetchTeamDetail = createAsyncThunk<
   }
 });
 
-export const createTeam = createAsyncThunk<TeamRow[], CreateTeamRequest, { rejectValue: string }>(
+export const createTeam = createAsyncThunk<TeamRow, CreateTeamRequest, { rejectValue: string }>(
   "athleteTeams/create",
   async (body, { rejectWithValue }) => {
     try {
-      const { data } = await api.post<TeamsListResponse>("/athlete/teams", body);
-      return data.teams;
+      const { data } = await api.post<{ team: TeamRow }>("/athlete/teams", body);
+      return data.team;
     } catch (e: unknown) {
       return rejectWithValue(rejectMessage(e, "Could not create team"));
     }
   },
 );
 
-export const joinTeam = createAsyncThunk<TeamRow[], JoinTeamRequest, { rejectValue: string }>(
+export const joinTeam = createAsyncThunk<TeamRow, JoinTeamRequest, { rejectValue: string }>(
   "athleteTeams/join",
   async (body, { rejectWithValue }) => {
     try {
-      const { data } = await api.post<TeamsListResponse>("/athlete/teams/join", body);
-      return data.teams;
+      const { data } = await api.post<{ team: TeamRow }>("/athlete/teams/join", body);
+      return data.team;
     } catch (e: unknown) {
       return rejectWithValue(rejectMessage(e, "Could not join team"));
     }
   },
 );
 
-export const leaveTeam = createAsyncThunk<TeamRow[], number, { rejectValue: string }>(
+export const leaveTeam = createAsyncThunk<number, number, { rejectValue: string }>(
   "athleteTeams/leave",
   async (teamId, { rejectWithValue }) => {
     try {
-      const { data } = await api.post<TeamsListResponse>(`/athlete/teams/${teamId}/leave`);
-      return data.teams;
+      await api.post(`/athlete/teams/${teamId}/leave`);
+      return teamId;
     } catch (e: unknown) {
       return rejectWithValue(rejectMessage(e, "Could not leave team"));
     }
   },
 );
+
+function upsertTeam(teams: TeamRow[], team: TeamRow): TeamRow[] {
+  const idx = teams.findIndex((t) => t.id === team.id);
+  if (idx === -1) return [team, ...teams];
+  const next = [...teams];
+  next[idx] = { ...next[idx], ...team };
+  return next;
+}
 
 const slice = createSlice({
   name: "athleteTeams",
@@ -132,7 +140,7 @@ const slice = createSlice({
     });
     b.addCase(createTeam.fulfilled, (s, a) => {
       s.saving = false;
-      s.teams = a.payload;
+      s.teams = upsertTeam(s.teams, a.payload);
     });
     b.addCase(createTeam.rejected, (s, a) => {
       s.saving = false;
@@ -140,10 +148,10 @@ const slice = createSlice({
     });
 
     b.addCase(joinTeam.fulfilled, (s, a) => {
-      s.teams = a.payload;
+      s.teams = upsertTeam(s.teams, a.payload);
     });
     b.addCase(leaveTeam.fulfilled, (s, a) => {
-      s.teams = a.payload;
+      s.teams = s.teams.filter((t) => t.id !== a.payload);
       s.teamDetail = null;
     });
   },

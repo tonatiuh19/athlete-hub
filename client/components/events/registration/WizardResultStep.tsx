@@ -11,6 +11,7 @@ interface WizardResultStepProps {
   success: boolean;
   waitlistJoined?: WaitlistEntry | null;
   failureMessage?: string | null;
+  confirmationEmail?: string | null;
   registration?: {
     registration_number: string;
     qr_code_token: string;
@@ -28,6 +29,7 @@ export default function WizardResultStep({
   success,
   waitlistJoined,
   failureMessage,
+  confirmationEmail,
   registration,
   onRetry,
   onClose,
@@ -136,6 +138,11 @@ export default function WizardResultStep({
       <div>
         <h3 className="text-xl font-bold text-white">{t("registrationWizard.result.successTitle")}</h3>
         <p className="text-sm text-gray-400 mt-2">{t("registrationWizard.result.successHint")}</p>
+        {confirmationEmail ? (
+          <p className="text-sm text-accent mt-3 font-medium">
+            {t("registrationWizard.result.confirmationEmailSent", { email: confirmationEmail })}
+          </p>
+        ) : null}
       </div>
 
       {registration && (

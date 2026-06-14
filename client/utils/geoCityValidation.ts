@@ -1,16 +1,51 @@
+type SavedEventLocation = {
+  city: string | null | undefined;
+  state: string | null | undefined;
+};
+
+function locationMatchesSaved(
+  city: string,
+  state: string,
+  saved: SavedEventLocation,
+): boolean {
+  return (
+    city.trim() === (saved.city ?? "").trim() &&
+    state.trim() === (saved.state ?? "").trim()
+  );
+}
+
 /** Location city must come from geo catalog when set (no free-text). */
 export function isCatalogCitySelectionValid(
   geoCityId: number | null,
   locationCity: string,
+  savedLocation?: SavedEventLocation,
+  locationState = "",
 ): boolean {
   if (!locationCity.trim()) return true;
-  return geoCityId != null;
+  if (geoCityId != null) return true;
+  if (
+    savedLocation &&
+    locationMatchesSaved(locationCity, locationState, savedLocation)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Strip denormalized city/state unless a catalog row was selected. */
 export function enforceCatalogCityOnEventBody<
   T extends { location_city?: string | null; location_state?: string | null },
->(body: T, geoCityId: number | null): T {
+>(
+  body: T,
+  geoCityId: number | null,
+  savedLocation?: SavedEventLocation,
+): T {
   if (geoCityId != null) return body;
+  const city = (body.location_city ?? "").trim();
+  const state = (body.location_state ?? "").trim();
+  if (!city) return body;
+  if (savedLocation && locationMatchesSaved(city, state, savedLocation)) {
+    return body;
+  }
   return { ...body, location_city: null, location_state: null };
 }

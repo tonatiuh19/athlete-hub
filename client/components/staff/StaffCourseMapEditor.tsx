@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Polyline,
@@ -31,6 +31,7 @@ import type { CoursePoint, CoursePointType, StaffEventCoursePayload } from "@sha
 import EventsMap from "@/components/events/EventsMap";
 import BasemapTileLayer, { MapDiagnostics } from "@/components/maps/BasemapTileLayer";
 import {
+  MapFitBounds,
   MapInvalidateSize,
 } from "@/components/maps/LeafletMapHelpers";
 import { Button } from "@/components/ui/button";
@@ -47,11 +48,13 @@ import { MEXICO_CENTER, parseCoord, pointColor } from "@/lib/leafletSetup";
 import {
   assignKmToPoints,
   buildLineString,
+  getRouteImportSource,
+  inferRouteImportSource,
   parseLineString,
   polylineLengthKm,
   type LatLng,
 } from "@/utils/courseMapUtils";
-import { parseGpxFile } from "@/utils/gpxParse";
+import { parseGpxFile, isGpxFile, isGpxFileWithinSizeLimit, readGpxFileText } from "@/utils/gpxParse";
 import { cn } from "@/lib/utils";
 
 type EditorMode = "route" | "poi" | "pan" | "start";
@@ -70,6 +73,7 @@ const POI_TYPES: CoursePointType[] = [
 ];
 
 type CourseEditorFocus = "full" | "route" | "checkpoints" | "review";
+type RouteSource = "manual" | "gpx";
 
 interface StaffCourseMapEditorProps {
   value: StaffEventCoursePayload | null;
@@ -77,6 +81,7 @@ interface StaffCourseMapEditorProps {
   eventLat?: number | string | null;
   eventLng?: number | string | null;
   onEventLocationChange?: (lat: number, lng: number) => void;
+  onRouteSourceChange?: (source: RouteSource) => void;
   /** When false, defer map mount until the parent panel is visible */
   active?: boolean;
   /** Wizard step — shows only the relevant controls */
@@ -144,6 +149,7 @@ export default function StaffCourseMapEditor({
   eventLat,
   eventLng,
   onEventLocationChange,
+  onRouteSourceChange,
   active = true,
   focus = "full",
   mapHeight,
@@ -164,6 +170,14 @@ export default function StaffCourseMapEditor({
   const [showPreview, setShowPreview] = useState(false);
   const [startLatInput, setStartLatInput] = useState("");
   const [startLngInput, setStartLngInput] = useState("");
+  const [routeSource, setRouteSource] = useState<RouteSource>("manual");
+  const [showManualStartEditor, setShowManualStartEditor] = useState(false);
+  const [gpxFeedback, setGpxFeedback] = useState<{ type: "error" | "success"; key: string } | null>(
+    null,
+  );
+  const [gpxImporting, setGpxImporting] = useState(false);
+  const [routeFitKey, setRouteFitKey] = useState(0);
+  const gpxInputRef = useRef<HTMLInputElement>(null);
 
   const mapCenter = useMemo((): [number, number] => {
     const lat = parseCoord(eventLat);
@@ -192,13 +206,22 @@ export default function StaffCourseMapEditor({
       setRoute([]);
       setPoints([]);
       setElevationM("");
+      setRouteSource("manual");
+      setShowManualStartEditor(false);
+      setGpxFeedback(null);
       return;
     }
     setRoute(parseLineString(value.routeGeojson));
     setPoints(value.points ?? []);
     setElevationM(value.elevationGainM != null ? String(value.elevationGainM) : "");
     setElevationProfile(value.elevationProfile ?? null);
-  }, [value]);
+    const parsedRoute = parseLineString(value.routeGeojson);
+    const restoredSource =
+      getRouteImportSource(value.routeGeojson) ??
+      inferRouteImportSource(parsedRoute, value.points ?? [], value.routeGeojson);
+    setRouteSource(restoredSource);
+    onRouteSourceChange?.(restoredSource);
+  }, [value, onRouteSourceChange]);
 
   const distanceKm = useMemo(() => polylineLengthKm(route), [route]);
 
@@ -208,18 +231,20 @@ export default function StaffCourseMapEditor({
       nextPoints: CoursePoint[],
       elev?: string,
       profile?: StaffEventCoursePayload["elevationProfile"],
+      importSource?: RouteSource,
     ) => {
       const withKm = assignKmToPoints(nextRoute, nextPoints);
       const gain = (elev ?? elevationM) ? Number(elev ?? elevationM) : null;
+      const source = importSource ?? routeSource;
       onChange({
-        routeGeojson: buildLineString(nextRoute),
+        routeGeojson: buildLineString(nextRoute, source),
         points: withKm,
         distanceKm: polylineLengthKm(nextRoute) || null,
         elevationGainM: gain,
         elevationProfile: profile !== undefined ? profile : elevationProfile,
       });
     },
-    [onChange, elevationM, elevationProfile],
+    [onChange, elevationM, elevationProfile, routeSource],
   );
 
   const syncStartToEventLocation = useCallback(
@@ -333,31 +358,113 @@ export default function StaffCourseMapEditor({
 
   const clearRoute = () => {
     setRoute([]);
-    emitChange([], points);
+    setRouteSource("manual");
+    setShowManualStartEditor(false);
+    onRouteSourceChange?.("manual");
+    emitChange([], points, undefined, undefined, "manual");
   };
 
-  const handleGpxImport = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      const parsed = parseGpxFile(text);
-      if (parsed.route.length < 2) return;
-      setRoute(parsed.route);
+  const applyGpxRoute = useCallback(
+    (parsed: ReturnType<typeof parseGpxFile>) => {
+      if (parsed.route.length < 2) return false;
+
+      const gpxRoute = parsed.route;
+      const first = gpxRoute[0];
+      const last = gpxRoute[gpxRoute.length - 1];
+
+      let nextPoints = [...points];
+      const startIdx = nextPoints.findIndex((p) => p.type === "start");
+      const startPoint: CoursePoint = {
+        type: "start",
+        name: defaultPoiName("start", t),
+        lat: first.lat,
+        lng: first.lng,
+      };
+      if (startIdx >= 0) {
+        nextPoints[startIdx] = { ...nextPoints[startIdx], ...startPoint };
+      } else {
+        nextPoints = [startPoint, ...nextPoints];
+      }
+
+      if (!nextPoints.some((p) => p.type === "finish")) {
+        nextPoints.push({
+          type: "finish",
+          name: defaultPoiName("finish", t),
+          lat: last.lat,
+          lng: last.lng,
+        });
+      }
+
+      setRoute(gpxRoute);
+      setPoints(nextPoints);
+      setRouteSource("gpx");
+      setShowManualStartEditor(false);
+      onRouteSourceChange?.("gpx");
+      setStartLatInput(String(first.lat));
+      setStartLngInput(String(first.lng));
+      syncStartToEventLocation(first.lat, first.lng);
+
       const gainStr =
         parsed.elevationGainM > 0 ? String(Math.round(parsed.elevationGainM)) : elevationM;
       if (parsed.elevationGainM > 0) setElevationM(gainStr);
       const profile =
         parsed.elevationProfile.length > 1 ? parsed.elevationProfile : elevationProfile;
       if (parsed.elevationProfile.length > 1) setElevationProfile(profile);
-      emitChange(parsed.route, points, gainStr, profile);
-      if (parsed.route.length > 0) {
-        const first = parsed.route[0];
-        if (parseCoord(eventLat) == null || parseCoord(eventLng) == null) {
-          setCareerStart(first.lat, first.lng);
-        }
+      emitChange(gpxRoute, nextPoints, gainStr, profile, "gpx");
+      setRouteFitKey((k) => k + 1);
+      setMode("route");
+      return true;
+    },
+    [
+      elevationM,
+      elevationProfile,
+      emitChange,
+      onRouteSourceChange,
+      points,
+      syncStartToEventLocation,
+      t,
+    ],
+  );
+
+  const handleGpxImport = async (file: File) => {
+    setGpxFeedback(null);
+    if (!isGpxFile(file)) {
+      setGpxFeedback({ type: "error", key: "staffPortal.courseEditor.gpxInvalidType" });
+      return;
+    }
+    if (!isGpxFileWithinSizeLimit(file)) {
+      setGpxFeedback({ type: "error", key: "staffPortal.courseEditor.gpxTooLarge" });
+      return;
+    }
+
+    setGpxImporting(true);
+    try {
+      const text = await readGpxFileText(file);
+      const parsed = parseGpxFile(text);
+      if (!applyGpxRoute(parsed)) {
+        setGpxFeedback({ type: "error", key: "staffPortal.courseEditor.gpxParseFailed" });
+        return;
       }
-    };
-    reader.readAsText(file);
+      const feedbackKey = parsed.simplified
+        ? "staffPortal.courseEditor.gpxImportSimplified"
+        : "staffPortal.courseEditor.gpxImportSuccess";
+      setGpxFeedback({ type: "success", key: feedbackKey });
+    } catch {
+      setGpxFeedback({ type: "error", key: "staffPortal.courseEditor.gpxReadFailed" });
+    } finally {
+      setGpxImporting(false);
+    }
+  };
+
+  const handleGpxDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file) void handleGpxImport(file);
+  };
+
+  const openGpxPicker = () => {
+    gpxInputRef.current?.click();
   };
 
   const removePoi = (index: number) => {
@@ -385,6 +492,9 @@ export default function StaffCourseMapEditor({
   const routePositions = route.map((p) => [p.lat, p.lng] as [number, number]);
 
   const routeStepHint = useMemo(() => {
+    if (routeSource === "gpx" && routeLineReady) {
+      return t("staffPortal.courseEditor.flowGpxReady", { count: routePointCount });
+    }
     if (!hasCareerStart) {
       return t("staffPortal.courseEditor.flowNeedStart");
     }
@@ -392,17 +502,17 @@ export default function StaffCourseMapEditor({
       return t("staffPortal.courseEditor.flowNeedRoute", { count: routePointCount });
     }
     return t("staffPortal.courseEditor.flowRouteReady", { count: routePointCount });
-  }, [hasCareerStart, routeLineReady, routePointCount, t]);
+  }, [hasCareerStart, routeLineReady, routePointCount, routeSource, t]);
 
   const previewCourse = useMemo(
     () => ({
-      routeGeojson: buildLineString(route),
+      routeGeojson: buildLineString(route, routeSource),
       points: assignKmToPoints(route, points),
       distanceKm,
       elevationGainM: elevationM ? Number(elevationM) : undefined,
       elevationProfile: elevationProfile ?? undefined,
     }),
-    [route, points, distanceKm, elevationM, elevationProfile],
+    [route, points, distanceKm, elevationM, elevationProfile, routeSource],
   );
 
   const resolvedMapHeight = mapHeight ?? MAP_HEIGHT;
@@ -481,6 +591,9 @@ export default function StaffCourseMapEditor({
             <MapDiagnostics traceLabel={`course-${focus}`} active={active} />
             <MapInvalidateSize active={active} />
             <MapCenter center={mapCenter} zoom={route.length > 0 ? 14 : 13} />
+            {route.length > 0 ? (
+              <MapFitBounds points={route} active={active} fitKey={routeFitKey} />
+            ) : null}
             <MapClickHandler mode={mode} onClick={handleMapClick} />
 
             {routePositions.length > 1 && (
@@ -642,19 +755,120 @@ export default function StaffCourseMapEditor({
             {t("staffPortal.courseEditor.flowTitle")}
           </p>
           <ol className="space-y-1.5 text-xs">
-            <li className={cn("flex items-start gap-2", hasCareerStart && "text-emerald-400")}>
-              <span className="shrink-0 w-4 text-center">{hasCareerStart ? "✓" : "1"}</span>
-              <span>{t("staffPortal.courseEditor.flowStepStart")}</span>
-            </li>
-            <li className={cn("flex items-start gap-2", routeLineReady && "text-cyan")}>
-              <span className="shrink-0 w-4 text-center">{routeLineReady ? "✓" : "2"}</span>
-              <span>{t("staffPortal.courseEditor.flowStepDraw")}</span>
-            </li>
+            {routeSource === "gpx" ? (
+              <>
+                <li className="flex items-start gap-2 text-emerald-400">
+                  <span className="shrink-0 w-4 text-center">✓</span>
+                  <span>{t("staffPortal.courseEditor.flowStepGpxStart")}</span>
+                </li>
+                <li className={cn("flex items-start gap-2", routeLineReady && "text-cyan")}>
+                  <span className="shrink-0 w-4 text-center">{routeLineReady ? "✓" : "2"}</span>
+                  <span>{t("staffPortal.courseEditor.flowStepGpxRoute")}</span>
+                </li>
+              </>
+            ) : (
+              <>
+                <li className={cn("flex items-start gap-2", hasCareerStart && "text-emerald-400")}>
+                  <span className="shrink-0 w-4 text-center">{hasCareerStart ? "✓" : "1"}</span>
+                  <span>{t("staffPortal.courseEditor.flowStepStart")}</span>
+                </li>
+                <li className={cn("flex items-start gap-2", routeLineReady && "text-cyan")}>
+                  <span className="shrink-0 w-4 text-center">{routeLineReady ? "✓" : "2"}</span>
+                  <span>{t("staffPortal.courseEditor.flowStepDraw")}</span>
+                </li>
+              </>
+            )}
           </ol>
+          <p className="text-[10px] text-muted-foreground leading-relaxed border-t border-border/60 pt-2">
+            {routeSource === "gpx"
+              ? t("staffPortal.courseEditor.flowGpxHint")
+              : t("staffPortal.courseEditor.flowManualHint")}
+          </p>
         </div>
       ) : null}
 
       {showRouteTools ? (
+        <div
+          className="card-sport p-4 space-y-3 border-cyan/15 bg-cyan/[0.03]"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={handleGpxDrop}
+        >
+          <div className="flex items-center gap-2">
+            <Upload className="h-4 w-4 shrink-0 text-cyan" />
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("staffPortal.courseEditor.gpxImportTitle")}
+            </p>
+          </div>
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            {t("staffPortal.courseEditor.gpxImportHint")}
+          </p>
+          <input
+            ref={gpxInputRef}
+            type="file"
+            accept=".gpx,application/gpx+xml,application/xml,text/xml,application/octet-stream"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleGpxImport(file);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full touch-manipulation"
+            disabled={gpxImporting}
+            onClick={openGpxPicker}
+          >
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            {gpxImporting
+              ? t("staffPortal.courseEditor.gpxImporting")
+              : t("staffPortal.courseEditor.importGpx")}
+          </Button>
+          {gpxFeedback ? (
+            <p
+              className={cn(
+                "text-[10px] leading-relaxed",
+                gpxFeedback.type === "error" ? "text-destructive" : "text-emerald-400",
+              )}
+            >
+              {t(gpxFeedback.key)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {showRouteTools && routeSource === "gpx" && hasCareerStart && !showManualStartEditor ? (
+        <div className="card-sport space-y-3 border-emerald-500/25 bg-emerald-500/[0.04] p-4">
+          <div className="flex items-center gap-2">
+            <Flag className="h-4 w-4 shrink-0 text-emerald-400" />
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("staffPortal.courseEditor.careerStart")}
+            </p>
+          </div>
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            {t("staffPortal.courseEditor.gpxStartApplied")}
+          </p>
+          <p className="text-center font-mono text-[10px] text-emerald-400">
+            {careerStartLat!.toFixed(5)}, {careerStartLng!.toFixed(5)}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="w-full text-xs"
+            onClick={() => setShowManualStartEditor(true)}
+          >
+            {t("staffPortal.courseEditor.adjustStartManually")}
+          </Button>
+        </div>
+      ) : null}
+
+      {showRouteTools && (routeSource !== "gpx" || showManualStartEditor) ? (
         <div className="card-sport p-4 space-y-3 border-emerald-500/20 bg-emerald-500/[0.03]">
           <div className="flex items-center gap-2">
             <Flag className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -718,6 +932,17 @@ export default function StaffCourseMapEditor({
               {t("staffPortal.courseEditor.careerStartUnset")}
             </p>
           )}
+          {routeSource === "gpx" && showManualStartEditor ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="w-full text-xs"
+              onClick={() => setShowManualStartEditor(false)}
+            >
+              {t("staffPortal.courseEditor.backToGpxStart")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -801,20 +1026,6 @@ export default function StaffCourseMapEditor({
                   <Trash2 className="w-3 h-3" />
                 </Button>
               </div>
-              <label className="flex items-center justify-center gap-2 w-full py-2 px-3 rounded-lg border border-dashed border-gray-600 text-xs text-muted-foreground cursor-pointer hover:border-cyan/40 hover:text-cyan transition-colors">
-                <Upload className="w-3.5 h-3.5" />
-                {t("staffPortal.courseEditor.importGpx")}
-                <input
-                  type="file"
-                  accept=".gpx,application/gpx+xml"
-                  className="sr-only"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleGpxImport(file);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
             </div>
           ) : null}
         </div>

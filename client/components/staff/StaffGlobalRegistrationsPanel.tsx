@@ -31,6 +31,7 @@ import {
 import { useGridListState } from "@/hooks/useGridListState";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
 import { downloadCsv } from "@/utils/exportCsv";
+import { canRefundStaffPayments } from "@/utils/staffNav";
 import type { OrganizerRegistrationRow, StaffRole } from "@shared/api";
 
 interface StaffGlobalRegistrationsPanelProps {
@@ -57,6 +58,8 @@ export default function StaffGlobalRegistrationsPanel({
     bulkBibResult,
     bulkBibError,
   } = useAppSelector((s) => s.staffPortal);
+  const { user } = useAppSelector((s) => s.staffAuth);
+  const canRefund = canRefundStaffPayments(role === "admin", user?.type === "organizer" ? user.role : undefined);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [eventId, setEventId] = useState("all");
@@ -148,13 +151,16 @@ export default function StaffGlobalRegistrationsPanel({
       .filter((r) => r.folio && r.bib);
   };
 
+  const bulkBibEventId = eventId === "all" ? null : Number(eventId);
+
   const handleBulkBibImport = async () => {
+    if (bulkBibEventId == null) return;
     const rows = parseBulkBibCsv(bulkCsv);
     if (rows.length === 0) return;
     const result = await dispatch(
       bulkAssignBibs({
         rows,
-        eventId: eventId === "all" ? undefined : Number(eventId),
+        eventId: bulkBibEventId,
         role,
       }),
     );
@@ -332,10 +338,19 @@ export default function StaffGlobalRegistrationsPanel({
         </Button>
       </div>
 
-      {role === "organizer" ? <StaffCheckInPanel /> : null}
+      {role === "organizer" ? (
+        <StaffCheckInPanel
+          eventId={bulkBibEventId ?? undefined}
+        />
+      ) : null}
 
       <div className="card-sport p-5 space-y-3">
         <h2 className="font-semibold text-sm">{t("staffPortal.registrations.bulkBibTitle")}</h2>
+        {bulkBibEventId == null ? (
+          <p className="text-xs text-muted-foreground">
+            {t("staffPortal.registrations.bulkBibSelectEvent")}
+          </p>
+        ) : null}
         <Textarea
           value={bulkCsv}
           onChange={(e) => setBulkCsv(e.target.value)}
@@ -353,7 +368,7 @@ export default function StaffGlobalRegistrationsPanel({
           type="button"
           variant="outline"
           size="sm"
-          disabled={importingBulkBibs || !bulkCsv.trim()}
+          disabled={importingBulkBibs || !bulkCsv.trim() || bulkBibEventId == null}
           onClick={handleBulkBibImport}
         >
           <Upload className="w-4 h-4 mr-2" />
@@ -404,7 +419,7 @@ export default function StaffGlobalRegistrationsPanel({
               setSelectedRegistrationEventId(null);
             }
           }}
-          allowRefund={role === "admin"}
+          allowRefund={canRefund}
         />
       ) : null}
     </div>

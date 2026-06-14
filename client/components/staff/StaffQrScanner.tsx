@@ -7,9 +7,10 @@ import { logger } from "@/utils/logger";
 
 interface StaffQrScannerProps {
   onScan: (value: string) => void;
+  disabled?: boolean;
 }
 
-export default function StaffQrScanner({ onScan }: StaffQrScannerProps) {
+export default function StaffQrScanner({ onScan, disabled }: StaffQrScannerProps) {
   const { t } = useTranslation();
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +18,7 @@ export default function StaffQrScanner({ onScan }: StaffQrScannerProps) {
   const regionId = "staff-checkin-qr-region";
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || disabled) return;
 
     let cancelled = false;
     const scanner = new Html5Qrcode(regionId);
@@ -46,7 +47,7 @@ export default function StaffQrScanner({ onScan }: StaffQrScannerProps) {
       void scanner.stop().catch(() => {});
       scannerRef.current = null;
     };
-  }, [active, onScan, t]);
+  }, [active, disabled, onScan, t]);
 
   return (
     <div className="space-y-2">
@@ -54,7 +55,9 @@ export default function StaffQrScanner({ onScan }: StaffQrScannerProps) {
         type="button"
         variant="outline"
         size="sm"
+        disabled={disabled}
         onClick={() => {
+          if (disabled) return;
           setError(null);
           setActive((v) => !v);
         }}

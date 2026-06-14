@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 interface SectionHeaderProps {
   id?: string;
@@ -8,6 +9,10 @@ interface SectionHeaderProps {
   subtitle: string;
   actionLabel?: string;
   actionHref?: string;
+  /** Hide descriptive subtitle on small screens to reduce scroll clutter */
+  hideSubtitleOnMobile?: boolean;
+  /** Hide the entire header block on small screens */
+  hideOnMobile?: boolean;
 }
 
 export default function SectionHeader({
@@ -16,6 +21,8 @@ export default function SectionHeader({
   subtitle,
   actionLabel,
   actionHref,
+  hideSubtitleOnMobile = false,
+  hideOnMobile = false,
 }: SectionHeaderProps) {
   return (
     <motion.div
@@ -24,14 +31,24 @@ export default function SectionHeader({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.6 }}
-      className="mb-12 md:mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6 min-w-0"
+      className={cn(
+        "flex flex-col md:flex-row md:items-end justify-between gap-6 min-w-0",
+        hideOnMobile && "hidden md:flex",
+        !hideOnMobile && (hideSubtitleOnMobile ? "mb-8 md:mb-16" : "mb-12 md:mb-16"),
+        hideOnMobile && "mb-0 md:mb-16",
+      )}
     >
       <div className="max-w-2xl min-w-0">
-        <div className="w-12 h-1 bg-triboo-gradient rounded-full mb-4" />
+        <div className="w-12 h-1 bg-triboo-gradient rounded-full mb-3 md:mb-4" />
         <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white tracking-tight break-words">
           {title}
         </h2>
-        <p className="text-gray-400 mt-3 text-base md:text-lg leading-relaxed">
+        <p
+          className={cn(
+            "text-gray-400 mt-2 md:mt-3 text-base md:text-lg leading-relaxed",
+            hideSubtitleOnMobile && "hidden md:block",
+          )}
+        >
           {subtitle}
         </p>
       </div>

@@ -15,6 +15,7 @@ import type {
   SearchSuggestSport,
 } from "@shared/api";
 import { formatEventDate } from "@/utils/eventFormat";
+import { optimizeEventMediaUrl } from "@/lib/cdn-url";
 import { cn } from "@/lib/utils";
 
 export type HeroSearchFlatItem =
@@ -48,6 +49,7 @@ interface HeroSearchDropdownProps {
   flatItems: HeroSearchFlatItem[];
   onHighlight: (index: number) => void;
   onSelect: (item: HeroSearchFlatItem) => void;
+  variant?: "dark" | "light";
 }
 
 function flatIndexFor(
@@ -90,6 +92,7 @@ function EventRow({
   const location = [event.location_city, event.location_state]
     .filter(Boolean)
     .join(", ");
+  const heroImage = optimizeEventMediaUrl(event.hero_image_url, "thumb");
 
   return (
     <button
@@ -106,9 +109,9 @@ function EventRow({
       )}
     >
       <div className="h-11 w-11 shrink-0 rounded-lg overflow-hidden bg-white/10 border border-white/10">
-        {event.hero_image_url ? (
+        {heroImage ? (
           <img
-            src={event.hero_image_url}
+            src={heroImage}
             alt=""
             className="h-full w-full object-cover"
           />
@@ -136,7 +139,7 @@ function EventRow({
           ) : null}
         </p>
       </div>
-      <span className="text-[10px] font-bold uppercase tracking-wider text-primary/90 shrink-0">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-primary/90 shrink-0 max-w-[35%] truncate text-right">
         {event.sport_name}
       </span>
     </button>
@@ -228,8 +231,10 @@ export default function HeroSearchDropdown({
   flatItems,
   onHighlight,
   onSelect,
+  variant = "dark",
 }: HeroSearchDropdownProps) {
   const { t, i18n } = useTranslation();
+  const isLight = variant === "light";
   const showPanel = open && query.trim().length >= 2;
   const hasResults =
     !!data &&
@@ -247,7 +252,12 @@ export default function HeroSearchDropdown({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -4, scale: 0.99 }}
           transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          className="absolute left-0 right-0 top-0 mt-2 z-[100] overflow-hidden rounded-2xl border border-white/12 bg-triboo-black/95 backdrop-blur-2xl shadow-[0_24px_80px_rgba(0,0,0,0.65)]"
+          className={cn(
+            "relative w-full z-[100] overflow-hidden rounded-2xl backdrop-blur-2xl",
+            isLight
+              ? "border border-border/80 bg-card/98 shadow-panel"
+              : "border border-white/12 bg-triboo-black/95 shadow-[0_24px_80px_rgba(0,0,0,0.65)]",
+          )}
           role="listbox"
           aria-label={t("home.hero.searchDropdownLabel")}
         >

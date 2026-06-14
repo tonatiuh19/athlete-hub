@@ -127,18 +127,18 @@ INSERT INTO `events` (
 SELECT
   'ev000001-0000-4000-8000-000000000001', o.id, st.id, v.id,
   'maraton-cdmx-2026',
-  'Maratón Ciudad de México 2026',
-  'La carrera más emblemática de la capital. Recorre Reforma, Chapultepec y el Zócalo.',
-  'El Maratón Ciudad de México reúne a más de 30,000 corredores de todo el mundo. Certificación AIMS, chip timing, hidratación cada 2.5 km y medalla finisher premium. Incluye playera técnica, número con nombre y acceso a zona de recuperación post-meta.',
+  'Gran Carrera Urbana 42K 2026 (Test Event)',
+  'Carrera urbana de larga distancia con opciones 42K, 21K y 10K.',
+  'La gran carrera urbana reúne a miles de corredores en un circuito certificado. Chip timing, hidratación en ruta, medalla finisher y zona de recuperación post-meta. Incluye playera técnica y número con nombre.',
   'published', 'public', 1,
   '2026-08-30 06:00:00', '2026-08-30 14:00:00',
   '2026-01-01 00:00:00', '2026-08-25 23:59:59',
   'America/Mexico_City',
   v.name, v.address_line1, v.city, v.state, v.country, v.lat, v.lng,
-  'https://images.unsplash.com/photo-1452626212852-811d58933cae?w=1200',
-  'https://images.unsplash.com/photo-1476480862128-209bfaa8dba8?w=1600',
+  'https://images.unsplash.com/photo-1452626212852-811d58933cae?w=1200&q=80&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=1600&q=80&auto=format&fit=crop',
   1, 15000, 1, 30000, 0,
-  'maraton cdmx ciudad de mexico 42k running reforma chapultepec'
+  'maraton 42k running urbana carrera larga ciudad'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'running' AND v.public_uuid = 'v0000001-0000-4000-8000-000000000001'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -154,14 +154,14 @@ INSERT INTO `events` (
 SELECT
   'ev000002-0000-4000-8000-000000000002', o.id, st.id, v.id,
   'trail-nevado-toluca-2026',
-  'Trail Nevado de Toluca 2026',
-  'Carrera de montaña en uno de los volcanes más altos de México. 21K y 10K.',
-  'Desafía tus límites en el Nevado de Toluca. Dos distancias: 21K con 1,200m D+ y 10K familiar. Seguridad en ruta, puntos de hidratación y premios por categoría.',
+  'Desafío Trail Alto 2026 (Test Event)',
+  'Carrera de montaña con 21K y 10K en terreno técnico y gran desnivel.',
+  'Desafío en montaña con dos distancias y fuerte desnivel. Seguridad en ruta, puntos de hidratación y premios por categoría.',
   'published', 'public', 1,
   '2026-06-14 07:00:00', '2026-01-15 00:00:00', '2026-06-10 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
-  'https://images.unsplash.com/photo-1551632811-561732d1e306?w=1200',
-  1, 800, 0, 'trail nevado toluca montaña running 21k 10k'
+  'https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=1200&q=80&auto=format&fit=crop',
+  1, 800, 0, 'trail montaña alto running 21k 10k desafío'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'trail' AND v.public_uuid = 'v0000002-0000-4000-8000-000000000002'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -177,14 +177,14 @@ INSERT INTO `events` (
 SELECT
   'ev000003-0000-4000-8000-000000000003', o.id, st.id, v.id,
   'triatlon-acapulco-2026',
-  'Triatlón Acapulco 2026',
-  'Sprint y Olímpico en la bahía más famosa de México. Natación en mar abierto.',
-  'Triatlón de clase mundial con natación en Playa Pie de la Cuesta, ciclismo costero y carrera en el malecón. Categorías por edad, relevos y experiencia para principiantes.',
+  'Triatlón Sprint & Olímpico 2026 (Test Event)',
+  'Sprint y distancia olímpica en formato natación, ciclismo y carrera.',
+  'Triatlón con natación en aguas abiertas, ciclismo y carrera. Categorías por edad, relevos y opción para principiantes.',
   'published', 'public',
   '2026-11-08 06:30:00', '2026-02-01 00:00:00', '2026-11-01 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
-  'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=1200',
-  1, 1500, 0, 'triatlon acapulco natacion ciclismo running sprint olimpico'
+  'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=1200&q=80&auto=format&fit=crop',
+  1, 1500, 0, 'triatlon sprint olimpico natacion ciclismo running'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'pacific-endurance' AND st.slug = 'triathlon' AND v.public_uuid = 'v0000003-0000-4000-8000-000000000003'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -200,14 +200,14 @@ INSERT INTO `events` (
 SELECT
   'ev000004-0000-4000-8000-000000000004', o.id, st.id, v.id,
   'carrera-10k-polanco-2026',
-  'Carrera 10K Polanco 2026',
-  'Carrera urbana nocturna en una de las zonas más icónicas de CDMX.',
-  '10 kilómetros por las calles de Polanco. Salida nocturna, música en vivo, zona de food trucks y premiación inmediata. Ideal para PRs y corredores de todos los niveles.',
+  '10K Nocturna 2026 (Test Event)',
+  'Diez kilómetros en formato nocturno por circuito urbano.',
+  '10K nocturno con salida al anochecer, ambiente festivo, zona de comida y premiación. Ideal para PRs y corredores de todos los niveles.',
   'published', 'public',
   '2026-04-18 19:00:00', '2026-01-01 00:00:00', '2026-04-15 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
-  'https://images.unsplash.com/photo-1571008887538-b36bb08f4571?w=1200',
-  1, 5000, 0, '10k polanco carrera nocturna running cdmx'
+  'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=1200&q=80&auto=format&fit=crop',
+  1, 5000, 0, '10k nocturna carrera urbana running'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'running' AND v.public_uuid = 'v0000004-0000-4000-8000-000000000004'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'published';
@@ -223,15 +223,15 @@ INSERT INTO `events` (
 SELECT
   'ev000005-0000-4000-8000-000000000005', o.id, st.id, v.id,
   'hyrox-mexico-city-2025',
-  'Hyrox Mexico City 2025',
-  'El fitness race que conquistó el mundo. 8 estaciones funcionales + running.',
-  'Hyrox combina running con estaciones funcionales: ski erg, sled push, burpees, row y más. Categorías individual, doubles y relay. Evento completado — resultados oficiales publicados.',
+  'Desafío Híbrido 2025 (Test Event)',
+  'Competencia de fitness que combina carrera y estaciones funcionales.',
+  'Combina running con estaciones funcionales. Categorías individual, parejas y relevos. Evento completado — resultados oficiales publicados.',
   'completed', 'public',
   '2025-11-15 08:00:00', '2025-11-15 18:00:00',
   '2025-06-01 00:00:00', '2025-11-10 23:59:59',
   'America/Mexico_City', v.name, v.city, v.state, v.country, v.lat, v.lng,
-  'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1200',
-  1, 2000, 0, 'hyrox fitness funcional mexico city crossfit'
+  'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=1200&q=80&auto=format&fit=crop',
+  1, 2000, 0, 'fitness funcional hibrido estaciones running'
 FROM organizers o, sport_types st, venues v
 WHERE o.slug = 'run-mexico' AND st.slug = 'hyrox' AND v.public_uuid = 'v0000005-0000-4000-8000-000000000005'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `status` = 'completed';

@@ -1,5 +1,5 @@
-import type { StaffEventUpsertRequest } from "@shared/api";
-import { fromDatetimeLocal } from "@/utils/datetimeLocal";
+import type { StaffEventDetail, StaffEventUpsertRequest } from "@shared/api";
+import { fromDatetimeLocal, toDatetimeLocal } from "@/utils/datetimeLocal";
 
 export type EventEditFormValues = {
   title: string;
@@ -15,14 +15,54 @@ export type EventEditFormValues = {
   end_date: string;
   registration_opens_at: string;
   registration_closes_at: string;
+  check_in_opens_at: string;
+  check_in_closes_at: string;
   location_city: string;
   location_state: string;
   location_name: string;
   location_lat: string;
   location_lng: string;
   hero_image_url: string;
+  banner_image_url: string;
   max_registrations: string;
 };
+
+export function buildEventEditFormValues(
+  event: StaffEventDetail | undefined,
+  sportTypes: { id: number }[],
+): EventEditFormValues {
+  return {
+    title: event?.title ?? "",
+    slug: event?.slug ?? "",
+    sport_type_id: event?.sport_type_id ?? sportTypes[0]?.id ?? 0,
+    short_description: event?.short_description ?? "",
+    description: event?.description ?? "",
+    status: event?.status ?? "draft",
+    visibility: event?.visibility ?? "public",
+    featured: Boolean(event?.featured),
+    requires_waiver: Boolean(event?.requires_waiver),
+    start_date: toDatetimeLocal(event?.start_date),
+    end_date: toDatetimeLocal(event?.end_date),
+    registration_opens_at: toDatetimeLocal(event?.registration_opens_at),
+    registration_closes_at: toDatetimeLocal(event?.registration_closes_at),
+    check_in_opens_at: toDatetimeLocal(event?.check_in_opens_at),
+    check_in_closes_at: toDatetimeLocal(event?.check_in_closes_at),
+    location_city: event?.location_city ?? "",
+    location_state: event?.location_state ?? "",
+    location_name: event?.location_name ?? "",
+    location_lat:
+      event?.location_lat != null && event.location_lat !== ""
+        ? String(event.location_lat)
+        : "",
+    location_lng:
+      event?.location_lng != null && event.location_lng !== ""
+        ? String(event.location_lng)
+        : "",
+    hero_image_url: event?.hero_image_url ?? "",
+    banner_image_url: event?.banner_image_url ?? "",
+    max_registrations: event?.max_registrations?.toString() ?? "",
+  };
+}
 
 export function buildStaffEventBody(
   values: EventEditFormValues,
@@ -45,12 +85,15 @@ export function buildStaffEventBody(
     end_date: fromDatetimeLocal(values.end_date),
     registration_opens_at: fromDatetimeLocal(values.registration_opens_at),
     registration_closes_at: fromDatetimeLocal(values.registration_closes_at),
+    check_in_opens_at: fromDatetimeLocal(values.check_in_opens_at),
+    check_in_closes_at: fromDatetimeLocal(values.check_in_closes_at),
     location_city: values.location_city.trim() || null,
     location_state: values.location_state.trim() || null,
     location_name: values.location_name.trim() || null,
     location_lat: latRaw ? Number(latRaw) : null,
     location_lng: lngRaw ? Number(lngRaw) : null,
     hero_image_url: values.hero_image_url.trim() || null,
+    banner_image_url: values.banner_image_url.trim() || null,
     max_registrations: values.max_registrations
       ? Number(values.max_registrations)
       : null,

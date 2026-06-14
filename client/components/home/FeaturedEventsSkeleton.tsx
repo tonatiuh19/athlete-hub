@@ -65,23 +65,22 @@ type FeaturedEventsSkeletonProps = {
 };
 
 export default function FeaturedEventsSkeleton({
-  count = 4,
+  count = 8,
 }: FeaturedEventsSkeletonProps) {
   const { t } = useTranslation();
 
   return (
     <section
-      id="featured-events"
-      className="pt-6 pb-14 md:pt-8 md:pb-20 px-4 md:px-6 scroll-mt-[4.5rem]"
+      id="events"
+      className="pt-3 pb-14 md:pt-8 md:pb-20 px-4 md:px-6 scroll-mt-[4.5rem]"
       aria-busy="true"
-      aria-label={t("home.featured.loadingLabel")}
+      aria-label={t("home.events.loadingLabel")}
     >
       <div className="max-w-7xl mx-auto w-full min-w-0">
         <SectionHeader
-          title={t("home.featured.title")}
-          subtitle={t("home.featured.subtitle")}
-          actionLabel={t("home.featured.viewAll")}
-          actionHref="/events"
+          title={t("home.events.title")}
+          subtitle={t("home.events.subtitle")}
+          hideOnMobile
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

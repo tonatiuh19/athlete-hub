@@ -38,6 +38,12 @@ export function checkoutErrorMessage(payload: CheckoutErrorPayload, t: TFunction
       return t("registrationWizard.checkout.errors.notOpen");
     case "registration_closed":
       return t("registrationWizard.checkout.errors.closed");
+    case "organizer_payouts_not_ready":
+    case "organizer_payouts_disabled":
+    case "organizer_suspended":
+      return t("registrationWizard.checkout.errors.paymentsUnavailable");
+    case "payment_setup_failed":
+      return t("registrationWizard.checkout.errors.paymentSetupFailed");
     case "already_registered":
       return t("registrationWizard.checkout.alreadyRegistered");
     case "waitlist_available":

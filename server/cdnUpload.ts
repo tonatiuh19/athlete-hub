@@ -1,19 +1,34 @@
 /**
- * Blog image uploads → Disrupting Labs CDN (uploadImages.php).
- * Public endpoints; no env configuration required.
+ * Image uploads → Disrupting Labs CDN (uploadImages.php).
+ * Public file URLs must use the /data/api prefix (see enteratelo-php + real-state).
  */
+
+import { normalizeCdnUploadUrl as normalizeCdnUploadUrlShared } from "../shared/cdnUrl.js";
 
 const CDN_UPLOAD_URL =
   "https://disruptinglabs.com/data/api/uploadImages.php";
 
-const CDN_PUBLIC_BASE = "https://disruptinglabs.com";
+/** Base for uploaded files served from PHP data directory (not SPA static assets). */
+export const CDN_UPLOAD_PUBLIC_BASE = "https://disruptinglabs.com/data/api";
 
 const TRIBOO_CDN_FOLDER = "triboo-sport";
 
 export function buildCdnPublicUrl(relativePath: string): string {
-  if (relativePath.startsWith("http")) return relativePath;
+  if (relativePath.startsWith("http")) {
+    return normalizeCdnUploadUrl(relativePath);
+  }
   const path = relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
-  return `${CDN_PUBLIC_BASE}${path}`;
+  return `${CDN_UPLOAD_PUBLIC_BASE}${path}`;
+}
+
+/**
+ * Fix legacy URLs that omitted /data/api (Apache returned SPA HTML → broken <img>).
+ * Static marketing assets (e.g. triboo/assets) are left unchanged.
+ */
+export function normalizeCdnUploadUrl(url: string): string;
+export function normalizeCdnUploadUrl(url: string | null | undefined): string | null;
+export function normalizeCdnUploadUrl(url: string | null | undefined): string | null {
+  return normalizeCdnUploadUrlShared(url);
 }
 
 export async function uploadImageBufferToCdn(opts: {

@@ -57,7 +57,7 @@ export default function EventRegistrationWizard() {
     checkout,
     discountCode,
   } = useAppSelector((s) => s.registrationCheckout);
-  const { token } = useAppSelector((s) => s.athleteAuth);
+  const { token, user: athleteUser } = useAppSelector((s) => s.athleteAuth);
 
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [restoredFieldValues, setRestoredFieldValues] = useState<
@@ -254,6 +254,7 @@ export default function EventRegistrationWizard() {
                   <span
                     className={cn(
                       "text-[10px] uppercase tracking-wider truncate",
+                      i === stepIndex ? "inline" : "hidden sm:inline",
                       i <= stepIndex ? "text-gray-300" : "text-gray-600",
                     )}
                   >
@@ -317,6 +318,7 @@ export default function EventRegistrationWizard() {
               success={!paymentFailed && Boolean(confirmResult?.success)}
               waitlistJoined={waitlistJoined}
               failureMessage={failureMessage}
+              confirmationEmail={confirmResult?.confirmationEmail ?? athleteUser?.email ?? null}
               registration={confirmResult?.registration}
               onRetry={handleRetry}
               onClose={handleClose}

@@ -47,12 +47,10 @@ const VerticalTabsList = React.forwardRef<
   <TabsList
     ref={ref}
     className={cn(
-      "flex flex-col h-auto w-full lg:w-52 xl:w-56 shrink-0",
+      "flex flex-col h-auto w-full shrink-0 min-h-0",
       "p-2 gap-0.5 rounded-xl",
       "bg-card/70 border border-border/80 shadow-sm",
       "overflow-y-auto overflow-x-hidden scrollbar-hide",
-      "max-h-[min(280px,45vh)] lg:max-h-[calc(100dvh-11rem)]",
-      "lg:sticky lg:top-20",
       className,
     )}
     {...props}

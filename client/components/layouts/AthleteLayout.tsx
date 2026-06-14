@@ -1,10 +1,11 @@
-import { ReactNode, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import {
-  Link,
   NavLink,
   Navigate,
-  useNavigate,
+  Outlet,
   useLocation,
+  useMatches,
+  useNavigate,
 } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -28,17 +29,27 @@ import { athleteLogout, fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
 import { dismissRegistrationWizard } from "@/utils/dismissRegistrationWizard";
 import { athleteNeedsProfileCompletion } from "@/utils/athleteProfileCompletion";
 
-export default function AthleteLayout({
-  children,
-  allowIncompleteProfile = false,
-}: {
-  children: ReactNode;
+export type AthleteLayoutHandle = {
   allowIncompleteProfile?: boolean;
-}) {
+};
+
+function AthletePageFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
+
+export default function AthleteLayout() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const matches = useMatches();
+  const allowIncompleteProfile = matches.some((match) =>
+    Boolean((match.handle as AthleteLayoutHandle | undefined)?.allowIncompleteProfile),
+  );
   const { token, user, loading } = useAppSelector((s) => s.athleteAuth);
   const { open: wizardOpen, step: wizardStep } = useAppSelector(
     (s) => s.registrationCheckout,
@@ -220,7 +231,7 @@ export default function AthleteLayout({
         </header>
 
         {mobileOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 bg-background/95 backdrop-blur-md p-4 pt-16 overflow-y-auto overscroll-contain">
+          <div className="lg:hidden fixed top-14 inset-x-0 bottom-0 z-50 bg-background/95 backdrop-blur-md p-4 overflow-y-auto overscroll-contain">
             <nav className="space-y-1">
               <NavItems mobile />
               <button
@@ -238,7 +249,9 @@ export default function AthleteLayout({
           <div className="hidden lg:flex justify-end mb-4">
             <LanguageSwitcher variant="ghost" />
           </div>
-          {children}
+          <Suspense fallback={<AthletePageFallback />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
       <EventRegistrationWizard />

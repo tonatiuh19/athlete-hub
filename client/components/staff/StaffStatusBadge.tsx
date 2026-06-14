@@ -5,6 +5,7 @@ const STATUS_STYLES: Record<string, string> = {
   published: "bg-cyan/15 text-cyan border-cyan/30",
   confirmed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   draft: "bg-muted text-muted-foreground border-border",
+  pending_approval: "bg-primary/15 text-primary border-primary/30",
   archived: "bg-muted/80 text-muted-foreground border-border",
   cancelled: "bg-destructive/15 text-destructive border-destructive/30",
   completed: "bg-blue-electric/15 text-blue-electric border-blue-electric/30",

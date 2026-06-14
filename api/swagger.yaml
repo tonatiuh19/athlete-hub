@@ -341,10 +341,52 @@ paths:
   /public/home:
     get:
       tags: [Marketplace]
-      summary: Public home page data (live stats, featured events, leaderboards)
+      summary: Public home page data (live stats, all published events, leaderboards)
       responses:
         "200":
-          description: Platform stats, featured/upcoming events, top athletes and teams
+          description: Platform stats, published events, top athletes and teams
+
+  /public/teams:
+    get:
+      tags: [Marketplace]
+      summary: Browse public athlete Triboos (teams)
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [members, newest]
+      responses:
+        "200":
+          description: Paginated public teams list
+
+  /public/teams/{slug}:
+    get:
+      tags: [Marketplace]
+      summary: Public Triboo profile by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team profile with member preview
+        "404":
+          description: Not found
 
   /public/blog:
     get:
@@ -497,7 +539,7 @@ paths:
       summary: List cities with published event counts (geo catalog backed)
       responses:
         "200":
-          description: Array of geo cities with id, city, state, and event_count
+          description: Array of geo cities with id, city, state, lat, lng, and event_count
 
   /search/suggest:
     get:
@@ -1042,6 +1084,18 @@ paths:
       responses:
         "200":
           description: Registration confirmed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  confirmationEmail:
+                    type: string
+                    description: Athlete login email — confirmation is sent here only
+                  registration:
+                    type: object
         "402":
           description: Payment failed or requires additional authentication (3DS)
           content:
@@ -1193,7 +1247,7 @@ paths:
   /organizer/events/{eventId}/publish:
     post:
       tags: [Organizer]
-      summary: Publish event (requires active categories)
+      summary: Submit event for admin approval (requires active categories)
       security:
         - bearerAuth: []
       parameters:
@@ -1204,7 +1258,7 @@ paths:
             type: integer
       responses:
         "200":
-          description: Event published
+          description: Event moved to pending_approval status
 
   /organizer/events/{eventId}/categories:
     post:
@@ -1382,6 +1436,29 @@ paths:
         "200":
           description: Course saved
 
+  /organizer/events/fetch-image:
+    post:
+      tags: [Organizer]
+      summary: Fetch CDN image bytes for staff re-crop (CORS bypass)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Base64-encoded image
+        "400":
+          description: Invalid or disallowed URL
+
   /organizer/events/{eventId}/discount-codes:
     get:
       tags: [Organizer]
@@ -1526,35 +1603,6 @@ paths:
           description: Updated waitlist entries
         "404":
           description: Entry not found or already resolved
-
-  /organizer/registrations/bulk-bib:
-    post:
-      tags: [Organizer]
-      summary: Bulk assign bib numbers by registration folio
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [rows]
-              properties:
-                rows:
-                  type: array
-                  items:
-                    type: object
-                    required: [folio, bib]
-                    properties:
-                      folio:
-                        type: string
-                        description: registration_number
-                      bib:
-                        type: string
-      responses:
-        "200":
-          description: Import summary with updated count and per-row errors
 
   /organizer/events/{eventId}/media:
     get:
@@ -1751,44 +1799,11 @@ paths:
         "404":
           description: Event not found
 
-  /organizer/registrations/{registrationId}/cancel:
-    patch:
-      tags: [Organizer]
-      summary: Cancel registration (no automatic refund)
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: registrationId
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Registration cancelled
-        "409":
-          description: Already cancelled
-
-  /organizer/registrations/{registrationId}/bib:
-    patch:
-      tags: [Organizer]
-      summary: Assign bib number
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: registrationId
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Bib assigned
-
   /organizer/registrations/lookup:
     get:
       tags: [Organizer]
-      summary: Lookup registration by folio or QR token
+      summary: Cross-event lookup by folio or QR token (read-only)
+      description: For mutations use `/organizer/events/{eventId}/registrations/*` hub routes.
       security:
         - bearerAuth: []
       parameters:
@@ -1803,13 +1818,39 @@ paths:
         "404":
           description: Not found
 
-  /organizer/registrations/{registrationId}/check-in:
+  /organizer/events/{eventId}/registrations/lookup:
+    get:
+      tags: [Organizer]
+      summary: Lookup registration within an event
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Registration found
+
+  /organizer/events/{eventId}/registrations/{registrationId}/check-in:
     post:
       tags: [Organizer]
       summary: Check in a confirmed registration
       security:
         - bearerAuth: []
       parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
         - name: registrationId
           in: path
           required: true
@@ -1818,8 +1859,64 @@ paths:
       responses:
         "200":
           description: Checked in
-        "409":
-          description: Already checked in
+
+  /organizer/events/{eventId}/registrations/{registrationId}/bib:
+    patch:
+      tags: [Organizer]
+      summary: Assign bib number
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: registrationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bib assigned
+
+  /organizer/events/{eventId}/registrations/{registrationId}/cancel:
+    patch:
+      tags: [Organizer]
+      summary: Cancel registration (no automatic refund)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: registrationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Registration cancelled
+
+  /organizer/events/{eventId}/registrations/bulk-bib:
+    post:
+      tags: [Organizer]
+      summary: Bulk assign bib numbers for an event
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bulk import result
 
   /organizer/members:
     get:
@@ -2085,6 +2182,24 @@ paths:
         "200":
           description: Dashboard stats
 
+  /admin/registrations/{registrationId}/resend-confirmation:
+    post:
+      tags: [Admin]
+      summary: Resend registration confirmation email (folio + event details)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Email sent
+        "502":
+          description: Send failed
+
   /admin/athletes:
     get:
       tags: [Admin]
@@ -2291,6 +2406,22 @@ paths:
         "200":
           description: Registration list
 
+  /admin/events/{eventId}/check-in/window:
+    get:
+      tags: [Admin]
+      summary: Check-in window status for an event (event timezone)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Window open/closed with local and UTC bounds
+
   /admin/events/{eventId}/registrations/lookup:
     get:
       tags: [Admin]
@@ -2394,7 +2525,7 @@ paths:
   /admin/events/{eventId}/publish:
     post:
       tags: [Admin]
-      summary: Publish event
+      summary: Approve and publish event (only from pending_approval)
       security:
         - bearerAuth: []
       parameters:
@@ -2406,6 +2537,56 @@ paths:
       responses:
         "200":
           description: Event published
+        "400":
+          description: Event is not pending approval
+
+  /admin/events/fetch-image:
+    post:
+      tags: [Admin]
+      summary: Fetch CDN image bytes for staff re-crop (CORS bypass)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Base64-encoded image
+        "400":
+          description: Invalid or disallowed URL
+
+  /admin/events/{eventId}/reject:
+    post:
+      tags: [Admin]
+      summary: Reject organizer submission and return event to draft
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Event returned to draft
 
   /admin/analytics/timeseries:
     get:
@@ -2439,10 +2620,254 @@ paths:
   /webhooks/stripe:
     post:
       tags: [Webhooks]
-      summary: Stripe Connect webhook handler
+      summary: Stripe webhook handler (Connect + payments)
+      description: |
+        Verifies Stripe signature, deduplicates by `stripe_event_id`, and handles
+        `payment_intent.succeeded` and `account.updated`. Other event types are marked ignored.
+      parameters:
+        - name: stripe-signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
         "200":
-          description: Webhook received
+          description: Webhook received (or duplicate safely skipped)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                  duplicate:
+                    type: boolean
+                  ignored:
+                    type: boolean
+        "400":
+          description: Invalid signature
+        "503":
+          description: Webhook not configured
+
+  /organizer/payouts/status:
+    get:
+      tags: [Organizer]
+      summary: Organizer Connect payout status and checklists
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Triboo + Stripe checklist and payoutReady flag
+        "403":
+          description: Insufficient permissions
+
+  /organizer/payouts/profile:
+    patch:
+      tags: [Organizer]
+      summary: Update Triboo payout profile (legal name, RFC, billing email)
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                legal_name:
+                  type: string
+                billing_email:
+                  type: string
+                rfc:
+                  type: string
+                tax_regime:
+                  type: string
+      responses:
+        "200":
+          description: Updated payout status payload
+        "400":
+          description: Invalid profile fields
+
+  /organizer/payouts/accept-terms:
+    post:
+      tags: [Organizer]
+      summary: Accept payout terms and fee acknowledgment (owner/finance)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Updated payout status payload
+        "403":
+          description: Insufficient permissions
+
+  /organizer/payouts/onboard:
+    post:
+      tags: [Organizer]
+      summary: Create Stripe Account Link for Connect onboarding
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Account link URL and status payload
+        "503":
+          description: Stripe unavailable
+
+  /organizer/payouts/sync:
+    post:
+      tags: [Organizer]
+      summary: Sync Connect account status from Stripe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Refreshed payout status payload
+
+  /organizer/payments/{paymentId}/refund:
+    post:
+      tags: [Organizer]
+      summary: Refund a succeeded payment (owner, organizer, or finance roles)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Refund processed
+        "400":
+          description: Refund failed
+        "403":
+          description: Insufficient permissions or payment not owned by organizer
+        "404":
+          description: Payment not found
+
+  /admin/organizers/{organizerId}/connect:
+    get:
+      tags: [Admin]
+      summary: Admin view of organizer Connect status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Payout status payload
+        "404":
+          description: Organizer not found
+
+  /admin/organizers/{organizerId}/connect/onboard:
+    post:
+      tags: [Admin]
+      summary: Admin-assisted Stripe Connect onboarding link
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Onboarding URL and status payload
+
+  /admin/organizers/{organizerId}/connect/sync:
+    post:
+      tags: [Admin]
+      summary: Sync organizer Connect account from Stripe (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Refreshed status payload
+
+  /admin/organizers/{organizerId}/connect/link-account:
+    post:
+      tags: [Admin]
+      summary: Link existing Stripe Connect account to organizer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stripe_account_id]
+              properties:
+                stripe_account_id:
+                  type: string
+                  example: acct_1234567890
+      responses:
+        "200":
+          description: Linked account status payload
+        "409":
+          description: Account already linked to another organizer
+
+  /admin/organizers/{organizerId}/connect/disable:
+    post:
+      tags: [Admin]
+      summary: Disable organizer payouts (admin override)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated status payload
+
+  /admin/organizers/{organizerId}/connect/enable:
+    post:
+      tags: [Admin]
+      summary: Re-enable organizer payouts and sync from Stripe
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated status payload
 
   /events/{slug}/sponsors/track:
     post:

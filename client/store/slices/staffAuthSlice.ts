@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import api, { getStaffToken, setStaffToken } from "@/lib/api";
+import api, { getStaffToken, setStaffToken, staffAuthHeaders } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
 import type { StaffProfileUpdateRequest, StaffRole, StaffUser } from "@shared/api";
 import i18n from "@/i18n";
@@ -69,6 +69,8 @@ const initialState: StaffAuthState = {
   otpSentTo: null,
 };
 
+const staffRequest = { headers: staffAuthHeaders };
+
 export const requestStaffOtp = createAsyncThunk<
   { email: string; role: StaffRole },
   { email: string },
@@ -130,7 +132,7 @@ export const fetchStaffMe = createAsyncThunk<
 >("staffAuth/me", async (role, { rejectWithValue }) => {
   try {
     const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
-    const { data } = await api.get(path);
+    const { data } = await api.get(path, staffRequest);
     return { user: mapStaffUser(role, data as Record<string, unknown>), role };
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -145,7 +147,7 @@ export const updateStaffProfile = createAsyncThunk<
 >("staffAuth/updateProfile", async ({ role, ...body }, { rejectWithValue }) => {
   try {
     const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
-    const { data } = await api.patch(path, body);
+    const { data } = await api.patch(path, body, staffRequest);
     return mapStaffUser(role, data as Record<string, unknown>);
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -161,7 +163,7 @@ export const updateStaffLanguage = createAsyncThunk<
   try {
     const normalized = normalizeLocale(locale);
     const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
-    await api.patch(path, { preferred_language: normalized });
+    await api.patch(path, { preferred_language: normalized }, staffRequest);
     return { preferred_language: normalized, role };
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -176,7 +178,7 @@ export const uploadStaffAvatar = createAsyncThunk<
 >("staffAuth/uploadAvatar", async ({ image, role }, { rejectWithValue }) => {
   try {
     const path = role === "admin" ? "/auth/admin/avatar" : "/auth/organizer/avatar";
-    const { data } = await api.post(path, { image });
+    const { data } = await api.post(path, { image }, staffRequest);
     return (data.avatarUrl ?? data.avatar_url) as string;
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -191,7 +193,7 @@ export const removeStaffAvatar = createAsyncThunk<
 >("staffAuth/removeAvatar", async (role, { rejectWithValue }) => {
   try {
     const path = role === "admin" ? "/auth/admin/avatar" : "/auth/organizer/avatar";
-    await api.delete(path);
+    await api.delete(path, staffRequest);
     return null;
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
@@ -201,7 +203,7 @@ export const removeStaffAvatar = createAsyncThunk<
 
 export const staffLogout = createAsyncThunk("staffAuth/logout", async () => {
   try {
-    await api.post("/auth/logout", {}, { headers: { "X-Auth-Realm": "staff" } });
+    await api.post("/auth/logout", {}, { headers: staffAuthHeaders });
   } catch {
     /* ignore */
   }

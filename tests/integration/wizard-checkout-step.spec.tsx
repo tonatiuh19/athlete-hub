@@ -26,7 +26,7 @@ const checkoutResponse = {
   serviceFeeCents: 7200,
   currency: "MXN",
   categoryName: "Trail 10K",
-  eventTitle: "Trail Nevado de Toluca 2026",
+  eventTitle: "Desafío Trail Alto 2026 (Test Event)",
 };
 
 const mockPost = vi.fn().mockResolvedValue({ data: checkoutResponse });
@@ -37,6 +37,8 @@ vi.mock("@/lib/api", () => ({
     post: (...args: unknown[]) => mockPost(...args),
   },
   getAthleteToken: () => "token",
+  athleteAuthHeaders: { "X-Auth-Realm": "athlete" },
+  staffAuthHeaders: { "X-Auth-Realm": "staff" },
   isClerkEnabled: false,
 }));
 
@@ -130,7 +132,7 @@ function renderStep(
       <MemoryRouter>
         <WizardCheckoutStep
           slug="trail-nevado-toluca-2026"
-          eventTitle="Trail Nevado de Toluca 2026"
+          eventTitle="Desafío Trail Alto 2026 (Test Event)"
           category={category}
           fields={[]}
           serviceFeePercent={11}
@@ -186,6 +188,7 @@ describe("integration: WizardCheckoutStep UI audit", () => {
           categoryId: category.id,
           idempotencyKey: "test-idem-001",
         }),
+        { headers: { "X-Auth-Realm": "athlete" } },
       );
     });
 

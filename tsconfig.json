@@ -39,6 +39,8 @@
     "shared/**/*",
     "tests/**/*",
     "vite.config.ts",
+    "vite.dev.config.ts",
+    "vite.express-plugin.ts",
     "vitest.config.ts"
   ],
   "exclude": ["node_modules", "dist"]

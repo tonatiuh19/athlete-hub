@@ -46,6 +46,7 @@ type GeoCitySelectorProps = {
   staffRole?: "admin" | "organizer";
   /** Parent finished a cross-state name lookup without finding a catalog match */
   legacySearchResolved?: boolean;
+  className?: string;
 };
 
 export default function GeoCitySelector({
@@ -58,12 +59,12 @@ export default function GeoCitySelector({
   country = "MX",
   staffRole = "organizer",
   legacySearchResolved = false,
+  className,
 }: GeoCitySelectorProps) {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { states, citiesByStateId, loadingStates, loadingCities } = useAppSelector(
-    (s) => s.geo,
-  );
+  const { states, citiesByStateId, loadingStates, loadingCities, statesError, citiesError } =
+    useAppSelector((s) => s.geo);
 
   const [cityOpen, setCityOpen] = useState(false);
   const [citySearch, setCitySearch] = useState("");
@@ -145,7 +146,7 @@ export default function GeoCitySelector({
       stateId: nextStateId,
       geoCityId: null,
       city: "",
-      state: "",
+      state: state?.name ?? "",
       lat: null,
       lng: null,
     });
@@ -182,7 +183,7 @@ export default function GeoCitySelector({
       t("geo.citySelector.cityPlaceholder");
 
   return (
-    <div className="space-y-3">
+    <div className={cn("space-y-3 w-full min-w-0", className)}>
       {unresolvedLegacy ? (
         <Alert variant="destructive" className="border-destructive/40 bg-destructive/5">
           <AlertCircle className="h-4 w-4" />
@@ -208,15 +209,29 @@ export default function GeoCitySelector({
         </Alert>
       ) : null}
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="space-y-2">
+      {statesError ? (
+        <Alert variant="destructive" className="border-destructive/40 bg-destructive/5">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("geo.citySelector.statesLoadError")}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {citiesError && stateId ? (
+        <Alert variant="destructive" className="border-destructive/40 bg-destructive/5">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("geo.citySelector.citiesLoadError")}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2 min-w-0">
           <Label>{t("geo.citySelector.state")}</Label>
           <Select
             value={stateId ? String(stateId) : "none"}
             onValueChange={handleStateChange}
             disabled={disabled || loadingStates}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue placeholder={t("geo.citySelector.statePlaceholder")} />
             </SelectTrigger>
             <SelectContent>
@@ -230,7 +245,7 @@ export default function GeoCitySelector({
           </Select>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0">
           <Label>{t("geo.citySelector.city")}</Label>
           <Popover open={cityOpen} onOpenChange={setCityOpen}>
             <PopoverTrigger asChild>
@@ -241,7 +256,7 @@ export default function GeoCitySelector({
                 aria-expanded={cityOpen}
                 disabled={disabled || !stateId}
                 className={cn(
-                  "w-full justify-between font-normal",
+                  "w-full min-w-0 justify-between font-normal",
                   !selectedCity && "text-muted-foreground",
                   unresolvedLegacy && "border-destructive/60",
                 )}
@@ -297,6 +312,10 @@ export default function GeoCitySelector({
           {selectedState ? (
             <p className="text-xs text-muted-foreground">
               {t("geo.citySelector.hint", { state: selectedState.name })}
+            </p>
+          ) : !stateId ? (
+            <p className="text-xs text-muted-foreground">
+              {t("geo.citySelector.selectStateFirst")}
             </p>
           ) : null}
         </div>

@@ -36,6 +36,7 @@ const SPORT_CHIP: Record<string, string> = {
   trail: "bg-accent/20 text-accent border-accent/30",
   triathlon: "bg-cyan/20 text-cyan border-cyan/30",
   cycling: "bg-secondary text-foreground border-border",
+  fishing: "bg-accent/20 text-accent border-accent/30",
 };
 
 function dateKey(d: Date): string {
@@ -111,7 +112,7 @@ export default function EventsCalendarView({ events }: EventsCalendarViewProps) 
           </Button>
 
           <div className="text-center min-w-0 flex-1">
-            <div className="inline-flex items-center gap-2 text-cyan mb-0.5">
+            <div className="hidden sm:inline-flex items-center gap-2 text-cyan mb-0.5">
               <CalendarDays className="w-4 h-4 shrink-0" />
               <span className="text-[10px] font-semibold uppercase tracking-widest">
                 {t("eventsBrowse.calendarEyebrow")}
@@ -120,7 +121,7 @@ export default function EventsCalendarView({ events }: EventsCalendarViewProps) 
             <h2 className="text-base sm:text-lg font-bold text-white capitalize truncate">
               {format(month, "MMMM yyyy", { locale: dateLocale })}
             </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="hidden sm:block text-xs text-gray-500 mt-0.5">
               {t("eventsBrowse.calendarMonthSummary", { count: monthEventCount })}
             </p>
           </div>

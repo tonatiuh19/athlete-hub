@@ -126,7 +126,7 @@ export default function AdminCreateEventPage() {
       }),
     );
     if (createAdminEvent.fulfilled.match(result)) {
-      navigate(`/staff/events/${result.payload.event.id}/edit`);
+      navigate(`/staff/events/${result.payload.event.id}/edit`, { replace: true });
     }
   };
 

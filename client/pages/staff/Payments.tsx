@@ -7,7 +7,7 @@ import StaffAthleteDetailSheet from "@/components/staff/StaffAthleteDetailSheet"
 import StaffPaymentDetailSheet from "@/components/staff/StaffPaymentDetailSheet";
 import StaffPaymentsPanel from "@/components/staff/StaffPaymentsPanel";
 import { useAppSelector } from "@/store/hooks";
-import { canViewStaffPayments } from "@/utils/staffNav";
+import { canRefundStaffPayments, canViewStaffPayments } from "@/utils/staffNav";
 
 export default function StaffPayments() {
   const { t } = useTranslation();
@@ -19,6 +19,7 @@ export default function StaffPayments() {
 
   const organizerRole = user?.type === "organizer" ? user.role : undefined;
   const canAccess = canViewStaffPayments(role === "admin", organizerRole);
+  const canRefund = canRefundStaffPayments(role === "admin", organizerRole);
 
   if (!canAccess || !role) {
     return <Navigate to="/staff" replace />;
@@ -60,7 +61,7 @@ export default function StaffPayments() {
         open={paymentSheetOpen}
         onOpenChange={setPaymentSheetOpen}
         onViewAthlete={role === "admin" ? openAthlete : undefined}
-        allowRefund={role === "admin"}
+        allowRefund={canRefund}
       />
 
       {role === "admin" ? (

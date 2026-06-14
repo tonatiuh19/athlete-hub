@@ -18,9 +18,16 @@ import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import SponsorAnalyticsPanel from "@/components/staff/SponsorAnalyticsPanel";
 import StaffCheckInPanel from "@/components/staff/StaffCheckInPanel";
 import StaffEventRegistrationsPanel from "@/components/staff/StaffEventRegistrationsPanel";
+import StaffPaidEventPayoutAlert, {
+  eventNeedsPayoutAlert,
+} from "@/components/staff/StaffPaidEventPayoutAlert";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import {
+  ScrollableTabsList,
+  ScrollableTabsTrigger,
+} from "@/components/ui/scrollable-tabs";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   clearEventHub,
@@ -82,6 +89,12 @@ export default function StaffEventHub() {
   const event = eventDetail?.event;
   const summary = eventHubSummary;
   const isLoading = loadingEventDetail && !event;
+  const isAdmin = role === "admin";
+  const showPaymentsUnavailableAlert = eventNeedsPayoutAlert({
+    status: event?.status,
+    has_paid_categories: event?.has_paid_categories ?? eventHubSummary?.has_paid_categories,
+    payments_available: event?.payments_available ?? eventHubSummary?.payments_available,
+  });
   const loadError = eventDetailError || eventHubSummaryError;
 
   const reload = () => {
@@ -100,7 +113,7 @@ export default function StaffEventHub() {
         <div className="min-w-0">
           <Link
             to="/staff/events"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-cyan mb-2"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary mb-2"
           >
             <ArrowLeft className="w-4 h-4" />
             {t("staffPortal.eventHub.back")}
@@ -159,24 +172,31 @@ export default function StaffEventHub() {
 
       <PortalErrorAlert error={loadError} onRetry={reload} />
 
+      {showPaymentsUnavailableAlert ? (
+        <StaffPaidEventPayoutAlert
+          isAdmin={isAdmin}
+          eventEditPath={`/staff/events/${eventId}/edit`}
+        />
+      ) : null}
+
       {!loadError && event ? (
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="w-full sm:w-auto flex-wrap h-auto">
-            <TabsTrigger value="overview">
+          <ScrollableTabsList>
+            <ScrollableTabsTrigger value="overview">
               <LayoutDashboard className="w-4 h-4 mr-1.5 hidden sm:inline" />
               {t("staffPortal.eventHub.tabOverview")}
-            </TabsTrigger>
-            <TabsTrigger value="registrations">
+            </ScrollableTabsTrigger>
+            <ScrollableTabsTrigger value="registrations">
               <Users className="w-4 h-4 mr-1.5 hidden sm:inline" />
               {t("staffPortal.people.titleRegistrations")}
-            </TabsTrigger>
-            <TabsTrigger value="waitlist">{t("staffPortal.eventHub.tabWaitlist")}</TabsTrigger>
-            <TabsTrigger value="checkin">{t("staffPortal.eventHub.tabCheckIn")}</TabsTrigger>
-            <TabsTrigger value="sponsor-analytics">
+            </ScrollableTabsTrigger>
+            <ScrollableTabsTrigger value="waitlist">{t("staffPortal.eventHub.tabWaitlist")}</ScrollableTabsTrigger>
+            <ScrollableTabsTrigger value="checkin">{t("staffPortal.eventHub.tabCheckIn")}</ScrollableTabsTrigger>
+            <ScrollableTabsTrigger value="sponsor-analytics">
               <TrendingUp className="w-4 h-4 mr-1.5 hidden sm:inline" />
               {t("staffPortal.eventHub.tabSponsorAnalytics")}
-            </TabsTrigger>
-          </TabsList>
+            </ScrollableTabsTrigger>
+          </ScrollableTabsList>
 
           <TabsContent value="overview" className="mt-4 space-y-4">
             {loadingEventHubSummary && !summary ? (

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import StaffOrganizerEventsSection from "@/components/staff/StaffOrganizerEventsSection";
+import StaffAdminConnectPanel from "@/components/staff/StaffAdminConnectPanel";
 import {
   clearStaffOrganizerDetail,
   fetchStaffOrganizerDetail,
@@ -159,7 +160,8 @@ export default function StaffOrganizerDetailSheet({
             <div className="space-y-3">
               <h4 className="font-semibold">{t("staffPortal.staffManagement.teamSection")}</h4>
               <div className="card-sport overflow-hidden">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto overscroll-x-contain">
+                <table className="w-full text-sm min-w-[480px]">
                   <thead>
                     <tr className="border-b border-border text-left text-muted-foreground">
                       <th className="p-3 font-medium">{t("staffPortal.team.colName")}</th>
@@ -293,6 +295,7 @@ export default function StaffOrganizerDetailSheet({
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
 
@@ -356,24 +359,15 @@ export default function StaffOrganizerDetailSheet({
                       : t("staffPortal.finance.connectNone")}
                 </span>
               </div>
-              {organizer.stripe_account_id ? (
-                <p className="text-xs font-mono text-muted-foreground break-all">
-                  {organizer.stripe_account_id}
-                </p>
-              ) : null}
               {organizer.service_fee_percent != null ? (
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground">{t("staffPortal.finance.serviceFee")}</span>
                   <span>{organizer.service_fee_percent}%</span>
                 </div>
               ) : null}
-              {organizer.rfc ? (
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">RFC</span>
-                  <span>{organizer.rfc}</span>
-                </div>
-              ) : null}
             </div>
+
+            {organizerId ? <StaffAdminConnectPanel organizerId={organizerId} /> : null}
           </div>
         ) : null}
       </SheetContent>

@@ -65,7 +65,7 @@ export default function StaffPaymentDetailSheet({
 
   const handleRefund = () => {
     if (!payment || !window.confirm(t("staffPortal.finance.refundConfirm"))) return;
-    dispatch(refundStaffPayment({ paymentId: payment.id }));
+    dispatch(refundStaffPayment({ paymentId: payment.id, role }));
   };
 
   return (
@@ -186,7 +186,9 @@ export default function StaffPaymentDetailSheet({
                 ) : null}
                 {payment.stripe_payment_intent_id ? (
                   <>
-                    <dt className="text-muted-foreground col-span-2">Stripe PI</dt>
+                    <dt className="text-muted-foreground col-span-2">
+                      {t("staffPortal.finance.paymentReference")}
+                    </dt>
                     <dd className="col-span-2 font-mono text-xs break-all">
                       {payment.stripe_payment_intent_id}
                     </dd>
