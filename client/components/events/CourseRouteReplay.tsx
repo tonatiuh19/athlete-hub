@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import "leaflet/dist/leaflet.css";
 import type { GeoJsonLineString } from "@shared/api";
 import { MEXICO_CENTER } from "@/lib/leafletSetup";
+import { routeToLeafletPositions } from "@/utils/courseMapUtils";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -35,14 +36,10 @@ export default function CourseRouteReplay({
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
 
-  const positions = useMemo(() => {
-    if (!route || route.type !== "LineString" || !Array.isArray(route.coordinates)) {
-      return [] as [number, number][];
-    }
-    return route.coordinates
-      .map((c) => [Number(c[1]), Number(c[0])] as [number, number])
-      .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
-  }, [route]);
+  const positions = useMemo(
+    () => routeToLeafletPositions(route),
+    [route],
+  );
 
   const durationMs = Math.max(5000, Math.min(60000, finishTimeMs ?? 20000));
 

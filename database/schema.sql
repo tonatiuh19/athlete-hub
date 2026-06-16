@@ -521,13 +521,19 @@ CREATE TABLE `geo_cities` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `state_id` int unsigned NOT NULL,
   `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cvegeo` char(5) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'INEGI clave geoestadística (state+mun)',
+  `cve_ent` char(2) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'INEGI entidad federativa 01-32',
+  `cve_mun` char(3) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'INEGI municipio 001-999',
   `lat` decimal(10,7) DEFAULT NULL,
   `lng` decimal(10,7) DEFAULT NULL,
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'seed' COMMENT 'seed | inegi | manual',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
-  UNIQUE KEY `uk_geo_cities_state_name` (`state_id`,`name`),
+  KEY `idx_geo_cities_state_name` (`state_id`,`name`),
+  UNIQUE KEY `uk_geo_cities_cvegeo` (`cvegeo`),
   KEY `idx_geo_cities_state_active` (`state_id`,`is_active`),
+  KEY `idx_geo_cities_source` (`source`),
   CONSTRAINT `fk_geo_cities_state` FOREIGN KEY (`state_id`) REFERENCES `geo_states` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
 /*!40101 SET character_set_client = @saved_cs_client */;

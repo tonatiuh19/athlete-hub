@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { GeoJsonLineString, PaceHeatmapSegment } from "@shared/api";
+import { parseRouteGeoJson } from "@shared/courseGeoJson";
 import { cn } from "@/lib/utils";
 
 interface CoursePaceHeatmapProps {
@@ -24,14 +25,10 @@ export default function CoursePaceHeatmap({
 }: CoursePaceHeatmapProps) {
   const { t } = useTranslation();
 
-  const coords = useMemo(() => {
-    if (!route || route.type !== "LineString" || !Array.isArray(route.coordinates)) {
-      return [] as Array<[number, number]>;
-    }
-    return route.coordinates.map(
-      (c) => [Number(c[0]), Number(c[1])] as [number, number],
-    );
-  }, [route]);
+  const coords = useMemo(
+    () => parseRouteGeoJson(route).map((p) => [p.lng, p.lat] as [number, number]),
+    [route],
+  );
 
   const totalKm = segments.length > 0 ? segments[segments.length - 1].kmEnd : 0;
 

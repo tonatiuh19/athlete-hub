@@ -21,6 +21,7 @@ import {
 import MetaHelmet from "@/components/MetaHelmet";
 import { resolveAbsoluteImage, resolveAbsoluteUrl } from "@/lib/siteMeta";
 import EventsMap from "@/components/events/EventsMap";
+import CourseRouteDownloadPanel from "@/components/events/CourseRouteDownloadPanel";
 import EventSponsorsCarousel from "@/components/events/EventSponsorsCarousel";
 import EventMediaGallery from "@/components/events/EventMediaGallery";
 import ElevationProfileChart from "@/components/events/ElevationProfileChart";
@@ -279,7 +280,6 @@ export default function EventDetail() {
     sponsors,
     tags,
     scheduleWaves,
-    serviceFeePercent,
     myRegistration,
     media,
   } = eventDetail;
@@ -302,8 +302,8 @@ export default function EventDetail() {
 
   const minPrice = categories.reduce(
     (min, c) =>
-      c.total_cents != null && c.total_cents < min ? c.total_cents : min,
-    categories[0]?.total_cents ?? Infinity,
+      c.price_cents != null && c.price_cents < min ? c.price_cents : min,
+    categories[0]?.price_cents ?? Infinity,
   );
 
   const heroImage = optimizeEventMediaUrl(event.hero_image_url, "detail");
@@ -389,7 +389,7 @@ export default function EventDetail() {
             sizes="100vw"
             alt=""
             className="absolute inset-0 w-full h-full object-cover"
-            fetchPriority="high"
+            {...({ fetchpriority: "high" } as React.ImgHTMLAttributes<HTMLImageElement>)}
             decoding="async"
           />
         ) : (
@@ -432,6 +432,7 @@ export default function EventDetail() {
                 .filter(Boolean)
                 .join(" · ")}
             </span>
+            {/* Registration capacity counter hidden — re-enable when public counts are ready
             <span className="inline-flex items-center gap-2">
               <Users className="w-4 h-4 text-cyan" />
               {event.registration_count}
@@ -440,6 +441,7 @@ export default function EventDetail() {
                 : ""}{" "}
               {t("eventDetail.attendeesRegistered")}
             </span>
+            */}
           </div>
         </div>
       </section>
@@ -740,6 +742,14 @@ export default function EventDetail() {
                   className="rounded-xl w-full"
                 />
 
+                <CourseRouteDownloadPanel
+                  eventTitle={event.title}
+                  eventSlug={event.slug}
+                  course={course}
+                  isRegistered={isRegisteredConfirmed}
+                  onRegisterClick={() => setActiveTab("pricing")}
+                />
+
                 {course.elevationProfile &&
                 course.elevationProfile.length > 1 ? (
                   <ElevationProfileChart profile={course.elevationProfile} />
@@ -802,11 +812,6 @@ export default function EventDetail() {
               id="event-pricing"
               className="space-y-4 scroll-mt-[8rem]"
             >
-              <p className="text-sm text-gray-500 mb-2">
-                {t("eventDetail.serviceFeeNote", {
-                  percent: serviceFeePercent,
-                })}
-              </p>
               {!registrationOpen ? (
                 <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/5 flex gap-3">
                   <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
@@ -920,34 +925,14 @@ export default function EventDetail() {
                           {cat.description}
                         </p>
                       )}
-                      <div className="space-y-1 text-sm border-t border-gray-700/50 pt-3">
-                        <div className="flex justify-between text-gray-400">
-                          <span>{t("eventDetail.inscription")}</span>
-                          <span>
-                            {cat.price_formatted ||
-                              formatPriceMxn(cat.price_cents, i18n.language)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-gray-400">
-                          <span>{t("eventDetail.serviceFee")}</span>
-                          <span>
-                            {cat.service_fee_formatted ||
-                              formatPriceMxn(
-                                cat.service_fee_cents ?? 0,
-                                i18n.language,
-                              )}
-                          </span>
-                        </div>
-                        <div className="flex justify-between font-bold text-cyan pt-1">
-                          <span>{t("eventDetail.total")}</span>
-                          <span>
-                            {cat.total_formatted ||
-                              formatPriceMxn(
-                                cat.total_cents ?? cat.price_cents,
-                                i18n.language,
-                              )}
-                          </span>
-                        </div>
+                      <div className="flex justify-between items-center text-sm border-t border-gray-700/50 pt-3">
+                        <span className="text-gray-400">
+                          {t("eventDetail.inscription")}
+                        </span>
+                        <span className="font-bold text-cyan text-base">
+                          {cat.price_formatted ||
+                            formatPriceMxn(cat.price_cents, i18n.language)}
+                        </span>
                       </div>
                       {spotsLeft != null && !isSoldOut && (
                         <p className="text-xs text-gray-500 mt-3">

@@ -195,6 +195,8 @@ export default function StaffEventEdit() {
   const descriptionEditorRef = useRef<RichHtmlEditorHandle>(null);
   const descriptionHtmlRef = useRef("");
   const hydratedEventIdRef = useRef<number | null>(null);
+  const geoPickerHydratedRef = useRef<number | null>(null);
+  const geoUserTouchedRef = useRef(false);
   const formValuesRef = useRef(buildEventEditFormValues(undefined, []));
   const formikRef = useRef<FormikProps<EventEditFormValues> | null>(null);
   const [fieldDrafts, setFieldDrafts] = useState<EventRegistrationFieldInput[]>([]);
@@ -550,6 +552,8 @@ export default function StaffEventEdit() {
   );
 
   useEffect(() => {
+    geoUserTouchedRef.current = false;
+    geoPickerHydratedRef.current = null;
     if (isNew) {
       hydratedEventIdRef.current = null;
       return;
@@ -572,32 +576,6 @@ export default function StaffEventEdit() {
     void formik.setFieldValue("sport_type_id", sportTypes[0]!.id);
   }, [sportTypes, formik.values.sport_type_id, formik]);
 
-  // Hydrate picker from a saved event only — never reset while the user is selecting on create.
-  useEffect(() => {
-    if (isNew || !event?.location_city) return;
-    if (geoStates.length === 0) return;
-
-    const stateMatch = geoStates.find(
-      (s) =>
-        s.name === event.location_state ||
-        s.code === event.location_state ||
-        (!event.location_state && s.name === "CDMX"),
-    );
-    if (!stateMatch) return;
-
-    setGeoStateId((prev) => (prev === stateMatch.id ? prev : stateMatch.id));
-    if (!geoCitiesByState[stateMatch.id]) {
-      void dispatch(fetchGeoCities({ stateId: stateMatch.id }));
-    }
-  }, [
-    dispatch,
-    isNew,
-    event?.location_city,
-    event?.location_state,
-    geoStates,
-    geoCitiesByState,
-  ]);
-
   useEffect(() => {
     if (!isNew) return;
     setGeoStateId(null);
@@ -605,23 +583,49 @@ export default function StaffEventEdit() {
     setGeoLegacySearchResolved(false);
   }, [isNew]);
 
+  // One-time geo picker hydrate from saved event — never override after user edits.
   useEffect(() => {
-    if (!event?.location_city || geoStateId == null) return;
-    const cities = geoCitiesByState[geoStateId] ?? [];
-    if (cities.length === 0) return;
-    const cityMatch = cities.find((c) => c.name === event.location_city);
-    if (cityMatch) {
-      setGeoCityId((prev) => (prev === cityMatch.id ? prev : cityMatch.id));
-    }
-  }, [event?.location_city, geoStateId, geoCitiesByState]);
+    if (isNew || !event?.id || !event.location_city) return;
+    if (geoUserTouchedRef.current) return;
+    if (geoPickerHydratedRef.current === event.id) return;
+    if (geoStates.length === 0) return;
 
-  useEffect(() => {
-    if (!event?.location_city || event.location_state || geoStateId) {
-      setGeoLegacySearchResolved(false);
+    const applyCityMatch = (cities: { id: number; name: string }[]) => {
+      if (geoUserTouchedRef.current) return;
+      geoPickerHydratedRef.current = event.id;
+      const cityMatch = cities.find((c) => c.name === event.location_city);
+      if (cityMatch) {
+        setGeoCityId(cityMatch.id);
+      }
+    };
+
+    const stateMatch = geoStates.find(
+      (s) =>
+        s.name === event.location_state ||
+        s.code === event.location_state ||
+        (!event.location_state && s.name === "CDMX"),
+    );
+
+    if (stateMatch) {
+      setGeoStateId(stateMatch.id);
+      const cached = geoCitiesByState[stateMatch.id];
+      if (cached?.length) {
+        applyCityMatch(cached);
+        return;
+      }
+      void dispatch(fetchGeoCities({ stateId: stateMatch.id })).then((action) => {
+        if (!fetchGeoCities.fulfilled.match(action)) return;
+        applyCityMatch(action.payload.cities);
+      });
       return;
     }
+
+    if (event.location_state) return;
+
     void dispatch(fetchGeoCities({ q: event.location_city })).then((action) => {
+      if (geoUserTouchedRef.current) return;
       setGeoLegacySearchResolved(true);
+      geoPickerHydratedRef.current = event.id;
       if (!fetchGeoCities.fulfilled.match(action)) return;
       const match = action.payload.cities.find((c) => c.name === event.location_city);
       if (!match) return;
@@ -629,7 +633,16 @@ export default function StaffEventEdit() {
       setGeoCityId(match.id);
       void formik.setFieldValue("location_state", match.state_name);
     });
-  }, [dispatch, event?.location_city, event?.location_state, geoStateId]);
+  }, [
+    dispatch,
+    formik,
+    isNew,
+    event?.id,
+    event?.location_city,
+    event?.location_state,
+    geoStates,
+    geoCitiesByState,
+  ]);
 
   useEffect(() => {
     if (event?.hero_image_url && !heroPendingFile) {
@@ -1357,6 +1370,7 @@ export default function StaffEventEdit() {
                     staffRole={isAdmin ? "admin" : "organizer"}
                     legacySearchResolved={geoLegacySearchResolved}
                     onChange={(sel) => {
+                      geoUserTouchedRef.current = true;
                       setGeoStateId(sel.stateId);
                       setGeoCityId(sel.geoCityId);
                       setGeoLegacySearchResolved(false);

@@ -74,6 +74,13 @@ export function parseLineString(route: GeoJsonLineString | Record<string, unknow
   return parseRouteGeoJson(route);
 }
 
+/** Leaflet `[lat, lng]` positions from any supported route GeoJSON shape. */
+export function routeToLeafletPositions(
+  route: GeoJsonLineString | Record<string, unknown> | null | undefined,
+): [number, number][] {
+  return parseRouteGeoJson(route).map((p) => [p.lat, p.lng]);
+}
+
 export { getRouteImportSource };
 
 /** Approximate km from start along the route polyline */

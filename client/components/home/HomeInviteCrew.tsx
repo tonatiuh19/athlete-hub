@@ -131,7 +131,7 @@ export default function HomeInviteCrew({
   return (
     <section
       id="invite-crew"
-      className="py-16 md:py-20 px-4 md:px-6 relative overflow-hidden scroll-mt-[4.5rem]"
+      className="pt-4 pb-10 md:py-20 px-4 md:px-6 relative overflow-hidden scroll-mt-[4.5rem]"
     >
       <div className="max-w-7xl mx-auto w-full min-w-0 relative z-10">
         <motion.div

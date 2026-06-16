@@ -57,6 +57,8 @@ export default function EventCardImage({
   const srcSet = buildEventMediaSrcSet(src, displaySize);
   const sizes = eventMediaSizesAttr(displaySize);
   const showFallback = !resolvedSrc || failed;
+  const imgFetchPriority =
+    fetchPriority === "high" || fetchPriority === "low" ? fetchPriority : undefined;
 
   return (
     <div className={cn("relative overflow-hidden bg-surface-dark", className)}>
@@ -69,7 +71,9 @@ export default function EventCardImage({
           className={cn("w-full h-full object-cover", imgClassName)}
           loading={fetchPriority === "high" ? "eager" : "lazy"}
           decoding="async"
-          fetchPriority={fetchPriority}
+          {...(imgFetchPriority
+            ? ({ fetchpriority: imgFetchPriority } as React.ImgHTMLAttributes<HTMLImageElement>)
+            : {})}
           onError={() => setFailed(true)}
         />
       ) : (

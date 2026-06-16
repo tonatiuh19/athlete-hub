@@ -8,6 +8,7 @@ import HomeSportTypesSection from "@/components/home/HomeSportTypesSection";
 import HomeEventsMapSection from "@/components/home/HomeEventsMapSection";
 import HomeInviteCrew from "@/components/home/HomeInviteCrew";
 import HomeBlogSection from "@/components/home/HomeBlogSection";
+import HomeFeaturedEventsMobile from "@/components/home/HomeFeaturedEventsMobile";
 import FeaturedEventsSkeleton from "@/components/home/FeaturedEventsSkeleton";
 import EventCardImage from "@/components/events/EventCardImage";
 import SportKindIcon from "@/components/events/SportKindIcon";
@@ -193,46 +194,45 @@ export default function Index() {
       {loading ? (
         <FeaturedEventsSkeleton />
       ) : homeEvents.length > 0 ? (
-        <section
-          id="events"
-          className="pt-3 pb-14 md:pt-8 md:pb-20 px-4 md:px-6 scroll-mt-[4.5rem]"
-        >
-          <div className="max-w-7xl mx-auto w-full min-w-0">
-            <SectionHeader
-              title={t("home.events.title")}
-              subtitle={t("home.events.subtitle")}
-              hideOnMobile
-            />
+        <>
+          <HomeFeaturedEventsMobile events={homeEvents} />
+          <section className="hidden md:block pt-3 pb-14 md:pt-0 md:pb-20 px-4 md:px-6 scroll-mt-[4.5rem]">
+            <div className="max-w-7xl mx-auto w-full min-w-0">
+              <SectionHeader
+                title={t("home.events.title")}
+                subtitle={t("home.events.subtitle")}
+              />
 
-            <motion.div
-              variants={containerVariants}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true }}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            >
-              {homeEvents.map((event) => (
-                <motion.div
-                  key={event.slug}
-                  variants={itemVariants}
-                  className="h-full"
-                >
-                  <EventCard
-                    title={event.title}
-                    location={event.location}
-                    date={event.date}
-                    distance={event.distance}
-                    category={event.category}
-                    sportSlug={event.sportSlug}
-                    imageUrl={event.imageUrl}
-                    slug={event.slug}
-                    joinLabel={t("home.events.join")}
-                  />
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
-        </section>
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              >
+                {homeEvents.map((event) => (
+                  <motion.div
+                    key={event.slug}
+                    variants={itemVariants}
+                    className="h-full"
+                  >
+                    <EventCard
+                      title={event.title}
+                      location={event.location}
+                      date={event.date}
+                      distance={event.distance}
+                      category={event.category}
+                      sportSlug={event.sportSlug}
+                      imageUrl={event.imageUrl}
+                      slug={event.slug}
+                      joinLabel={t("home.events.join")}
+                    />
+                  </motion.div>
+                ))}
+              </motion.div>
+            </div>
+          </section>
+        </>
       ) : null}
 
       {!loading && homeEventsRaw.length > 0 ? (

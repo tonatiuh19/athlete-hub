@@ -15,6 +15,7 @@ import { isClerkEnabled } from "@/lib/api";
 import ClerkRouterProvider from "@/components/auth/ClerkRouterProvider";
 import I18nSync from "@/components/I18nSync";
 import ScrollToTop from "@/components/ScrollToTop";
+import AppMobileTabBar from "@/components/layouts/AppMobileTabBar";
 import RegistrationPaymentReturnHandler from "@/components/events/registration/RegistrationPaymentReturnHandler";
 import StaffLayout from "@/components/layouts/StaffLayout";
 import AthleteLayout from "@/components/layouts/AthleteLayout";
@@ -73,8 +74,9 @@ function RouteFallback() {
 
 function AppRoutes() {
   const routes = (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
+    <>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
           <Route element={<PublicSiteLayout />}>
             <Route path="/" element={<Index />} />
             <Route path="/events" element={<EventsBrowse />} />
@@ -135,6 +137,8 @@ function AppRoutes() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
+      <AppMobileTabBar />
+    </>
   );
 
   if (isClerkEnabled) {

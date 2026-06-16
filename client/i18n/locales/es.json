@@ -1569,6 +1569,15 @@
       "mobileLocationTimeout": "La solicitud de ubicación expiró. Intenta de nuevo o elige una ciudad manualmente.",
       "mobileLocationUnsupported": "Tu navegador no admite servicios de ubicación.",
       "mobileLocationNoCity": "No encontramos ciudades cercanas con eventos. Elige una ciudad manualmente.",
+      "openFilters": "Abrir filtros de eventos",
+      "filters": {
+        "title": "Afina tu búsqueda",
+        "subtitle": "Deporte, ubicación y fechas — luego explora los eventos.",
+        "when": "Cuándo",
+        "citySearch": "Buscar ciudades…",
+        "apply": "Ver eventos",
+        "applyWithCount": "Ver eventos ({{count}} filtros)"
+      },
       "trends": "Tendencias:",
       "trend": {
         "maraton-cdmx-2026": "Gran Carrera Urbana",
@@ -1601,7 +1610,8 @@
     "disciplinesLabel": "Explora por disciplina",
     "sportTypes": {
       "sectionLabel": "Explora eventos por deporte",
-      "browseSport": "Ver eventos de {{sport}}"
+      "browseSport": "Ver eventos de {{sport}}",
+      "chipsLabel": "Filtros rápidos por deporte"
     },
     "map": {
       "sectionLabel": "Mapa de eventos",
@@ -1609,7 +1619,10 @@
       "title": "Encuentra tu próxima meta",
       "subtitle": "Toca un pin o elige un evento de la lista — descubre carreras y competencias en México.",
       "exploreAll": "Mapa completo",
-      "onMap": "{{count}} en el mapa"
+      "onMap": "{{count}} en el mapa",
+      "mobileTitle": "Eventos cerca de ti",
+      "mobileSubtitle": "Explora lo que sucede a tu alrededor.",
+      "viewMap": "Ver mapa"
     },
     "inviteCrew": {
       "eyebrow": "Corre en equipo",
@@ -1643,6 +1656,12 @@
     },
     "events": {
       "title": "Eventos",
+      "featuredTitle": "Eventos destacados",
+      "viewAll": "Ver todos",
+      "seeMoreTitle": "Tu próxima meta",
+      "seeMoreSubtitle": "Triatlones, trails, ciclismo y más en todo México",
+      "seeMoreSubtitleWithCount": "+{{count}} eventos más te esperan",
+      "seeMoreCta": "Explorar todos",
       "subtitle": "Explora competiciones en México y más allá",
       "loadingLabel": "Cargando eventos",
       "join": "Unirse"
@@ -1894,6 +1913,14 @@
     "elevation": "Desnivel",
     "aidStations": "Puntos de hidratación",
     "noCourse": "El mapa del recorrido estará disponible pronto.",
+    "courseGpxTitle": "Lleva el recorrido a tu GPS",
+    "courseGpxLegend": "Al inscribirte en este evento podrás descargar el recorrido oficial en formato GPX y cargarlo en tu reloj o ciclocomputador para seguir la ruta el día de la carrera.",
+    "courseGpxDevices": "Compatible con Garmin, Wahoo, Coros, Suunto, Polar y cualquier dispositivo o app que acepte archivos GPX.",
+    "courseGpxDownload": "Descargar ruta GPX",
+    "courseGpxDownloadSuccess": "Archivo GPX descargado — impórtalo en Garmin Connect, Wahoo o la app de tu dispositivo.",
+    "courseGpxDownloadError": "No se pudo generar el archivo GPX de este recorrido. Intenta más tarde o contacta al organizador.",
+    "courseGpxRegisterHint": "Inscríbete en este evento para desbloquear la descarga del recorrido en GPX.",
+    "courseGpxRegisterCta": "Inscribirme para descargar",
     "serviceFeeNote": "Los precios incluyen una comisión del {{percent}}% de la plataforma al pagar.",
     "inscription": "Inscripción",
     "serviceFee": "Comisión",

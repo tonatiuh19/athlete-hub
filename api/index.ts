@@ -4680,6 +4680,17 @@ function registerMarketplaceRoutes(app: express.Express) {
       ]);
       const cityParams = likePatterns.flatMap((pattern) => [pattern, pattern]);
 
+      const geoCityOrClauses = likePatterns.flatMap(() => [
+        `gc.name LIKE ?`,
+        `gs.name LIKE ?`,
+        `gs.code LIKE ?`,
+      ]);
+      const geoCityParams = likePatterns.flatMap((pattern) => [
+        pattern,
+        pattern,
+        pattern,
+      ]);
+
       const sportOrClauses = likePatterns.flatMap(() => [
         `name LIKE ?`,
         `slug LIKE ?`,
@@ -4689,7 +4700,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       const hasTokenFilter = likePatterns.length > 0;
       const emptyRows: RowDataPacket[] = [];
 
-      const [eventsResult, eventsBroadResult, citiesResult, sportsResult, sportsBroadResult] =
+      const [eventsResult, eventsBroadResult, citiesResult, geoCatalogCitiesResult, sportsResult, sportsBroadResult] =
         await Promise.allSettled([
         hasTokenFilter
           ? pool.query<RowDataPacket[]>(
@@ -4730,6 +4741,26 @@ function registerMarketplaceRoutes(app: express.Express) {
           : Promise.resolve([emptyRows, []] as [RowDataPacket[], unknown[]]),
         hasTokenFilter
           ? pool.query<RowDataPacket[]>(
+              `SELECT gc.id, gc.name AS city, gs.name AS state,
+                  COALESCE(ec.event_count, 0) AS event_count
+           FROM geo_cities gc
+           JOIN geo_states gs ON gs.id = gc.state_id AND gs.country = 'MX' AND gs.is_active = 1
+           LEFT JOIN (
+             SELECT e.location_city, e.location_state, COUNT(*) AS event_count
+             FROM events e
+             WHERE ${published}
+             GROUP BY e.location_city, e.location_state
+           ) ec ON ec.location_city = gc.name
+             AND (ec.location_state = gs.name OR ec.location_state = gs.code)
+           WHERE gc.is_active = 1
+             AND (${geoCityOrClauses.join(" OR ")})
+           ORDER BY event_count DESC, gc.name ASC
+           LIMIT 20`,
+              geoCityParams,
+            )
+          : Promise.resolve([emptyRows, []] as [RowDataPacket[], unknown[]]),
+        hasTokenFilter
+          ? pool.query<RowDataPacket[]>(
               `SELECT slug, name, icon
            FROM sport_types
            WHERE is_active = 1 AND (${sportOrClauses.join(" OR ")})
@@ -4753,6 +4784,10 @@ function registerMarketplaceRoutes(app: express.Express) {
         eventsBroadResult.status === "fulfilled" ? eventsBroadResult.value[0] : emptyRows;
       const rawCities: RowDataPacket[] =
         citiesResult.status === "fulfilled" ? citiesResult.value[0] : emptyRows;
+      const rawGeoCatalogCities: RowDataPacket[] =
+        geoCatalogCitiesResult.status === "fulfilled"
+          ? geoCatalogCitiesResult.value[0]
+          : emptyRows;
       const rawSportsMatched: RowDataPacket[] =
         sportsResult.status === "fulfilled" ? sportsResult.value[0] : emptyRows;
       const rawSportsBroad: RowDataPacket[] =
@@ -4766,6 +4801,12 @@ function registerMarketplaceRoutes(app: express.Express) {
       }
       if (citiesResult.status === "rejected") {
         console.error("[GET /api/search/suggest] cities", citiesResult.reason);
+      }
+      if (geoCatalogCitiesResult.status === "rejected") {
+        console.error(
+          "[GET /api/search/suggest] geo-catalog-cities",
+          geoCatalogCitiesResult.reason,
+        );
       }
       if (sportsResult.status === "rejected") {
         console.error("[GET /api/search/suggest] sports", sportsResult.reason);
@@ -4806,9 +4847,14 @@ function registerMarketplaceRoutes(app: express.Express) {
       ).map(stripEventExtras);
 
       const seenCities = new Set<string>();
+      const cityPool = [...rawCities, ...rawGeoCatalogCities].sort(
+        (a, b) => Number(b.event_count ?? 0) - Number(a.event_count ?? 0),
+      );
       const cities = rankByFuzzy(
-        rawCities.filter((row) => {
-          const key = `${row.city}|${row.state ?? ""}`;
+        cityPool.filter((row) => {
+          const key = row.id
+            ? `id:${row.id}`
+            : `${row.city}|${row.state ?? ""}`;
           if (seenCities.has(key)) return false;
           seenCities.add(key);
           return true;
@@ -4835,7 +4881,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         events.length > 0
           ? events
           : rankByFuzzy(eventPool, q, (row) => [row.title as string], 6).map(stripEventExtras);
-      const citiesOut = cities.length > 0 ? cities : rawCities.slice(0, 5);
+      const citiesOut = cities.length > 0 ? cities : cityPool.slice(0, 5);
       const sportsOut =
         sports.length > 0
           ? sports

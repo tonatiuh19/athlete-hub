@@ -8,6 +8,12 @@ import HeroSearchDropdown, {
   type HeroSearchFlatItem,
 } from "@/components/home/HeroSearchDropdown";
 import HeroMobileSearchPanel from "@/components/home/HeroMobileSearchPanel";
+import {
+  marketplaceSearchGlowClass,
+  marketplaceSearchInnerClass,
+  marketplaceSearchInputClass,
+  marketplaceSearchOuterClass,
+} from "@/components/events/marketplaceSearchBarStyles";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -15,8 +21,7 @@ import {
   fetchSearchSuggestions,
 } from "@/store/slices/marketplaceSlice";
 
-const heroInputClass =
-  "w-full min-w-0 h-12 flex-1 bg-transparent border-0 p-0 m-0 text-base text-white placeholder:text-white/40 outline-none shadow-none ring-0 appearance-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 caret-primary";
+const heroInputClass = marketplaceSearchInputClass("hero");
 
 export default function HeroSearchBar() {
   const { t } = useTranslation();
@@ -143,18 +148,14 @@ export default function HeroSearchBar() {
         )}
       >
       <form onSubmit={handleSearch} className="relative z-10">
-        <div
-          className="absolute -inset-1 z-0 rounded-[1.35rem] bg-triboo-gradient opacity-20 blur-xl group-hover:opacity-35 transition-opacity duration-500 pointer-events-none"
-          aria-hidden
-        />
-        <div
-          className={cn(
-            "relative z-10 flex flex-col sm:flex-row gap-2 sm:gap-0 rounded-2xl border bg-white/[0.08] backdrop-blur-2xl p-2 transition-[border-color,box-shadow] duration-200",
-            open
-              ? "border-primary/30 shadow-none"
-              : "border-white/12 shadow-[0_20px_60px_rgba(0,0,0,0.5)]",
-          )}
-        >
+        <div className={marketplaceSearchGlowClass(open)} aria-hidden />
+        <div className={marketplaceSearchOuterClass(open)}>
+          <div
+            className={cn(
+              marketplaceSearchInnerClass(open),
+              "flex-col sm:flex-row gap-2 sm:gap-0 p-2 sm:p-2",
+            )}
+          >
           <div
             className={cn(
               "flex flex-1 items-center gap-2.5 px-3 min-h-[52px] min-w-0 rounded-xl sm:rounded-l-xl sm:rounded-r-none transition-colors duration-200",
@@ -210,6 +211,7 @@ export default function HeroSearchBar() {
           >
             {t("home.hero.searchCta")}
           </Button>
+          </div>
         </div>
       </form>
 

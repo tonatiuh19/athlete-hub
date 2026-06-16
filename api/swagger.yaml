@@ -545,6 +545,9 @@ paths:
     get:
       tags: [Marketplace]
       summary: Unified autocomplete for events, cities, and sports
+      description: |
+        City suggestions include published event locations and matches from the
+        INEGI municipio catalog (geo_cities), with geoCityId when available.
       parameters:
         - name: q
           in: query

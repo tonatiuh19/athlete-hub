@@ -32,7 +32,7 @@ export default function HeroVideoBackground() {
   const showPoster = videoFailed || !videoReady;
 
   return (
-    <div className="absolute inset-0 overflow-hidden">
+    <div className="absolute inset-0 overflow-hidden hidden md:block">
       <div className="absolute inset-0 hero-ken-burns">
         <img
           src={HERO_POSTER_URL}

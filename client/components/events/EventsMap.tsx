@@ -15,11 +15,14 @@ import type { CoursePoint, EventListItem } from "@shared/api";
 import {
   getEventPinIcon,
   MEXICO_CENTER,
-  parseCoord,
+  parseEventLatLng,
+  isValidLatLngPair,
   pointColor,
+  safeMapFlyTo,
 } from "@/lib/leafletSetup";
 import type { GeoJsonLineString } from "@shared/api";
 import { formatEventDate } from "@/utils/eventFormat";
+import { routeToLeafletPositions } from "@/utils/courseMapUtils";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +34,8 @@ import {
 interface EventsMapProps {
   events?: EventListItem[];
   selectedSlug?: string | null;
+  /** When provided, only this slug triggers flyTo (null = never fly). Omit to use selectedSlug. */
+  flyToSlug?: string | null;
   onSelectEvent?: (slug: string) => void;
   courseRoute?: GeoJsonLineString | Record<string, unknown> | null;
   coursePoints?: CoursePoint[];
@@ -57,18 +62,19 @@ function FitBounds({
     const coords: [number, number][] = [];
 
     events.forEach((ev) => {
-      const lat = parseCoord(ev.location_lat);
-      const lng = parseCoord(ev.location_lng);
-      if (lat != null && lng != null) coords.push([lat, lng]);
+      const pos = parseEventLatLng(ev);
+      if (pos) coords.push(pos);
     });
 
-    if (courseRoute && courseRoute.type === "LineString" && Array.isArray(courseRoute.coordinates)) {
-      courseRoute.coordinates.forEach((c) => {
-        if (Array.isArray(c) && c.length >= 2) coords.push([Number(c[1]), Number(c[0])]);
-      });
+    if (courseRoute) {
+      for (const pos of routeToLeafletPositions(courseRoute)) {
+        if (isValidLatLngPair(pos[0], pos[1])) coords.push(pos);
+      }
     }
 
-    coursePoints?.forEach((p) => coords.push([p.lat, p.lng]));
+    coursePoints?.forEach((p) => {
+      if (isValidLatLngPair(p.lat, p.lng)) coords.push([p.lat, p.lng]);
+    });
 
     if (coords.length === 0) {
       map.setView(MEXICO_CENTER, 5);
@@ -99,10 +105,9 @@ function FlyToSelected({
     if (!slug) return;
     const ev = events.find((e) => e.slug === slug);
     if (!ev) return;
-    const lat = parseCoord(ev.location_lat);
-    const lng = parseCoord(ev.location_lng);
-    if (lat == null || lng == null) return;
-    map.flyTo([lat, lng], Math.max(map.getZoom(), 11), { duration: 0.75 });
+    const pos = parseEventLatLng(ev);
+    if (!pos) return;
+    safeMapFlyTo(map, pos[0], pos[1]);
   }, [slug, events, map]);
 
   return null;
@@ -130,6 +135,7 @@ function MapPopupContent({ event }: { event: EventListItem }) {
 export default function EventsMap({
   events = [],
   selectedSlug,
+  flyToSlug,
   onSelectEvent,
   courseRoute,
   coursePoints,
@@ -143,16 +149,18 @@ export default function EventsMap({
     setMounted(true);
   }, []);
 
-  const routePositions = useMemo(() => {
-    if (!courseRoute || courseRoute.type !== "LineString") return [];
-    const coords = (courseRoute as GeoJsonLineString).coordinates;
-    if (!Array.isArray(coords)) return [];
-    return coords.map((c) => [Number(c[1]), Number(c[0])] as [number, number]);
-  }, [courseRoute]);
-
-  const mappableEvents = events.filter(
-    (e) => parseCoord(e.location_lat) != null && parseCoord(e.location_lng) != null,
+  const routePositions = useMemo(
+    () => routeToLeafletPositions(courseRoute),
+    [courseRoute],
   );
+
+  const mappableEvents = useMemo(
+    () => events.filter((e) => parseEventLatLng(e) != null),
+    [events],
+  );
+
+  const resolvedFlyToSlug = flyToSlug !== undefined ? flyToSlug : selectedSlug;
+  const fitBoundsSelectionSlug = resolvedFlyToSlug ?? null;
 
   const shellClass = cn(
     "w-full overflow-hidden rounded-xl border border-gray-700/50",
@@ -174,6 +182,10 @@ export default function EventsMap({
         zoom={5}
         scrollWheelZoom={interactive}
         dragging={interactive}
+        touchZoom={interactive}
+        doubleClickZoom={interactive}
+        boxZoom={interactive}
+        keyboard={interactive}
         zoomControl={interactive}
         className="events-leaflet-map z-0"
         style={{ height, width: "100%" }}
@@ -189,9 +201,9 @@ export default function EventsMap({
           events={mappableEvents}
           courseRoute={courseRoute}
           coursePoints={coursePoints}
-          selectedSlug={selectedSlug}
+          selectedSlug={fitBoundsSelectionSlug}
         />
-        <FlyToSelected slug={selectedSlug} events={mappableEvents} />
+        <FlyToSelected slug={resolvedFlyToSlug} events={mappableEvents} />
 
         {routePositions.length > 1 && (
           <>
@@ -229,8 +241,9 @@ export default function EventsMap({
         ))}
 
         {mappableEvents.map((ev) => {
-          const lat = parseCoord(ev.location_lat)!;
-          const lng = parseCoord(ev.location_lng)!;
+          const pos = parseEventLatLng(ev);
+          if (!pos) return null;
+          const [lat, lng] = pos;
           const isSelected = ev.slug === selectedSlug;
           return (
             <Marker

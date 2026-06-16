@@ -1569,6 +1569,15 @@
       "mobileLocationTimeout": "Location request timed out. Try again or pick a city manually.",
       "mobileLocationUnsupported": "Your browser does not support location services.",
       "mobileLocationNoCity": "No nearby cities with events were found. Pick a city manually.",
+      "openFilters": "Open event filters",
+      "filters": {
+        "title": "Refine your search",
+        "subtitle": "Sport, location, and dates — then explore matching events.",
+        "when": "When",
+        "citySearch": "Search cities…",
+        "apply": "Show events",
+        "applyWithCount": "Show events ({{count}} filters)"
+      },
       "trends": "Trending:",
       "trend": {
         "maraton-cdmx-2026": "City Marathon Series",
@@ -1601,7 +1610,8 @@
     "disciplinesLabel": "Explore by discipline",
     "sportTypes": {
       "sectionLabel": "Browse events by sport",
-      "browseSport": "Browse {{sport}} events"
+      "browseSport": "Browse {{sport}} events",
+      "chipsLabel": "Quick filters by sport"
     },
     "map": {
       "sectionLabel": "Events map",
@@ -1609,7 +1619,10 @@
       "title": "Find your next start line",
       "subtitle": "Tap a pin or pick an event from the list — discover races and competitions across Mexico.",
       "exploreAll": "Full event map",
-      "onMap": "{{count}} on map"
+      "onMap": "{{count}} on map",
+      "mobileTitle": "Events near you",
+      "mobileSubtitle": "See what's happening around you.",
+      "viewMap": "View map"
     },
     "inviteCrew": {
       "eyebrow": "Race together",
@@ -1643,6 +1656,12 @@
     },
     "events": {
       "title": "Events",
+      "featuredTitle": "Featured events",
+      "viewAll": "See all",
+      "seeMoreTitle": "Your next start line",
+      "seeMoreSubtitle": "Triathlons, trails, rides & more across Mexico",
+      "seeMoreSubtitleWithCount": "+{{count}} more events waiting for you",
+      "seeMoreCta": "Explore all",
       "subtitle": "Browse competitions across Mexico and beyond",
       "loadingLabel": "Loading events",
       "join": "Join"
@@ -1894,6 +1913,14 @@
     "elevation": "Elevation gain",
     "aidStations": "Aid stations",
     "noCourse": "Course map coming soon.",
+    "courseGpxTitle": "Take the route to your GPS device",
+    "courseGpxLegend": "After you register for this event, download the official course as a GPX file and load it on your watch or bike computer for turn-by-turn guidance on race day.",
+    "courseGpxDevices": "Compatible with Garmin, Wahoo, Coros, Suunto, Polar, and any device or app that accepts GPX files.",
+    "courseGpxDownload": "Download GPX route",
+    "courseGpxDownloadSuccess": "GPX file downloaded — import it in Garmin Connect, Wahoo, or your device app.",
+    "courseGpxDownloadError": "Could not build a GPX file for this course. Try again later or contact the organizer.",
+    "courseGpxRegisterHint": "Register for this event to unlock the downloadable GPX route.",
+    "courseGpxRegisterCta": "Register to download",
     "serviceFeeNote": "Prices include a {{percent}}% platform service fee at checkout.",
     "inscription": "Registration",
     "serviceFee": "Service fee",

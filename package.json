@@ -13,7 +13,8 @@
     "format.fix": "prettier --write .",
     "typecheck": "tsc",
     "deploy:prod": "tsx scripts/deploy-prod.ts",
-    "reset:test-athlete": "node scripts/reset-test-athlete.mjs"
+    "reset:test-athlete": "node scripts/reset-test-athlete.mjs",
+    "seed:inegi-municipios": "node scripts/fetch-inegi-municipios.mjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.4.14",

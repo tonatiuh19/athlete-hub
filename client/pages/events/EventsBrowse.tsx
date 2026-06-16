@@ -7,19 +7,18 @@ import {
   Map,
   LayoutGrid,
   Loader2,
-  SlidersHorizontal,
   MapPin,
 } from "lucide-react";
 import MetaHelmet, { DEFAULT_OG_IMAGE } from "@/components/MetaHelmet";
 import EventsCalendarView from "@/components/events/EventsCalendarView";
 import EventsFiltersSidebar from "@/components/events/EventsFiltersSidebar";
-import EventsSearchCombobox from "@/components/events/EventsSearchCombobox";
+import MarketplaceSearchBar from "@/components/events/MarketplaceSearchBar";
 import SportTypesCardCarousel from "@/components/events/SportTypesCardCarousel";
 import EventsMap from "@/components/events/EventsMap";
 import MapEventPreview from "@/components/events/MapEventPreview";
 import MarketplaceEventCard from "@/components/events/MarketplaceEventCard";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchFilterCities,
@@ -63,6 +62,8 @@ export default function EventsBrowse() {
   const [searchInput, setSearchInput] = useState(
     () => filtersFromSearchParams(searchParams).q ?? "",
   );
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const initialViewParam = searchParams.get("view");
 
   const applyFiltersPatch = useCallback(
     (patch: Partial<typeof filters>) => {
@@ -84,9 +85,13 @@ export default function EventsBrowse() {
   useEffect(() => {
     dispatch(fetchSportTypes());
     dispatch(fetchFilterCities());
+    if (initialViewParam === "map") {
+      dispatch(setViewMode("map"));
+      return;
+    }
     const isDesktop = window.matchMedia("(min-width: 1024px)").matches;
     dispatch(setViewMode(isDesktop ? "split" : "grid"));
-  }, [dispatch]);
+  }, [dispatch, initialViewParam]);
 
   useEffect(() => {
     if (skipUrlSyncRef.current) {
@@ -166,45 +171,41 @@ export default function EventsBrowse() {
           </p>
 
           <div className="flex flex-col gap-3 max-w-3xl">
-            <div className="flex gap-2 sm:gap-3">
-              <EventsSearchCombobox
-                className="min-w-0 flex-1"
-                value={searchInput}
-                onChange={setSearchInput}
-                onApplyQuery={(q) => applyFiltersPatch({ q })}
-                onApplySport={(sport) => applyFiltersPatch({ sport })}
-                onApplyCity={(city, geoCityId) =>
-                  applyFiltersPatch({
-                    geoCityId: geoCityId ? String(geoCityId) : "",
-                    city: geoCityId ? "" : city,
-                  })
-                }
-              />
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-11 w-11 shrink-0 border-gray-700 rounded-xl lg:hidden"
-                    aria-label={t("eventsBrowse.filters")}
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                    <span className="sr-only">{t("eventsBrowse.filters")}</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="w-[min(320px,100vw)] bg-bg-dark border-gray-800 overflow-y-auto p-0">
-                  <div className="p-4">
-                    <EventsFiltersSidebar
-                      filters={filters}
-                      sportTypes={sportTypes}
-                      cities={cities}
-                      onChange={applyFiltersPatch}
-                      onReset={resetAllFilters}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </div>
+            <MarketplaceSearchBar
+              value={searchInput}
+              onChange={setSearchInput}
+              onApplyQuery={(q) => applyFiltersPatch({ q })}
+              onApplySport={(sport) => applyFiltersPatch({ sport })}
+              onApplyCity={(city, geoCityId) =>
+                applyFiltersPatch({
+                  geoCityId: geoCityId ? String(geoCityId) : "",
+                  city: geoCityId ? "" : city,
+                })
+              }
+              placeholder={t("eventsBrowse.searchPlaceholder")}
+              listboxId="events-browse-search-listbox"
+              tone="hero"
+              showFilters
+              filtersOpen={mobileFiltersOpen}
+              onFiltersClick={() => setMobileFiltersOpen(true)}
+            />
+
+            <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+              <SheetContent
+                side="left"
+                className="w-[min(320px,100vw)] bg-background border-border overflow-y-auto p-0 lg:hidden"
+              >
+                <div className="p-4">
+                  <EventsFiltersSidebar
+                    filters={filters}
+                    sportTypes={sportTypes}
+                    cities={cities}
+                    onChange={applyFiltersPatch}
+                    onReset={resetAllFilters}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
 
             {sportTypes.length > 0 ? (
               <SportTypesCardCarousel

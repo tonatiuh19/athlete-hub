@@ -90,6 +90,13 @@ export default function GeoCitySelector({
     return () => window.clearTimeout(timer);
   }, [dispatch, stateId, citySearch, country]);
 
+  useEffect(() => {
+    if (!stateId || !cityId || !cityName.trim()) return;
+    const cached = citiesByStateId[stateId] ?? [];
+    if (cached.some((c) => c.id === cityId)) return;
+    dispatch(fetchGeoCities({ stateId, q: cityName.trim(), country }));
+  }, [dispatch, stateId, cityId, cityName, citiesByStateId, country]);
+
   const cities = stateId ? (citiesByStateId[stateId] ?? []) : [];
   const citiesLoadedForState =
     stateId != null && citiesByStateId[stateId] !== undefined && !loadingCities;

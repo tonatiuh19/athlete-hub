@@ -4,9 +4,55 @@ import { getSportPinTheme, resolveSportKind } from "@/utils/sportKind";
 export const MEXICO_CENTER: [number, number] = [19.4326, -99.1332];
 
 export function parseCoord(v: unknown): number | null {
-  if (v == null || v === "") return null;
-  const n = Number(v);
+  if (v == null) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  const n = typeof v === "number" ? v : Number(String(v).trim());
   return Number.isFinite(n) ? n : null;
+}
+
+export function parseEventLatLng(event: {
+  location_lat?: unknown;
+  location_lng?: unknown;
+}): [number, number] | null {
+  const lat = parseCoord(event.location_lat);
+  const lng = parseCoord(event.location_lng);
+  if (lat == null || lng == null || !isValidLatLngPair(lat, lng)) return null;
+  return [lat, lng];
+}
+
+export function isValidLatLngPair(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng);
+}
+
+/** Fly map to a coordinate when the container is ready; falls back to setView on failure. */
+export function safeMapFlyTo(
+  map: L.Map,
+  lat: number,
+  lng: number,
+  minZoom = 11,
+): void {
+  if (!isValidLatLngPair(lat, lng)) return;
+
+  const run = () => {
+    const container = map.getContainer();
+    const { width, height } = container.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return;
+
+    const currentZoom = map.getZoom();
+    const targetZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, minZoom) : minZoom;
+
+    try {
+      map.flyTo(L.latLng(lat, lng), targetZoom, { duration: 0.75 });
+    } catch {
+      map.setView([lat, lng], targetZoom, { animate: false });
+    }
+  };
+
+  if (map.whenReady) {
+    map.whenReady(run);
+  } else {
+    run();
+  }
 }
 
 export function pointColor(type: string): string {

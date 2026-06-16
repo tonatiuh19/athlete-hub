@@ -107,13 +107,13 @@ export default function HomeNavbar() {
         aria-hidden
       />
 
-      <div className="relative max-w-7xl mx-auto px-4 md:px-6 h-[4.5rem] flex items-center justify-center md:justify-between gap-3 min-w-0">
+      <div className="relative max-w-7xl mx-auto px-4 md:px-6 h-[4.5rem] flex items-center justify-between gap-3 min-w-0">
         <TribooLogo
           surface="dark"
-          className="h-9 sm:h-10 md:relative md:left-auto md:translate-x-0"
+          className="h-9 sm:h-10 shrink-0"
         />
 
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
           {NAV_SECTIONS.map(({ key, href }) =>
             href.startsWith("/") && !href.includes("#") ? (
               <Link
@@ -144,6 +144,27 @@ export default function HomeNavbar() {
             ),
           )}
         </nav>
+
+        {/* Mobile auth */}
+        <div className="flex md:hidden items-center shrink-0">
+          {token && !user && loading ? (
+            <div className="h-9 w-16 rounded-xl bg-white/10 animate-pulse" aria-hidden />
+          ) : isLoggedIn && user ? (
+            <Link to="/portal" className={cn(portalChipClass, "pl-1 pr-3")}>
+              <NavUserAvatar
+                firstName={user.firstName}
+                lastName={user.lastName}
+                avatarUrl={user.avatarUrl}
+                solid={solid}
+              />
+              <span className="max-w-[5rem] truncate">{user.firstName}</span>
+            </Link>
+          ) : (
+            <Link to="/login" className={authButtonClass}>
+              {t("home.hero.signUp")}
+            </Link>
+          )}
+        </div>
 
         <div className="hidden md:flex items-center gap-2 sm:gap-3 shrink-0">
           {token && !user && loading ? (
