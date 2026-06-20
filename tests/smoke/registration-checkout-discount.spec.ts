@@ -23,6 +23,9 @@ const preview: DiscountValidateResponse = {
   originalPriceCents: 95000,
   originalServiceFeeCents: 10450,
   originalTotalCents: 105450,
+  feePresentation: "pass_through",
+  displayIvaCents: 16880,
+  organizerFiscalNetCents: 85500,
 };
 
 describe("smoke: registration checkout discount helpers", () => {

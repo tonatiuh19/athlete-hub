@@ -1773,6 +1773,7 @@ const slice = createSlice({
       state.staffOrganizerDetail = null;
       state.staffOrganizerDetailError = null;
       state.staffOrganizerMemberError = null;
+      state.staffOrganizerSaveError = null;
     },
     clearStaffRegistrationDetail(state) {
       state.staffRegistrationDetail = null;
@@ -2619,6 +2620,7 @@ const slice = createSlice({
     b.addCase(fetchStaffOrganizerDetail.pending, (s) => {
       s.loadingStaffOrganizerDetail = true;
       s.staffOrganizerDetailError = null;
+      s.staffOrganizerSaveError = null;
     });
     b.addCase(fetchStaffOrganizerDetail.fulfilled, (s, a) => {
       s.loadingStaffOrganizerDetail = false;

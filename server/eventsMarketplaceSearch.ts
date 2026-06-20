@@ -204,15 +204,32 @@ export function buildMarketplaceEventSelect(registrationCountSql: string): strin
   `;
 }
 
+/** Athlete-facing minimum category total (pass-through includes service fee). */
+export const MARKETPLACE_MIN_PRICE_JOIN_SQL = `
+    LEFT JOIN (
+      SELECT ec.event_id,
+        MIN(
+          CASE
+            WHEN COALESCE(e_fp.fee_presentation, o_fp.fee_presentation, 'pass_through') = 'absorb_all'
+            THEN ec.price_cents
+            ELSE ec.price_cents + ROUND(
+              ec.price_cents * COALESCE(e_fp.service_fee_percent, o_fp.service_fee_percent, 11) / 100
+            )
+          END
+        ) AS from_price_cents
+      FROM event_categories ec
+      INNER JOIN events e_fp ON e_fp.id = ec.event_id
+      INNER JOIN organizers o_fp ON o_fp.id = e_fp.organizer_id AND o_fp.deleted_at IS NULL
+      WHERE ec.is_active = 1
+      GROUP BY ec.event_id
+    ) ec_min ON ec_min.event_id = e.id`;
+
 export function buildMarketplaceEventFromClause(): string {
   return `
     FROM events e
     JOIN sport_types st ON st.id = e.sport_type_id
     JOIN organizers o ON o.id = e.organizer_id AND o.deleted_at IS NULL
-    LEFT JOIN (
-      SELECT event_id, MIN(price_cents) AS from_price_cents
-      FROM event_categories WHERE is_active = 1 GROUP BY event_id
-    ) ec_min ON ec_min.event_id = e.id
+    ${MARKETPLACE_MIN_PRICE_JOIN_SQL}
     WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
   `;
 }

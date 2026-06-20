@@ -322,6 +322,33 @@ describe("HTTP smoke: organizer event approval workflow", () => {
     expect(res.status).toBe(404);
   });
 
+  it("organizer can PATCH event with catalog city and coordinates", async () => {
+    const { app, db, authHeader } = await mountStaffPortalScenario(
+      staffSeeds.draftWithCategory(),
+    );
+
+    const res = await request(app)
+      .patch(`/api/organizer/events/${STAFF_SCENARIO.defaultEventId}`)
+      .set("Authorization", authHeader)
+      .send({
+        ...eventBody,
+        title: "Desafío XUUL",
+        location_city: "Homún",
+        location_state: "Yucatán",
+        location_name: "Homún",
+        location_lat: 20.73918,
+        location_lng: -89.2849,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.event.location_lat).toBeCloseTo(20.73918, 4);
+    expect(res.body.event.location_lng).toBeCloseTo(-89.2849, 3);
+    const saved = db.getEvent(STAFF_SCENARIO.defaultEventId);
+    expect(saved?.location_city).toBe("Homún");
+    expect(saved?.location_lat).toBeCloseTo(20.73918, 4);
+    expect(saved?.location_lng).toBeCloseTo(-89.2849, 3);
+  });
+
   it("organizer create rejects location_city not in geo catalog", async () => {
     const { app, authHeader } = await mountStaffPortalScenario(staffSeeds.empty());
 

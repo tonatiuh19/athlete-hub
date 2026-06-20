@@ -36,6 +36,7 @@ const baseFormValues = {
   hero_image_url: "",
   banner_image_url: "",
   max_registrations: "",
+  fee_presentation: "pass_through" as const,
 };
 
 describe("smoke: public event slug from pathname", () => {

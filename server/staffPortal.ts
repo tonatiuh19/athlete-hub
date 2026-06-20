@@ -19,6 +19,7 @@ import {
 } from "./eventWaivers.js";
 import { eventEndWallTime, parseIncomingEventDateTime } from "../shared/checkInWindow.js";
 import { validateCoursePayload } from "../shared/courseValidation.js";
+import { normalizeEventCourse } from "../shared/courseNormalize.js";
 import {
   assertCheckInWindowForEvent,
   checkInWindowResponsePayload,
@@ -36,10 +37,13 @@ import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
 } from "../shared/staffRoles.js";
+import { isValidFeePresentation } from "../shared/checkoutBreakdown.js";
 import {
   parseEventCoord,
   resolveEventCatalogLocation,
 } from "./organizerEventGuards.js";
+import { validateEventPublishPricing } from "./eventPricingGuards.js";
+import { parseCheckoutPaymentMetadata } from "./checkoutMetadata.js";
 
 type ActorType = "athlete" | "organizer" | "admin";
 
@@ -303,9 +307,12 @@ async function fetchStaffEventDetail(
             e.check_in_opens_at, e.check_in_closes_at,
             e.timezone, e.location_name, e.location_city, e.location_state, e.location_country,
             e.location_lat, e.location_lng,
-            e.hero_image_url, e.requires_waiver, e.submitted_for_approval_at, e.approval_rejection_reason,
+            e.hero_image_url, e.requires_waiver, e.fee_presentation, e.service_fee_percent,
+            e.submitted_for_approval_at, e.approval_rejection_reason,
             ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count, e.max_registrations,
-            st.name AS sport_name, o.name AS organizer_name
+            st.name AS sport_name, o.name AS organizer_name,
+            o.fee_presentation AS organizer_fee_presentation,
+            o.service_fee_percent AS organizer_service_fee_percent
      FROM events e
      JOIN sport_types st ON st.id = e.sport_type_id
      JOIN organizers o ON o.id = e.organizer_id
@@ -568,14 +575,20 @@ export async function listAdminAthletes(
   return { athletes: rows, pagination: buildPagination(page, limit, total) };
 }
 
-async function uniqueOrganizerSlug(pool: Pool, base: string): Promise<string> {
+async function uniqueOrganizerSlug(
+  pool: Pool,
+  base: string,
+  excludeOrganizerId?: number,
+): Promise<string> {
   const candidate = base || "organizer";
   let n = 0;
   while (n < 100) {
     const slug = n === 0 ? candidate : `${candidate}-${n}`;
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM organizers WHERE slug = ? AND deleted_at IS NULL LIMIT 1",
-      [slug],
+      excludeOrganizerId != null
+        ? "SELECT id FROM organizers WHERE slug = ? AND id <> ? AND deleted_at IS NULL LIMIT 1"
+        : "SELECT id FROM organizers WHERE slug = ? AND deleted_at IS NULL LIMIT 1",
+      excludeOrganizerId != null ? [slug, excludeOrganizerId] : [slug],
     );
     if (rows.length === 0) return slug;
     n += 1;
@@ -726,6 +739,10 @@ async function getAdminRole(pool: Pool, adminId: number): Promise<string | null>
   return row?.role != null ? String(row.role) : null;
 }
 
+function isSuperAdminRole(role: string | null | undefined): boolean {
+  return role === "super_admin";
+}
+
 const PAYMENT_SORT_COLUMNS: Record<string, string> = {
   created_at: "p.created_at",
   amount_cents: "p.amount_cents",
@@ -822,7 +839,7 @@ export async function fetchAdminPaymentDetail(
     `SELECT p.id, p.public_uuid, p.registration_id, p.athlete_id, p.organizer_id, p.event_id,
             p.amount_cents, p.registration_amount_cents, p.service_fee_cents, p.currency, p.status,
             p.provider, p.stripe_payment_intent_id, p.stripe_charge_id, p.paid_at, p.created_at,
-            p.failure_code, p.failure_message,
+            p.failure_code, p.failure_message, p.metadata_json,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name, a.email AS athlete_email,
             e.title AS event_title, e.slug AS event_slug,
             o.name AS organizer_name,
@@ -837,7 +854,21 @@ export async function fetchAdminPaymentDetail(
     params,
   );
 
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+
+  const meta = parseCheckoutPaymentMetadata(
+    typeof row.metadata_json === "string"
+      ? JSON.parse(row.metadata_json as string)
+      : row.metadata_json,
+  );
+
+  return {
+    ...row,
+    metadata_json: undefined,
+    fee_presentation: meta?.feePresentation ?? meta?.breakdown?.mode ?? null,
+    checkout_breakdown: meta?.breakdown ?? null,
+  };
 }
 
 async function fetchStaffRegistrationDetail(
@@ -2384,6 +2415,7 @@ type ParsedEventBody = {
   banner_image_url: string | null;
   max_registrations: number | null;
   requires_waiver: boolean;
+  fee_presentation: string | null;
 };
 
 function eventBodySqlTail(): string {
@@ -2486,6 +2518,12 @@ function parseEventBody(body: Record<string, unknown>):
   if (location_lng === "invalid") {
     return { error: "invalid location_lng" };
   }
+  if (
+    (location_lat != null && location_lng == null) ||
+    (location_lat == null && location_lng != null)
+  ) {
+    return { error: "location_lat and location_lng must both be set or both empty" };
+  }
 
   const maxRaw = body.max_registrations;
   const max_registrations =
@@ -2494,6 +2532,17 @@ function parseEventBody(body: Record<string, unknown>):
       : Number(maxRaw);
   if (max_registrations != null && (!Number.isFinite(max_registrations) || max_registrations < 0)) {
     return { error: "invalid max_registrations" };
+  }
+
+  let fee_presentation: string | null | undefined;
+  if (body.fee_presentation === null || body.fee_presentation === "") {
+    fee_presentation = null;
+  } else if (body.fee_presentation === "inherit") {
+    fee_presentation = null;
+  } else if (isValidFeePresentation(body.fee_presentation)) {
+    fee_presentation = body.fee_presentation;
+  } else if (body.fee_presentation !== undefined) {
+    return { error: "invalid fee_presentation" };
   }
 
   return {
@@ -2533,6 +2582,7 @@ function parseEventBody(body: Record<string, unknown>):
         : null,
       max_registrations,
       requires_waiver: body.requires_waiver === false || body.requires_waiver === 0 ? false : true,
+      fee_presentation: fee_presentation ?? null,
     },
   };
 }
@@ -2573,6 +2623,35 @@ async function analyticsTimeSeries(pool: Pool, organizerId?: number) {
   };
 }
 
+function mapCourseRowFromDb(row: RowDataPacket) {
+  let elevationProfile: import("../shared/api.js").ElevationProfilePoint[] | null = null;
+  try {
+    const parsed =
+      typeof row.elevation_profile_json === "string"
+        ? JSON.parse(row.elevation_profile_json as string)
+        : row.elevation_profile_json;
+    elevationProfile = Array.isArray(parsed)
+      ? (parsed as import("../shared/api.js").ElevationProfilePoint[])
+      : null;
+  } catch {
+    elevationProfile = null;
+  }
+
+  return normalizeEventCourse({
+    routeGeojson:
+      typeof row.route_geojson === "string"
+        ? JSON.parse(row.route_geojson as string)
+        : row.route_geojson,
+    points:
+      typeof row.points_json === "string"
+        ? JSON.parse(row.points_json as string)
+        : row.points_json,
+    distanceKm: row.distance_km,
+    elevationGainM: row.elevation_gain_m,
+    elevationProfile,
+  });
+}
+
 export function registerStaffPortalRoutes(
   app: Express,
   deps: StaffPortalDeps,
@@ -2602,7 +2681,11 @@ export function registerStaffPortalRoutes(
     if (!data.location_city?.trim()) {
       return null;
     }
-    const resolved = await resolveEventCatalogLocation(pool, data.location_city);
+    const resolved = await resolveEventCatalogLocation(
+      pool,
+      data.location_city,
+      data.location_state,
+    );
     if (resolved.ok === false) {
       return resolved.error;
     }
@@ -3032,7 +3115,7 @@ export function registerStaffPortalRoutes(
            featured = ?, start_date = ?, end_date = ?,
            registration_opens_at = ?, registration_closes_at = ?,
            check_in_opens_at = ?, check_in_closes_at = ?,
-           requires_waiver = ?,
+           requires_waiver = ?, fee_presentation = ?,
            ${clearSubmittedAt ? "submitted_for_approval_at = NULL," : ""}
            ${eventBodySqlTail()}
          WHERE id = ? AND organizer_id = ?`,
@@ -3052,6 +3135,7 @@ export function registerStaffPortalRoutes(
           data.check_in_opens_at,
           data.check_in_closes_at,
           data.requires_waiver ? 1 : 0,
+          data.fee_presentation,
           ...eventBodySqlValues(data),
           eventId,
           organizerId,
@@ -3115,6 +3199,11 @@ export function registerStaffPortalRoutes(
       const waiverCheck = await validateEventPublishWaivers(pool, eventId);
       if ("error" in waiverCheck) {
         return res.status(400).json({ error: waiverCheck.error });
+      }
+
+      const pricingCheck = await validateEventPublishPricing(pool, eventId, categories);
+      if (pricingCheck.ok === false) {
+        return res.status(400).json({ error: pricingCheck.error });
       }
 
       if (await eventHasPaidActiveCategories(pool, eventId)) {
@@ -3845,7 +3934,7 @@ export function registerStaffPortalRoutes(
            featured = ?, start_date = ?, end_date = ?,
            registration_opens_at = ?, registration_closes_at = ?,
            check_in_opens_at = ?, check_in_closes_at = ?,
-           requires_waiver = ?,
+           requires_waiver = ?, fee_presentation = ?,
            ${eventBodySqlTail()}
          WHERE id = ?`,
         [
@@ -3864,6 +3953,7 @@ export function registerStaffPortalRoutes(
           data.check_in_opens_at,
           data.check_in_closes_at,
           data.requires_waiver ? 1 : 0,
+          data.fee_presentation,
           ...eventBodySqlValues(data),
           eventId,
         ],
@@ -3901,6 +3991,11 @@ export function registerStaffPortalRoutes(
       const waiverCheck = await validateEventPublishWaivers(pool, eventId);
       if ("error" in waiverCheck) {
         return res.status(400).json({ error: waiverCheck.error });
+      }
+
+      const pricingCheck = await validateEventPublishPricing(pool, eventId, categories);
+      if (pricingCheck.ok === false) {
+        return res.status(400).json({ error: pricingCheck.error });
       }
 
       if (await eventHasPaidActiveCategories(pool, eventId)) {
@@ -4111,30 +4206,8 @@ export function registerStaffPortalRoutes(
         return res.json({ course: null });
       }
 
-      let elevationProfile = null;
-      try {
-        elevationProfile =
-          typeof row.elevation_profile_json === "string"
-            ? JSON.parse(row.elevation_profile_json as string)
-            : row.elevation_profile_json;
-      } catch {
-        elevationProfile = null;
-      }
-
       res.json({
-        course: {
-          routeGeojson:
-            typeof row.route_geojson === "string"
-              ? JSON.parse(row.route_geojson as string)
-              : row.route_geojson,
-          points:
-            typeof row.points_json === "string"
-              ? JSON.parse(row.points_json as string)
-              : row.points_json,
-          distanceKm: row.distance_km,
-          elevationGainM: row.elevation_gain_m,
-          elevationProfile,
-        },
+        course: mapCourseRowFromDb(row),
       });
     },
   );
@@ -4200,29 +4273,8 @@ export function registerStaffPortalRoutes(
         [eventId],
       );
       const row = rows[0];
-      let elevationProfileOut = null;
-      try {
-        elevationProfileOut =
-          typeof row.elevation_profile_json === "string"
-            ? JSON.parse(row.elevation_profile_json as string)
-            : row.elevation_profile_json;
-      } catch {
-        elevationProfileOut = null;
-      }
       res.json({
-        course: {
-          routeGeojson:
-            typeof row.route_geojson === "string"
-              ? JSON.parse(row.route_geojson as string)
-              : row.route_geojson,
-          points:
-            typeof row.points_json === "string"
-              ? JSON.parse(row.points_json as string)
-              : row.points_json,
-          distanceKm: row.distance_km,
-          elevationGainM: row.elevation_gain_m,
-          elevationProfile: elevationProfileOut,
-        },
+        course: mapCourseRowFromDb(row),
       });
     },
   );
@@ -4766,29 +4818,8 @@ export function registerStaffPortalRoutes(
     );
     const row = rows[0];
     if (!row) return res.json({ course: null });
-    let elevationProfile = null;
-    try {
-      elevationProfile =
-        typeof row.elevation_profile_json === "string"
-          ? JSON.parse(row.elevation_profile_json as string)
-          : row.elevation_profile_json;
-    } catch {
-      elevationProfile = null;
-    }
     res.json({
-      course: {
-        routeGeojson:
-          typeof row.route_geojson === "string"
-            ? JSON.parse(row.route_geojson as string)
-            : row.route_geojson,
-        points:
-          typeof row.points_json === "string"
-            ? JSON.parse(row.points_json as string)
-            : row.points_json,
-        distanceKm: row.distance_km,
-        elevationGainM: row.elevation_gain_m,
-        elevationProfile,
-      },
+      course: mapCourseRowFromDb(row),
     });
   });
 
@@ -4849,29 +4880,8 @@ export function registerStaffPortalRoutes(
       [eventId],
     );
     const row = rows[0];
-    let elevationProfileOut = null;
-    try {
-      elevationProfileOut =
-        typeof row.elevation_profile_json === "string"
-          ? JSON.parse(row.elevation_profile_json as string)
-          : row.elevation_profile_json;
-    } catch {
-      elevationProfileOut = null;
-    }
     res.json({
-      course: {
-        routeGeojson:
-          typeof row.route_geojson === "string"
-            ? JSON.parse(row.route_geojson as string)
-            : row.route_geojson,
-        points:
-          typeof row.points_json === "string"
-            ? JSON.parse(row.points_json as string)
-            : row.points_json,
-        distanceKm: row.distance_km,
-        elevationGainM: row.elevation_gain_m,
-        elevationProfile: elevationProfileOut,
-      },
+      course: mapCourseRowFromDb(row),
     });
   });
 
@@ -5688,7 +5698,7 @@ export function registerStaffPortalRoutes(
               o.stripe_charges_enabled, o.stripe_payouts_enabled, o.stripe_details_submitted,
               o.stripe_connect_onboarded_at, o.stripe_connect_last_synced_at,
               o.stripe_connect_onboarding_mode, o.payout_terms_accepted_at,
-              o.payout_fee_acknowledged_at, o.service_fee_percent, o.rfc, o.tax_regime,
+              o.payout_fee_acknowledged_at, o.service_fee_percent, o.fee_presentation, o.rfc, o.tax_regime,
               (SELECT COUNT(*) FROM events e WHERE e.organizer_id = o.id AND e.deleted_at IS NULL) AS event_count,
               (SELECT COUNT(*) FROM organizer_members om WHERE om.organizer_id = o.id AND om.deleted_at IS NULL) AS member_count
        FROM organizers o
@@ -5911,8 +5921,8 @@ export function registerStaffPortalRoutes(
       updates.push("phone = ?");
       params.push(String(req.body.phone).trim().slice(0, 20) || null);
     }
-    if (req.body?.status != null) {
-      const status = String(req.body.status);
+    if (req.body?.status != null && String(req.body.status).trim() !== "") {
+      const status = String(req.body.status).trim().toLowerCase();
       if (!["pending", "active", "suspended", "inactive"].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
@@ -5924,7 +5934,7 @@ export function registerStaffPortalRoutes(
       const slug =
         baseSlug === existing.slug
           ? existing.slug
-          : await uniqueOrganizerSlug(pool, baseSlug);
+          : await uniqueOrganizerSlug(pool, baseSlug, organizerId);
       updates.push("slug = ?");
       params.push(slug);
     }
@@ -5952,6 +5962,13 @@ export function registerStaffPortalRoutes(
       updates.push("service_fee_percent = ?");
       params.push(fee);
     }
+    if (req.body?.fee_presentation != null) {
+      if (!isValidFeePresentation(req.body.fee_presentation)) {
+        return res.status(400).json({ error: "Invalid fee_presentation" });
+      }
+      updates.push("fee_presentation = ?");
+      params.push(String(req.body.fee_presentation));
+    }
 
     if (updates.length === 0) {
       return res.status(400).json({ error: "No fields to update" });
@@ -5966,6 +5983,7 @@ export function registerStaffPortalRoutes(
     const [[organizer]] = await pool.query<RowDataPacket[]>(
       `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url,
               o.phone, o.website_url, o.description, o.legal_name, o.billing_email, o.created_at,
+              o.service_fee_percent, o.fee_presentation,
               (SELECT COUNT(*) FROM events e WHERE e.organizer_id = o.id AND e.deleted_at IS NULL) AS event_count,
               (SELECT COUNT(*) FROM organizer_members om WHERE om.organizer_id = o.id AND om.deleted_at IS NULL) AS member_count
        FROM organizers o WHERE o.id = ? LIMIT 1`,
@@ -6108,8 +6126,8 @@ export function registerStaffPortalRoutes(
 
   app.post("/api/admin/admins", requireAdmin, async (req: AuthedRequest, res) => {
     const actorRole = await getAdminRole(pool, req.auth!.id);
-    if (actorRole !== "super_admin") {
-      return res.status(403).json({ error: "Only super admins can add platform admins" });
+    if (!actorRole) {
+      return res.status(403).json({ error: "Admin account not found" });
     }
 
     const email = String(req.body?.email ?? "")
@@ -6125,6 +6143,9 @@ export function registerStaffPortalRoutes(
     }
     if (!["admin", "super_admin"].includes(role)) {
       return res.status(400).json({ error: "invalid role" });
+    }
+    if (role === "super_admin" && !isSuperAdminRole(actorRole)) {
+      return res.status(403).json({ error: "Only super admins can create super admin accounts" });
     }
 
     const [existing] = await pool.query<RowDataPacket[]>(
@@ -6165,8 +6186,8 @@ export function registerStaffPortalRoutes(
 
   app.patch("/api/admin/admins/:adminId", requireAdmin, async (req: AuthedRequest, res) => {
     const actorRole = await getAdminRole(pool, req.auth!.id);
-    if (actorRole !== "super_admin") {
-      return res.status(403).json({ error: "Only super admins can update platform admins" });
+    if (!actorRole) {
+      return res.status(403).json({ error: "Admin account not found" });
     }
 
     const adminId = Number(req.params.adminId);
@@ -6184,6 +6205,12 @@ export function registerStaffPortalRoutes(
     if (!existing) {
       return res.status(404).json({ error: "Admin not found" });
     }
+    if (
+      !isSuperAdminRole(actorRole) &&
+      isSuperAdminRole(String(existing.role))
+    ) {
+      return res.status(403).json({ error: "Only super admins can modify super admin accounts" });
+    }
 
     const updates: string[] = [];
     const params: (string | number)[] = [];
@@ -6197,6 +6224,9 @@ export function registerStaffPortalRoutes(
       params.push(status);
     }
     if (req.body?.role != null) {
+      if (!isSuperAdminRole(actorRole)) {
+        return res.status(403).json({ error: "Only super admins can change admin roles" });
+      }
       const role = String(req.body.role);
       if (!["admin", "super_admin"].includes(role)) {
         return res.status(400).json({ error: "Invalid role" });

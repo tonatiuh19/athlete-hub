@@ -29,20 +29,42 @@ describe("parseGpxFile", () => {
     expect(result.route[0].lat).toBeCloseTo(20.65);
   });
 
-  it("uses only the first track when multiple tracks exist", () => {
+  it("prefers the course loop over a commute segment when multiple tracks exist", () => {
+    const commute = Array.from({ length: 50 }, (_, i) =>
+      `<trkpt lat="${20.67 + i * 0.01}" lon="${-103.35 - i * 0.02}" />`,
+    ).join("");
+    const race = Array.from({ length: 40 }, (_, i) => {
+      const angle = (i / 40) * Math.PI * 2;
+      const lat = 20.97 + Math.sin(angle) * 0.05;
+      const lng = -89.62 + Math.cos(angle) * 0.05;
+      return `<trkpt lat="${lat}" lon="${lng}" />`;
+    }).join("");
+    const xml = `<?xml version="1.0"?>
+      <gpx>
+        <trk><trkseg>${commute}</trkseg></trk>
+        <trk><trkseg>${race}</trkseg></trk>
+      </gpx>`;
+    const result = parseGpxFile(xml, { preferStartNear: { lat: 20.97, lng: -89.62 } });
+    expect(result.route[0].lat).toBeCloseTo(20.97, 1);
+    expect(result.route[0].lng).toBeCloseTo(-89.62, 1);
+  });
+
+  it("prefers the on-course track when a short segment starts far from its path", () => {
     const xml = `<?xml version="1.0"?>
       <gpx>
         <trk><trkseg>
           <trkpt lat="19.40" lon="-99.10" />
-          <trkpt lat="19.41" lon="-99.11" />
+          <trkpt lat="25.00" lon="-90.00" />
         </trkseg></trk>
         <trk><trkseg>
           <trkpt lat="21.00" lon="-100.00" />
           <trkpt lat="21.01" lon="-100.01" />
+          <trkpt lat="21.02" lon="-100.02" />
         </trkseg></trk>
       </gpx>`;
     const result = parseGpxFile(xml);
-    expect(result.route[0]).toEqual({ lat: 19.4, lng: -99.1 });
+    expect(result.route[0]).toEqual({ lat: 21.0, lng: -100.0 });
+    expect(result.route).toHaveLength(3);
     expect(result.source).toBe("track");
   });
 

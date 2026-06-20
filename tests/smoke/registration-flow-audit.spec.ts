@@ -30,6 +30,9 @@ const preview: DiscountValidateResponse = {
   originalPriceCents: 65000,
   originalServiceFeeCents: 7200,
   originalTotalCents: 72200,
+  feePresentation: "pass_through",
+  displayIvaCents: 11552,
+  organizerFiscalNetCents: 58500,
 };
 
 describe("audit: registration flow invariants", () => {

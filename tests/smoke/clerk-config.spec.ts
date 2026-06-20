@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   clerkAuthorizedParties,
+  clerkRequestOriginsFromHeaders,
   getClerkConfigDiagnostics,
+  mergeClerkAuthorizedParties,
   resolvePublicAppUrl,
 } from "../../server/clerkConfig";
 
@@ -53,5 +55,21 @@ describe("smoke: clerk production config", () => {
     expect(diag.clerkKeyMode).toBe("test");
     expect(diag.warnings.some((w) => w.includes("test"))).toBe(true);
     expect(diag.warnings.some((w) => w.includes("localhost"))).toBe(true);
+  });
+
+  it("derives authorized parties from request headers", () => {
+    process.env.PUBLIC_APP_URL = "https://triboo.example.com";
+    const requestParties = clerkRequestOriginsFromHeaders({
+      origin: "https://www.triboosport.com",
+      referer: "https://www.triboosport.com/login",
+      host: "www.triboosport.com",
+      "x-forwarded-proto": "https",
+    });
+    expect(requestParties).toContain("https://www.triboosport.com");
+    const merged = mergeClerkAuthorizedParties(
+      clerkAuthorizedParties({ isProd: true }),
+      requestParties,
+    );
+    expect(merged).toContain("https://www.triboosport.com");
   });
 });

@@ -78,6 +78,50 @@ export function clerkAuthorizedParties(options?: { isProd?: boolean }): string[]
   return [...parties].filter(Boolean);
 }
 
+type HeaderValue = string | string[] | undefined;
+
+function firstHeaderValue(value: HeaderValue): string | undefined {
+  if (Array.isArray(value)) return value[0]?.trim() || undefined;
+  return value?.trim() || undefined;
+}
+
+/** Request-derived origins for Clerk JWT `azp` when PUBLIC_APP_URL does not match the live host. */
+export function clerkRequestOriginsFromHeaders(
+  headers: Record<string, HeaderValue>,
+): string[] {
+  const parties = new Set<string>();
+
+  const origin = firstHeaderValue(headers.origin);
+  if (origin) addUrlParties(parties, origin);
+
+  const referer = firstHeaderValue(headers.referer);
+  if (referer) {
+    try {
+      addUrlParties(parties, new URL(referer).origin);
+    } catch {
+      /* ignore malformed referer */
+    }
+  }
+
+  const forwardedHost = firstHeaderValue(headers["x-forwarded-host"]);
+  const host = forwardedHost || firstHeaderValue(headers.host);
+  if (host) {
+    const proto =
+      firstHeaderValue(headers["x-forwarded-proto"])?.split(",")[0]?.trim() ||
+      "https";
+    addUrlParties(parties, `${proto}://${host}`);
+  }
+
+  return [...parties].filter(Boolean);
+}
+
+export function mergeClerkAuthorizedParties(
+  base: string[],
+  extra: string[],
+): string[] {
+  return [...new Set([...base, ...extra])].filter(Boolean);
+}
+
 export function getClerkConfigDiagnostics() {
   const secret = process.env.CLERK_SECRET_KEY?.trim() || "";
   const publicAppUrl = resolvePublicAppUrl();

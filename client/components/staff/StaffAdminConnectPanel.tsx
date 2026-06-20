@@ -37,6 +37,7 @@ export default function StaffAdminConnectPanel({ organizerId }: StaffAdminConnec
 
   const status = adminOrganizerConnect?.organizer.stripe_connect_status ?? "not_started";
   const feePercent = adminOrganizerConnect?.serviceFeePercent ?? 11;
+  const feePresentation = adminOrganizerConnect?.feePresentation ?? "pass_through";
 
   const openOnboard = async () => {
     const result = await dispatch(adminOnboardOrganizerConnect({ organizerId }));
@@ -73,7 +74,11 @@ export default function StaffAdminConnectPanel({ organizerId }: StaffAdminConnec
             </p>
           ) : null}
 
-          <StaffFeeCalculatorCard serviceFeePercent={feePercent} compact />
+          <StaffFeeCalculatorCard
+            serviceFeePercent={feePercent}
+            feePresentation={feePresentation}
+            compact
+          />
 
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={openOnboard} disabled={adminConnectActionLoading}>

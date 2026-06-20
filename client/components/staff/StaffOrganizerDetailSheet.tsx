@@ -1,12 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFormik } from "formik";
 import { format } from "date-fns";
-import { Loader2, UserPlus } from "lucide-react";
+import { Loader2, Save, Sparkles, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { slugify } from "@shared/slugify";
+import GeoCitySelector from "@/components/geo/GeoCitySelector";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -22,6 +26,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchGeoCities, fetchGeoStates } from "@/store/slices/geoSlice";
 import StaffOrganizerEventsSection from "@/components/staff/StaffOrganizerEventsSection";
 import StaffAdminConnectPanel from "@/components/staff/StaffAdminConnectPanel";
 import {
@@ -33,6 +38,15 @@ import {
   updateStaffOrganizerMemberAccess,
 } from "@/store/slices/staffPortalSlice";
 import { getDateFnsLocale } from "@/utils/dateLocale";
+import { isOrganizerCitySelectionValid } from "@/utils/geoCityValidation";
+import {
+  buildOrganizerUpdatePatch,
+  normalizeOrganizerStatus,
+  ORGANIZER_SLUG_MAX,
+  ORGANIZER_STATUSES,
+} from "@/utils/organizerForm";
+import type { FeePresentation } from "@shared/checkoutBreakdown";
+import { useToast } from "@/hooks/use-toast";
 
 const MEMBER_ROLES = [
   "organizer",
@@ -55,24 +69,138 @@ export default function StaffOrganizerDetailSheet({
   onOpenChange,
 }: StaffOrganizerDetailSheetProps) {
   const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const dispatch = useAppDispatch();
   const {
     staffOrganizerDetail,
     loadingStaffOrganizerDetail,
     staffOrganizerDetailError,
     savingStaffOrganizer,
+    staffOrganizerSaveError,
     invitingStaffOrganizerMember,
     staffOrganizerMemberError,
   } = useAppSelector((s) => s.staffPortal);
+  const [geoStateId, setGeoStateId] = useState<number | null>(null);
+  const [geoCityId, setGeoCityId] = useState<number | null>(null);
+  const [slugEdited, setSlugEdited] = useState(false);
+  const geoHydratedForRef = useRef<number | null>(null);
   const dateLocale = getDateFnsLocale(i18n.language);
 
   const organizer = staffOrganizerDetail?.organizer;
   const members = staffOrganizerDetail?.members ?? [];
   const linkedEvents = staffOrganizerDetail?.events ?? [];
+  const normalizedStatus = normalizeOrganizerStatus(organizer?.status);
 
   useEffect(() => {
-    if (open && organizerId) dispatch(fetchStaffOrganizerDetail({ organizerId }));
+    if (open) dispatch(fetchGeoStates("MX"));
+  }, [dispatch, open]);
+
+  useEffect(() => {
+    if (!open || !organizerId) return;
+    geoHydratedForRef.current = null;
+    setGeoStateId(null);
+    setGeoCityId(null);
+    setSlugEdited(false);
+    dispatch(fetchStaffOrganizerDetail({ organizerId }));
   }, [dispatch, open, organizerId]);
+
+  useEffect(() => {
+    if (!open || !organizer?.id || !organizer.city?.trim()) return;
+    if (geoHydratedForRef.current === organizer.id) return;
+
+    let cancelled = false;
+    void dispatch(fetchGeoCities({ q: organizer.city.trim(), country: "MX" })).then((action) => {
+      if (cancelled || !fetchGeoCities.fulfilled.match(action)) return;
+      const match = action.payload.cities.find(
+        (c) => c.name.trim().toLowerCase() === organizer.city!.trim().toLowerCase(),
+      );
+      if (!match) return;
+      geoHydratedForRef.current = organizer.id;
+      setGeoStateId(match.state_id);
+      setGeoCityId(match.id);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, open, organizer?.id, organizer?.city]);
+
+  const profileForm = useFormik({
+    enableReinitialize: true,
+    initialValues: {
+      name: organizer?.name ?? "",
+      slug: organizer?.slug ?? "",
+      email: organizer?.email ?? "",
+      phone: organizer?.phone ?? "",
+      city: organizer?.city ?? "",
+      status: normalizedStatus,
+      service_fee_percent: Number(organizer?.service_fee_percent ?? 11),
+      fee_presentation: (organizer?.fee_presentation ?? "pass_through") as FeePresentation,
+    },
+    onSubmit: async (values) => {
+      if (!organizerId) return;
+      if (!isOrganizerCitySelectionValid(geoCityId, values.city, organizer?.city)) {
+        toast({
+          title: t("geo.citySelector.invalidSelectionTitle"),
+          description: t("geo.citySelector.supportMessageAdmin"),
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const patch = buildOrganizerUpdatePatch({
+        name: values.name,
+        slug: values.slug,
+        email: values.email,
+        phone: values.phone,
+        city: values.city,
+        status: values.status,
+        service_fee_percent: values.service_fee_percent,
+        fee_presentation: values.fee_presentation,
+        geoCityId,
+        savedCity: organizer?.city,
+        fallbackStatus: normalizedStatus,
+      });
+
+      const result = await dispatch(updateStaffOrganizer({ organizerId, patch }));
+      if (updateStaffOrganizer.fulfilled.match(result)) {
+        toast({ title: t("staffPortal.staffManagement.organizerSaved") });
+      }
+    },
+  });
+
+  const handleNameChange = (name: string) => {
+    void profileForm.setFieldValue("name", name);
+    if (!slugEdited) {
+      void profileForm.setFieldValue("slug", slugify(name, ORGANIZER_SLUG_MAX));
+    }
+  };
+
+  const handleSlugChange = (raw: string) => {
+    setSlugEdited(true);
+    void profileForm.setFieldValue("slug", slugify(raw, ORGANIZER_SLUG_MAX));
+  };
+
+  const regenerateSlug = () => {
+    setSlugEdited(false);
+    void profileForm.setFieldValue(
+      "slug",
+      slugify(profileForm.values.name, ORGANIZER_SLUG_MAX),
+    );
+  };
+
+  const slugPreview =
+    profileForm.values.slug.trim() ||
+    slugify(profileForm.values.name, ORGANIZER_SLUG_MAX);
+
+  const absorbAllFees = profileForm.values.fee_presentation === "absorb_all";
+
+  const handleFeePresentationToggle = (checked: boolean) => {
+    if (checked && !window.confirm(t("staffPortal.payouts.feePresentationSwitchConfirm"))) {
+      return;
+    }
+    void profileForm.setFieldValue("fee_presentation", checked ? "absorb_all" : "pass_through");
+  };
 
   const handleOpen = (next: boolean) => {
     if (!next) dispatch(clearStaffOrganizerDetail());
@@ -96,11 +224,6 @@ export default function StaffOrganizerDetailSheet({
     },
   });
 
-  const setStatus = (status: string) => {
-    if (!organizerId) return;
-    dispatch(updateStaffOrganizer({ organizerId, patch: { status: status as "active" } }));
-  };
-
   return (
     <Sheet open={open} onOpenChange={handleOpen}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
@@ -121,9 +244,9 @@ export default function StaffOrganizerDetailSheet({
               <div>
                 <h3 className="text-lg font-semibold">{organizer.name}</h3>
                 <p className="text-sm text-muted-foreground">{organizer.email}</p>
-                <p className="text-xs text-muted-foreground mt-1">/{organizer.slug}</p>
+                <p className="text-xs text-muted-foreground mt-1">/{slugPreview}</p>
               </div>
-              <StaffStatusBadge status={organizer.status} />
+              <StaffStatusBadge status={normalizedStatus} />
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -137,21 +260,132 @@ export default function StaffOrganizerDetailSheet({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>{t("staffPortal.staffManagement.fieldStatus")}</Label>
-              <Select value={organizer.status} onValueChange={setStatus} disabled={savingStaffOrganizer}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["pending", "active", "suspended", "inactive"].map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <form onSubmit={profileForm.handleSubmit} className="card-sport p-4 space-y-4">
+              <h4 className="font-semibold">{t("staffPortal.staffManagement.editOrganizerSection")}</h4>
+              <div className="space-y-2">
+                <Label htmlFor="org-edit-name">{t("staffPortal.staffManagement.fieldOrgName")}</Label>
+                <Input
+                  id="org-edit-name"
+                  name="name"
+                  value={profileForm.values.name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  onBlur={profileForm.handleBlur}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="org-edit-slug">{t("staffPortal.staffManagement.fieldSlug")}</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground"
+                    onClick={regenerateSlug}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1" />
+                    {t("staffPortal.staffManagement.regenerateSlug")}
+                  </Button>
+                </div>
+                <Input
+                  id="org-edit-slug"
+                  name="slug"
+                  value={profileForm.values.slug}
+                  onChange={(e) => handleSlugChange(e.target.value)}
+                  onBlur={profileForm.handleBlur}
+                  placeholder={t("staffPortal.staffManagement.slugPlaceholder")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {slugEdited
+                    ? t("staffPortal.staffManagement.slugHelp")
+                    : t("staffPortal.staffManagement.slugAutoHint")}
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="org-edit-email">{t("staffPortal.staffManagement.fieldOrgEmail")}</Label>
+                  <Input id="org-edit-email" type="email" {...profileForm.getFieldProps("email")} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="org-edit-phone">{t("staffPortal.staffManagement.fieldPhone")}</Label>
+                  <Input id="org-edit-phone" {...profileForm.getFieldProps("phone")} />
+                </div>
+              </div>
+              <GeoCitySelector
+                stateId={geoStateId}
+                cityId={geoCityId}
+                cityName={profileForm.values.city}
+                staffRole="admin"
+                onChange={(sel) => {
+                  setGeoStateId(sel.stateId);
+                  setGeoCityId(sel.geoCityId);
+                  void profileForm.setFieldValue("city", sel.city);
+                }}
+              />
+              <div className="rounded-lg border border-border/60 p-3 space-y-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">
+                      {t("staffPortal.payouts.feePresentationTitle")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("staffPortal.payouts.feePresentationHint")}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={absorbAllFees}
+                    onCheckedChange={handleFeePresentationToggle}
+                    aria-label={t("staffPortal.payouts.feePresentationTitle")}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {absorbAllFees
+                    ? t("staffPortal.payouts.feePresentationAbsorbActive")
+                    : t("staffPortal.payouts.feePresentationPassThroughActive")}
+                </p>
+                {profileForm.values.fee_presentation !== (organizer?.fee_presentation ?? "pass_through") ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.staffManagement.feePresentationSaveHint")}
+                  </p>
+                ) : null}
+              </div>
+              <StaffFeeCalculatorCard
+                serviceFeePercent={profileForm.values.service_fee_percent}
+                feePresentation={profileForm.values.fee_presentation}
+                feeEditable
+                onFeePercentChange={(fee) => void profileForm.setFieldValue("service_fee_percent", fee)}
+                compact
+              />
+              <div className="space-y-2">
+                <Label>{t("staffPortal.staffManagement.fieldStatus")}</Label>
+                <Select
+                  value={profileForm.values.status}
+                  onValueChange={(status) => void profileForm.setFieldValue("status", status)}
+                  disabled={savingStaffOrganizer}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t("staffPortal.staffManagement.fieldStatus")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ORGANIZER_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {staffOrganizerSaveError ? (
+                <p className="text-sm text-destructive">{staffOrganizerSaveError}</p>
+              ) : null}
+              <Button type="submit" disabled={savingStaffOrganizer} className="w-full sm:w-auto">
+                {savingStaffOrganizer ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                {t("staffPortal.staffManagement.saveOrganizer")}
+              </Button>
+            </form>
 
             {organizerId ? (
               <StaffOrganizerEventsSection organizerId={organizerId} events={linkedEvents} />

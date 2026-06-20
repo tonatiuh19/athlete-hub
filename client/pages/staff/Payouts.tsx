@@ -15,6 +15,7 @@ import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { canAccessStaffPayouts } from "@/utils/staffNav";
@@ -121,6 +122,25 @@ export default function StaffPayouts() {
   const tribooComplete = payoutStatus?.tribooChecklist.complete ?? false;
   const payoutReady = payoutStatus?.payoutReady ?? false;
   const feePercent = payoutStatus?.serviceFeePercent ?? 11;
+  const feePresentation = payoutStatus?.feePresentation ?? org?.fee_presentation ?? "pass_through";
+  const absorbAllFees = feePresentation === "absorb_all";
+
+  const handleFeePresentationToggle = async (checked: boolean) => {
+    const next = checked ? "absorb_all" : "pass_through";
+    if (checked && !window.confirm(t("staffPortal.payouts.feePresentationSwitchConfirm"))) {
+      return;
+    }
+    const result = await dispatch(updateOrganizerPayoutProfile({ fee_presentation: next }));
+    if (updateOrganizerPayoutProfile.fulfilled.match(result)) {
+      toast({
+        title: t(
+          checked
+            ? "staffPortal.payouts.feePresentationAbsorbEnabled"
+            : "staffPortal.payouts.feePresentationPassThroughEnabled",
+        ),
+      });
+    }
+  };
 
   const handleSaveProfile = async () => {
     const values = {
@@ -302,15 +322,43 @@ export default function StaffPayouts() {
 
           {!org?.payout_terms_accepted_at ? (
             <div className="card-sport p-5 space-y-3">
-              <p className="text-sm">{t("staffPortal.payouts.termsText")}</p>
+              <p className="text-sm">
+                {absorbAllFees
+                  ? t("staffPortal.payouts.termsTextAbsorb")
+                  : t("staffPortal.payouts.termsTextPassThrough")}
+              </p>
               <Button variant="outline" onClick={handleAcceptTerms}>
                 {t("staffPortal.payouts.acceptTerms")}
               </Button>
             </div>
           ) : null}
 
+          <div className="card-sport p-5 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">
+                  {t("staffPortal.payouts.feePresentationTitle")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("staffPortal.payouts.feePresentationHint")}
+                </p>
+              </div>
+              <Switch
+                checked={absorbAllFees}
+                onCheckedChange={(checked) => void handleFeePresentationToggle(checked)}
+                aria-label={t("staffPortal.payouts.feePresentationTitle")}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+              {absorbAllFees
+                ? t("staffPortal.payouts.feePresentationAbsorbActive")
+                : t("staffPortal.payouts.feePresentationPassThroughActive")}
+            </p>
+          </div>
+
           <StaffFeeCalculatorCard
             serviceFeePercent={feePercent}
+            feePresentation={feePresentation}
             samplePriceMxn={samplePriceMxn}
             samplePriceEditable
             onSamplePriceChange={setSamplePriceMxn}

@@ -12,6 +12,15 @@ describe("smoke: sso return storage", () => {
     window.history.replaceState({}, "", "/sso-callback");
   });
 
+  it("ignores auth-flow paths as return destinations", () => {
+    stashSsoReturnTo("/login");
+    expect(resolveSsoReturnTo(null)).toBeNull();
+    stashSsoReturnTo("/sso-callback");
+    expect(resolveSsoReturnTo(null)).toBeNull();
+    stashSsoReturnTo("/events/mock-marathon");
+    expect(resolveSsoReturnTo(null)).toBe("/events/mock-marathon");
+  });
+
   it("stashes and consumes return path", () => {
     stashSsoReturnTo("/events/mock-marathon");
     expect(resolveSsoReturnTo(null)).toBe("/events/mock-marathon");

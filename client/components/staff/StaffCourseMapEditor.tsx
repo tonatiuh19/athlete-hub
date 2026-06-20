@@ -50,11 +50,13 @@ import {
   buildLineString,
   getRouteImportSource,
   inferRouteImportSource,
+  normalizeCoursePayloadForSave,
   parseLineString,
   polylineLengthKm,
   type LatLng,
 } from "@/utils/courseMapUtils";
 import { parseGpxFile, isGpxFile, isGpxFileWithinSizeLimit, readGpxFileText } from "@/utils/gpxParse";
+import { resolveCareerStartCoords } from "@/utils/resolveCareerStart";
 import { cn } from "@/lib/utils";
 
 type EditorMode = "route" | "poi" | "pan" | "start";
@@ -180,12 +182,20 @@ export default function StaffCourseMapEditor({
   const gpxInputRef = useRef<HTMLInputElement>(null);
 
   const mapCenter = useMemo((): [number, number] => {
-    const lat = parseCoord(eventLat);
-    const lng = parseCoord(eventLng);
-    if (lat != null && lng != null) return [lat, lng];
+    const resolved = resolveCareerStartCoords({
+      points,
+      startLatInput,
+      startLngInput,
+      eventLat,
+      eventLng,
+      route,
+      preferRouteStart: routeSource === "gpx" || route.length >= 2,
+      routeImportSource: routeSource,
+    });
+    if (resolved) return [resolved.lat, resolved.lng];
     if (route.length > 0) return [route[0].lat, route[0].lng];
     return MEXICO_CENTER;
-  }, [eventLat, eventLng, route]);
+  }, [points, startLatInput, startLngInput, eventLat, eventLng, route, routeSource]);
 
   useEffect(() => setMounted(true), []);
 
@@ -195,11 +205,12 @@ export default function StaffCourseMapEditor({
   }, [focus]);
 
   useEffect(() => {
+    if (routeSource === "gpx") return;
     const lat = parseCoord(eventLat);
     const lng = parseCoord(eventLng);
     setStartLatInput(lat != null ? String(lat) : "");
     setStartLngInput(lng != null ? String(lng) : "");
-  }, [eventLat, eventLng]);
+  }, [eventLat, eventLng, routeSource]);
 
   useEffect(() => {
     if (!value) {
@@ -211,17 +222,45 @@ export default function StaffCourseMapEditor({
       setGpxFeedback(null);
       return;
     }
-    setRoute(parseLineString(value.routeGeojson));
-    setPoints(value.points ?? []);
-    setElevationM(value.elevationGainM != null ? String(value.elevationGainM) : "");
-    setElevationProfile(value.elevationProfile ?? null);
     const parsedRoute = parseLineString(value.routeGeojson);
     const restoredSource =
       getRouteImportSource(value.routeGeojson) ??
       inferRouteImportSource(parsedRoute, value.points ?? [], value.routeGeojson);
+
+    let loadedPoints = value.points ?? [];
+    let loadedRoute = parsedRoute;
+    if (restoredSource === "gpx" && parsedRoute.length >= 2) {
+      const normalized = normalizeCoursePayloadForSave({
+        routeGeojson: value.routeGeojson,
+        points: loadedPoints,
+        distanceKm: value.distanceKm,
+        elevationGainM: value.elevationGainM,
+        elevationProfile: value.elevationProfile,
+      });
+      loadedPoints = normalized.points ?? loadedPoints;
+      loadedRoute = parseLineString(normalized.routeGeojson);
+    }
+
+    setRoute(loadedRoute);
+    setPoints(loadedPoints);
+    setElevationM(value.elevationGainM != null ? String(value.elevationGainM) : "");
+    setElevationProfile(value.elevationProfile ?? null);
     setRouteSource(restoredSource);
     onRouteSourceChange?.(restoredSource);
-  }, [value, onRouteSourceChange]);
+
+    const resolvedStart = resolveCareerStartCoords({
+      points: loadedPoints,
+      eventLat,
+      eventLng,
+      route: loadedRoute,
+      routeImportSource: restoredSource,
+      preferRouteStart: restoredSource === "gpx",
+    });
+    if (resolvedStart) {
+      setStartLatInput(String(resolvedStart.lat));
+      setStartLngInput(String(resolvedStart.lng));
+    }
+  }, [value, onRouteSourceChange, eventLat, eventLng]);
 
   const distanceKm = useMemo(() => polylineLengthKm(route), [route]);
 
@@ -236,13 +275,17 @@ export default function StaffCourseMapEditor({
       const withKm = assignKmToPoints(nextRoute, nextPoints);
       const gain = (elev ?? elevationM) ? Number(elev ?? elevationM) : null;
       const source = importSource ?? routeSource;
-      onChange({
+      let payload: StaffEventCoursePayload = {
         routeGeojson: buildLineString(nextRoute, source),
         points: withKm,
         distanceKm: polylineLengthKm(nextRoute) || null,
         elevationGainM: gain,
         elevationProfile: profile !== undefined ? profile : elevationProfile,
-      });
+      };
+      if (source === "gpx" && nextRoute.length >= 2) {
+        payload = normalizeCoursePayloadForSave(payload);
+      }
+      onChange(payload);
     },
     [onChange, elevationM, elevationProfile, routeSource],
   );
@@ -315,8 +358,18 @@ export default function StaffCourseMapEditor({
       return;
     }
     if (mode === "route") {
-      const startLat = parseCoord(eventLat) ?? parseCoord(startLatInput);
-      const startLng = parseCoord(eventLng) ?? parseCoord(startLngInput);
+      const resolvedStart = resolveCareerStartCoords({
+        points,
+        startLatInput,
+        startLngInput,
+        eventLat,
+        eventLng,
+        route,
+        preferRouteStart: routeSource === "gpx",
+        routeImportSource: routeSource,
+      });
+      const startLat = resolvedStart?.lat;
+      const startLng = resolvedStart?.lng;
       const hasStart = startLat != null && startLng != null;
 
       let next: LatLng[];
@@ -386,13 +439,17 @@ export default function StaffCourseMapEditor({
         nextPoints = [startPoint, ...nextPoints];
       }
 
-      if (!nextPoints.some((p) => p.type === "finish")) {
-        nextPoints.push({
-          type: "finish",
-          name: defaultPoiName("finish", t),
-          lat: last.lat,
-          lng: last.lng,
-        });
+      const finishIdx = nextPoints.findIndex((p) => p.type === "finish");
+      const finishPoint: CoursePoint = {
+        type: "finish",
+        name: defaultPoiName("finish", t),
+        lat: last.lat,
+        lng: last.lng,
+      };
+      if (finishIdx >= 0) {
+        nextPoints[finishIdx] = { ...nextPoints[finishIdx], ...finishPoint };
+      } else {
+        nextPoints.push(finishPoint);
       }
 
       setRoute(gpxRoute);
@@ -402,7 +459,6 @@ export default function StaffCourseMapEditor({
       onRouteSourceChange?.("gpx");
       setStartLatInput(String(first.lat));
       setStartLngInput(String(first.lng));
-      syncStartToEventLocation(first.lat, first.lng);
 
       const gainStr =
         parsed.elevationGainM > 0 ? String(Math.round(parsed.elevationGainM)) : elevationM;
@@ -421,10 +477,17 @@ export default function StaffCourseMapEditor({
       emitChange,
       onRouteSourceChange,
       points,
-      syncStartToEventLocation,
       t,
     ],
   );
+
+  const gpxPreferStartNear = useMemo((): LatLng | null => {
+    const lat = parseCoord(eventLat);
+    const lng = parseCoord(eventLng);
+    if (lat != null && lng != null) return { lat, lng };
+    if (route.length > 0) return route[0];
+    return null;
+  }, [eventLat, eventLng, route]);
 
   const handleGpxImport = async (file: File) => {
     setGpxFeedback(null);
@@ -440,9 +503,17 @@ export default function StaffCourseMapEditor({
     setGpxImporting(true);
     try {
       const text = await readGpxFileText(file);
-      const parsed = parseGpxFile(text);
+      const hadRoute = route.length >= 2;
+      const parsed = parseGpxFile(text, {
+        preferStartNear: gpxPreferStartNear,
+      });
       if (!applyGpxRoute(parsed)) {
-        setGpxFeedback({ type: "error", key: "staffPortal.courseEditor.gpxParseFailed" });
+        setGpxFeedback({
+          type: "error",
+          key: hadRoute
+            ? "staffPortal.courseEditor.gpxParseFailedKeepPrevious"
+            : "staffPortal.courseEditor.gpxParseFailed",
+        });
         return;
       }
       const feedbackKey = parsed.simplified
@@ -484,9 +555,32 @@ export default function StaffCourseMapEditor({
     }
   };
 
-  const careerStartLat = parseCoord(eventLat) ?? parseCoord(startLatInput);
-  const careerStartLng = parseCoord(eventLng) ?? parseCoord(startLngInput);
-  const hasCareerStart = careerStartLat != null && careerStartLng != null;
+  const careerStart = useMemo(
+    () =>
+      resolveCareerStartCoords({
+        points,
+        startLatInput,
+        startLngInput,
+        eventLat,
+        eventLng,
+        route,
+        preferRouteStart: routeSource === "gpx" || route.length >= 2,
+        routeImportSource: routeSource,
+      }),
+    [points, startLatInput, startLngInput, eventLat, eventLng, route, routeSource],
+  );
+  const careerStartLat = careerStart?.lat;
+  const careerStartLng = careerStart?.lng;
+  const hasCareerStart = careerStart != null;
+  const showCareerStartFlag = useMemo(() => {
+    if (!careerStart) return false;
+    const startPoi = points.find((p) => p.type === "start");
+    if (!startPoi) return true;
+    const same =
+      Math.abs(startPoi.lat - careerStart.lat) < 0.00005 &&
+      Math.abs(startPoi.lng - careerStart.lng) < 0.00005;
+    return !same;
+  }, [careerStart, points]);
   const routePointCount = route.length;
   const routeLineReady = routePointCount >= 2;
   const routePositions = route.map((p) => [p.lat, p.lng] as [number, number]);
@@ -655,7 +749,7 @@ export default function StaffCourseMapEditor({
               </CircleMarker>
             ))}
 
-            {hasCareerStart ? (
+            {showCareerStartFlag ? (
               <Marker
                 position={[careerStartLat!, careerStartLng!]}
                 draggable={mode !== "pan"}

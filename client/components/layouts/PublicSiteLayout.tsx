@@ -2,12 +2,18 @@ import { Outlet, useLocation } from "react-router-dom";
 import HomeNavbar from "@/components/home/HomeNavbar";
 import SiteFooter from "@/components/SiteFooter";
 import { shouldShowPublicMobileTabBar } from "@/utils/mobileTabBar";
+import { useAppSelector } from "@/store/hooks";
 import { cn } from "@/lib/utils";
 
 export default function PublicSiteLayout() {
   const { pathname } = useLocation();
+  const staffToken = useAppSelector((s) => s.staffAuth.token);
+  const athleteToken = useAppSelector((s) => s.athleteAuth.token);
   const isHome = pathname === "/";
-  const hasMobileTabBar = shouldShowPublicMobileTabBar(pathname);
+  const hasMobileTabBar = shouldShowPublicMobileTabBar(pathname, {
+    staffSessionActive: Boolean(staffToken),
+    athleteSessionActive: Boolean(athleteToken),
+  });
 
   return (
     <div className="flex flex-col bg-gradient-dark overflow-x-clip w-full max-w-full min-h-screen">

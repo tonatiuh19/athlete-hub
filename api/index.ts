@@ -27,7 +27,15 @@ import {
   getOrganizerMemberRole,
 } from "../server/staffPortal.js";
 import { canOrganizerEditEvents } from "../shared/staffRoles.js";
-import { calcServiceFeeCents } from "../shared/checkoutBreakdown.js";
+import {
+  applyDiscountToCheckout,
+  breakdownToSnapshot,
+  computeCheckoutBreakdown,
+  resolveFeePresentation,
+  resolveServiceFeePercent,
+  validateCheckoutBreakdown,
+  type FeePresentation,
+} from "../shared/checkoutBreakdown.js";
 import {
   applyConnectToPaymentIntent,
   assertOrganizerPayoutReadyForPaidEvent,
@@ -74,7 +82,9 @@ import {
 import { parseCheckoutPaymentMetadata, type CheckoutPaymentMetadata } from "../server/checkoutMetadata.js";
 import {
   clerkAuthorizedParties,
+  clerkRequestOriginsFromHeaders,
   getClerkConfigDiagnostics,
+  mergeClerkAuthorizedParties,
   resolvePublicAppUrl,
 } from "../server/clerkConfig.js";
 import {
@@ -85,6 +95,7 @@ import { parseEventDateRange } from "../server/eventsMarketplaceFilters.js";
 import {
   appendMarketplaceListFilters,
   listMarketplaceEventsWithFuzzySearch,
+  MARKETPLACE_MIN_PRICE_JOIN_SQL,
   type MarketplaceListFilters,
 } from "../server/eventsMarketplaceSearch.js";
 import {
@@ -105,6 +116,7 @@ import {
   getRouteImportSource,
   parseRouteGeoJson,
 } from "../shared/courseGeoJson.js";
+import { normalizeEventCourse } from "../shared/courseNormalize.js";
 import {
   evaluateCheckInWindow,
   eventEndWallTime,
@@ -963,6 +975,11 @@ const APP_URL = resolvePublicAppUrl();
 const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY || "";
 if (CLERK_SECRET_KEY) {
   logDev("[ok] Clerk configured");
+  const clerkDiag = getClerkConfigDiagnostics();
+  logDev(`[info] PUBLIC_APP_URL=${clerkDiag.publicAppUrl}`);
+  for (const warning of clerkDiag.warnings) {
+    logDev(`[warn] Clerk: ${warning}`, "warn");
+  }
 } else {
   logDev("[warn] CLERK_SECRET_KEY not set — Google/Apple SSO disabled", "warn");
 }
@@ -982,6 +999,7 @@ interface ClerkAthleteProfile {
 
 async function resolveClerkAthleteProfile(
   sessionToken: string,
+  requestOrigins: string[] = [],
 ): Promise<{ profile: ClerkAthleteProfile } | { error: string }> {
   if (!sessionToken) {
     return { error: "Clerk is not configured" };
@@ -999,9 +1017,13 @@ async function resolveClerkAthleteProfile(
   }
   try {
     const clerk = createClerkClient({ secretKey: CLERK_SECRET_KEY });
+    const authorizedParties = mergeClerkAuthorizedParties(
+      clerkAuthorizedParties({ isProd: IS_PROD }),
+      requestOrigins,
+    );
     const verified = await verifyToken(sessionToken, {
       secretKey: CLERK_SECRET_KEY,
-      authorizedParties: clerkAuthorizedParties({ isProd: IS_PROD }),
+      authorizedParties,
     });
     const userId = verified.sub;
     if (!userId) return { error: "Invalid Clerk session" };
@@ -1870,87 +1892,6 @@ type DiscountCodeRow = {
   used_count: number;
 };
 
-function computeDiscountAmountCents(
-  baseCents: number,
-  discountType: "percent" | "fixed_cents",
-  discountValue: number,
-): number {
-  if (baseCents <= 0) return 0;
-  if (discountType === "percent") {
-    return Math.min(baseCents, Math.round(baseCents * (discountValue / 100)));
-  }
-  return Math.min(baseCents, Math.round(discountValue));
-}
-
-function applyDiscountToCheckout(
-  priceCents: number,
-  serviceFeeCents: number,
-  discount: DiscountCodeRow,
-): {
-  priceCents: number;
-  serviceFeeCents: number;
-  totalCents: number;
-  discountAmountCents: number;
-} {
-  let discountAmountCents = 0;
-  let adjustedPrice = priceCents;
-  let adjustedFee = serviceFeeCents;
-
-  if (discount.applies_to === "registration") {
-    const base = priceCents;
-    if (
-      discount.min_purchase_cents != null &&
-      base < Number(discount.min_purchase_cents)
-    ) {
-      throw new Error("Minimum purchase not met for this discount");
-    }
-    discountAmountCents = computeDiscountAmountCents(
-      base,
-      discount.discount_type,
-      Number(discount.discount_value),
-    );
-    adjustedPrice = Math.max(0, priceCents - discountAmountCents);
-  } else if (discount.applies_to === "service_fee") {
-    const base = serviceFeeCents;
-    if (
-      discount.min_purchase_cents != null &&
-      base < Number(discount.min_purchase_cents)
-    ) {
-      throw new Error("Minimum purchase not met for this discount");
-    }
-    discountAmountCents = computeDiscountAmountCents(
-      base,
-      discount.discount_type,
-      Number(discount.discount_value),
-    );
-    adjustedFee = Math.max(0, serviceFeeCents - discountAmountCents);
-  } else {
-    const base = priceCents + serviceFeeCents;
-    if (
-      discount.min_purchase_cents != null &&
-      base < Number(discount.min_purchase_cents)
-    ) {
-      throw new Error("Minimum purchase not met for this discount");
-    }
-    discountAmountCents = computeDiscountAmountCents(
-      base,
-      discount.discount_type,
-      Number(discount.discount_value),
-    );
-    const fromReg = Math.min(priceCents, discountAmountCents);
-    adjustedPrice = priceCents - fromReg;
-    const remainder = discountAmountCents - fromReg;
-    adjustedFee = Math.max(0, serviceFeeCents - remainder);
-  }
-
-  return {
-    priceCents: adjustedPrice,
-    serviceFeeCents: adjustedFee,
-    totalCents: adjustedPrice + adjustedFee,
-    discountAmountCents,
-  };
-}
-
 async function fetchValidDiscountCode(
   code: string,
   eventId: number,
@@ -1992,6 +1933,29 @@ async function fetchValidDiscountCode(
 
 function formatMxn(cents: number): string {
   return `$${(cents / 100).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`;
+}
+
+function mapCategoryWithCheckoutFees(
+  cat: RowDataPacket,
+  feePercent: number,
+  feePresentation: ReturnType<typeof resolveFeePresentation>,
+) {
+  const priceCents = Number(cat.price_cents);
+  const breakdown = computeCheckoutBreakdown({
+    listPriceCents: priceCents,
+    serviceFeePercent: feePercent,
+    feePresentation,
+  });
+  return {
+    ...cat,
+    service_fee_cents: breakdown.serviceFeeCents,
+    total_cents: breakdown.athleteTotalCents,
+    display_iva_cents: breakdown.displayIvaCents,
+    organizer_fiscal_net_cents: breakdown.organizerFiscalNetCents,
+    price_formatted: formatMxn(priceCents),
+    service_fee_formatted: formatMxn(breakdown.serviceFeeCents),
+    total_formatted: formatMxn(breakdown.athleteTotalCents),
+  };
 }
 
 function newPublicUuid(): string {
@@ -2297,6 +2261,10 @@ type CheckoutResumePayload = {
   currency: string;
   categoryName: string;
   eventTitle: string;
+  feePresentation?: FeePresentation;
+  listPriceCents?: number;
+  displayIvaCents?: number;
+  organizerFiscalNetCents?: number;
   fieldValues?: Record<string, string | boolean>;
   discountCode?: string;
   discountAmountCents?: number;
@@ -2511,6 +2479,10 @@ async function buildCheckoutResponseForPayment(
     categoryName: meta.categoryName,
     eventTitle: pay.event_title as string,
     fieldValues: meta.fieldValues,
+    feePresentation: meta.feePresentation ?? meta.breakdown?.mode,
+    listPriceCents: meta.breakdown?.listPriceCents,
+    displayIvaCents: meta.breakdown?.displayIvaCents,
+    organizerFiscalNetCents: meta.breakdown?.organizerFiscalNetCents,
     ...(meta.discountCode
       ? { discountCode: meta.discountCode, discountAmountCents: meta.discountAmountCents }
       : {}),
@@ -2911,7 +2883,7 @@ async function finalizeRegistrationAfterPayment(
     const regUuid = newPublicUuid();
     const regNumber = await nextRegistrationNumber(eventId);
     const qrToken = newQrToken();
-    const priceCents = Number(pay.registration_amount_cents);
+    const priceCents = meta.breakdown?.listPriceCents ?? Number(pay.registration_amount_cents);
     const serviceFeeCents = Number(pay.service_fee_cents);
     const totalCents = Number(pay.amount_cents);
 
@@ -4282,7 +4254,10 @@ function registerAuthRoutes(app: express.Express) {
       return res.status(503).json({ error: "Clerk is not configured" });
     }
 
-    const resolved = await resolveClerkAthleteProfile(sessionToken);
+    const resolved = await resolveClerkAthleteProfile(
+      sessionToken,
+      clerkRequestOriginsFromHeaders(req.headers),
+    );
     if ("error" in resolved) {
       return res.status(401).json({ error: resolved.error });
     }
@@ -4356,10 +4331,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       FROM events e
       JOIN sport_types st ON st.id = e.sport_type_id
       JOIN organizers o ON o.id = e.organizer_id AND o.deleted_at IS NULL
-      LEFT JOIN (
-        SELECT event_id, MIN(price_cents) AS from_price_cents
-        FROM event_categories WHERE is_active = 1 GROUP BY event_id
-      ) ec_min ON ec_min.event_id = e.id
+      ${MARKETPLACE_MIN_PRICE_JOIN_SQL}
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL`;
 
   app.get(
@@ -4572,10 +4544,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       FROM events e
       JOIN sport_types st ON st.id = e.sport_type_id
       JOIN organizers o ON o.id = e.organizer_id AND o.deleted_at IS NULL
-      LEFT JOIN (
-        SELECT event_id, MIN(price_cents) AS from_price_cents
-        FROM event_categories WHERE is_active = 1 GROUP BY event_id
-      ) ec_min ON ec_min.event_id = e.id
+      ${MARKETPLACE_MIN_PRICE_JOIN_SQL}
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
     `;
     const params: unknown[] = [];
@@ -4600,10 +4569,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       FROM events e
       JOIN sport_types st ON st.id = e.sport_type_id
       JOIN organizers o ON o.id = e.organizer_id AND o.deleted_at IS NULL
-      LEFT JOIN (
-        SELECT event_id, MIN(price_cents) AS from_price_cents
-        FROM event_categories WHERE is_active = 1 GROUP BY event_id
-      ) ec_min ON ec_min.event_id = e.id
+      ${MARKETPLACE_MIN_PRICE_JOIN_SQL}
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL
     `;
     const countParams: unknown[] = [];
@@ -4932,6 +4898,8 @@ function registerMarketplaceRoutes(app: express.Express) {
     const [events] = await pool.query<RowDataPacket[]>(
       `SELECT e.*, st.slug AS sport_slug, st.name AS sport_name,
               o.name AS organizer_name, o.slug AS organizer_slug, o.logo_url AS organizer_logo,
+              o.service_fee_percent AS org_service_fee_percent,
+              o.fee_presentation AS org_fee_presentation,
               v.name AS venue_name, v.address_line1 AS venue_address, v.lat AS venue_lat, v.lng AS venue_lng
        FROM events e
        JOIN sport_types st ON st.id = e.sport_type_id
@@ -4993,26 +4961,18 @@ function registerMarketplaceRoutes(app: express.Express) {
       [event.id],
     );
 
-    const feePercent =
-      (event.service_fee_percent as number) ??
-      (await pool
-        .query<
-          RowDataPacket[]
-        >("SELECT service_fee_percent FROM organizers WHERE id = ? LIMIT 1", [event.organizer_id])
-        .then(([orgRows]) => Number(orgRows[0]?.service_fee_percent ?? 11)));
+    const feePercent = resolveServiceFeePercent(
+      event.service_fee_percent as number | string | null,
+      event.org_service_fee_percent as number | string | null,
+    );
+    const feePresentation = resolveFeePresentation(
+      event.fee_presentation as string | null,
+      event.org_fee_presentation as string | null,
+    );
 
-    const categoriesWithFees = (categories as RowDataPacket[]).map((cat) => {
-      const priceCents = cat.price_cents as number;
-      const serviceFeeCents = calcServiceFeeCents(priceCents, feePercent);
-      return {
-        ...cat,
-        service_fee_cents: serviceFeeCents,
-        total_cents: priceCents + serviceFeeCents,
-        price_formatted: formatMxn(priceCents),
-        service_fee_formatted: formatMxn(serviceFeeCents),
-        total_formatted: formatMxn(priceCents + serviceFeeCents),
-      };
-    });
+    const categoriesWithFees = (categories as RowDataPacket[]).map((cat) =>
+      mapCategoryWithCheckoutFees(cat, feePercent, feePresentation),
+    );
 
     const [courseRows] = await pool.query<RowDataPacket[]>(
       `SELECT route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json
@@ -5022,7 +4982,7 @@ function registerMarketplaceRoutes(app: express.Express) {
     const courseRow = courseRows[0];
     let course = null;
     if (courseRow) {
-      course = {
+      course = normalizeEventCourse({
         routeGeojson:
           typeof courseRow.route_geojson === "string"
             ? JSON.parse(courseRow.route_geojson as string)
@@ -5034,7 +4994,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         distanceKm: courseRow.distance_km,
         elevationGainM: courseRow.elevation_gain_m,
         elevationProfile: parseElevationProfile(courseRow.elevation_profile_json),
-      };
+      });
     }
 
     const [media] = await pool.query<RowDataPacket[]>(
@@ -5091,6 +5051,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       tags,
       scheduleWaves: waves,
       serviceFeePercent: feePercent,
+      feePresentation,
       course,
       media,
       waivers,
@@ -5115,7 +5076,9 @@ function registerMarketplaceRoutes(app: express.Express) {
       }
 
       const [eventRows] = await pool.query<RowDataPacket[]>(
-        `SELECT e.id, e.organizer_id, e.status, o.service_fee_percent AS org_fee_percent,
+        `SELECT e.id, e.organizer_id, e.status, e.fee_presentation,
+                o.service_fee_percent AS org_fee_percent,
+                o.fee_presentation AS org_fee_presentation,
                 e.service_fee_percent
          FROM events e
          JOIN organizers o ON o.id = e.organizer_id
@@ -5148,22 +5111,29 @@ function registerMarketplaceRoutes(app: express.Express) {
         return res.status(400).json({ error: discountResult.error });
       }
 
-      const feePercent = Number(
-        event.service_fee_percent ?? event.org_fee_percent ?? 11,
+      const feePercent = resolveServiceFeePercent(
+        event.service_fee_percent as number | string | null,
+        event.org_fee_percent as number | string | null,
+      );
+      const feePresentation = resolveFeePresentation(
+        event.fee_presentation as string | null,
+        event.org_fee_presentation as string | null,
       );
       const originalPriceCents = Number(category.price_cents);
-      const originalServiceFeeCents = calcServiceFeeCents(
-        originalPriceCents,
-        feePercent,
-      );
-      const originalTotalCents = originalPriceCents + originalServiceFeeCents;
+      const originalBreakdown = computeCheckoutBreakdown({
+        listPriceCents: originalPriceCents,
+        serviceFeePercent: feePercent,
+        feePresentation,
+      });
 
       try {
-        const applied = applyDiscountToCheckout(
-          originalPriceCents,
-          originalServiceFeeCents,
-          discountResult.discount,
-        );
+        const applied = applyDiscountToCheckout({
+          listPriceCents: originalPriceCents,
+          serviceFeePercent: feePercent,
+          feePresentation,
+          discount: discountResult.discount,
+        });
+        const { breakdown } = applied;
         res.json({
           valid: true,
           code: discountResult.discount.code,
@@ -5171,13 +5141,16 @@ function registerMarketplaceRoutes(app: express.Express) {
           discountType: discountResult.discount.discount_type,
           discountValue: Number(discountResult.discount.discount_value),
           appliesTo: discountResult.discount.applies_to,
+          feePresentation,
           discountAmountCents: applied.discountAmountCents,
-          priceCents: applied.priceCents,
-          serviceFeeCents: applied.serviceFeeCents,
-          totalCents: applied.totalCents,
+          priceCents: breakdown.listPriceCents,
+          serviceFeeCents: breakdown.serviceFeeCents,
+          totalCents: breakdown.athleteTotalCents,
+          displayIvaCents: breakdown.displayIvaCents,
+          organizerFiscalNetCents: breakdown.organizerFiscalNetCents,
           originalPriceCents,
-          originalServiceFeeCents,
-          originalTotalCents,
+          originalServiceFeeCents: originalBreakdown.serviceFeeCents,
+          originalTotalCents: originalBreakdown.athleteTotalCents,
         });
       } catch (err) {
         return res.status(400).json({
@@ -5349,10 +5322,12 @@ function registerMarketplaceRoutes(app: express.Express) {
 
       const [eventRows] = await pool.query<RowDataPacket[]>(
         `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
-                e.start_date, e.requires_waiver, e.registration_opens_at, e.registration_closes_at,
+                e.fee_presentation, e.start_date, e.requires_waiver, e.registration_opens_at,
+                e.registration_closes_at,
                 o.stripe_account_id, o.stripe_onboarding_complete, o.stripe_connect_status,
                 o.stripe_charges_enabled, o.stripe_payouts_enabled,
-                o.service_fee_percent AS org_fee_percent
+                o.service_fee_percent AS org_fee_percent,
+                o.fee_presentation AS org_fee_presentation
          FROM events e
          JOIN organizers o ON o.id = e.organizer_id
          WHERE e.slug = ? AND e.status = 'published' LIMIT 1`,
@@ -5500,14 +5475,24 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
-      const feePercent = Number(
-        event.service_fee_percent ?? event.org_fee_percent ?? 11,
+      const feePercent = resolveServiceFeePercent(
+        event.service_fee_percent as number | string | null,
+        event.org_fee_percent as number | string | null,
+      );
+      const feePresentation = resolveFeePresentation(
+        event.fee_presentation as string | null,
+        event.org_fee_presentation as string | null,
       );
       const basePriceCents = Number(category.price_cents);
-      const baseServiceFeeCents = calcServiceFeeCents(basePriceCents, feePercent);
-      let priceCents = basePriceCents;
-      let serviceFeeCents = baseServiceFeeCents;
-      let totalCents = priceCents + serviceFeeCents;
+      let breakdown = computeCheckoutBreakdown({
+        listPriceCents: basePriceCents,
+        serviceFeePercent: feePercent,
+        feePresentation,
+      });
+      const breakdownError = validateCheckoutBreakdown(breakdown);
+      if (breakdownError) {
+        return res.status(400).json({ error: breakdownError });
+      }
       let discountCodeId: number | undefined;
       let discountCode: string | undefined;
       let discountAmountCents = 0;
@@ -5523,14 +5508,13 @@ function registerMarketplaceRoutes(app: express.Express) {
           return res.status(400).json({ error: discountResult.error });
         }
         try {
-          const applied = applyDiscountToCheckout(
-            basePriceCents,
-            baseServiceFeeCents,
-            discountResult.discount,
-          );
-          priceCents = applied.priceCents;
-          serviceFeeCents = applied.serviceFeeCents;
-          totalCents = applied.totalCents;
+          const applied = applyDiscountToCheckout({
+            listPriceCents: basePriceCents,
+            serviceFeePercent: feePercent,
+            feePresentation,
+            discount: discountResult.discount,
+          });
+          breakdown = applied.breakdown;
           discountAmountCents = applied.discountAmountCents;
           discountCodeId = discountResult.discount.id;
           discountCode = discountResult.discount.code;
@@ -5541,12 +5525,19 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
+      const listPriceCents = breakdown.listPriceCents;
+      const registrationAmountCents = breakdown.stripeOrganizerTransferCents;
+      const serviceFeeCents = breakdown.serviceFeeCents;
+      const totalCents = breakdown.athleteTotalCents;
+
       checkoutTrace("pricing", {
         eventId: event.id,
         categoryId: category.id,
         totalCents,
-        priceCents,
+        listPriceCents,
+        registrationAmountCents,
         serviceFeeCents,
+        feePresentation,
         discountApplied: Boolean(discountCodeId),
       });
 
@@ -5554,6 +5545,8 @@ function registerMarketplaceRoutes(app: express.Express) {
         categoryId: category.id as number,
         fieldValues,
         categoryName: String(category.name),
+        feePresentation,
+        breakdown: breakdownToSnapshot(breakdown),
         ...(waitlistEntryId && Number.isFinite(waitlistEntryId)
           ? { waitlistEntryId }
           : {}),
@@ -5582,27 +5575,32 @@ function registerMarketplaceRoutes(app: express.Express) {
       if (existingPay.length > 0) {
         const existingUuid = existingPay[0].public_uuid as string;
         checkoutTrace("existing-payment", { paymentPublicUuid: existingUuid, totalCents });
+
+        const [[existingRow]] = await pool.query<RowDataPacket[]>(
+          `SELECT stripe_payment_intent_id, amount_cents, service_fee_cents
+           FROM payments WHERE public_uuid = ? LIMIT 1`,
+          [existingUuid],
+        );
+        const priorAmountCents = Number(existingRow?.amount_cents ?? 0);
+        const priorServiceFeeCents = Number(existingRow?.service_fee_cents ?? 0);
+
         await pool.query<ResultSetHeader>(
           `UPDATE payments SET metadata_json = ?, amount_cents = ?,
            registration_amount_cents = ?, service_fee_cents = ?
            WHERE public_uuid = ?`,
-          [metadataJson, totalCents, priceCents, serviceFeeCents, existingUuid],
+          [metadataJson, totalCents, registrationAmountCents, serviceFeeCents, existingUuid],
         );
 
-        const [[existingRow]] = await pool.query<RowDataPacket[]>(
-          `SELECT stripe_payment_intent_id, amount_cents FROM payments WHERE public_uuid = ? LIMIT 1`,
-          [existingUuid],
-        );
         if (
           existingRow?.stripe_payment_intent_id &&
           getStripeClient() &&
           totalCents > 0 &&
-          Number(existingRow.amount_cents) !== totalCents
+          (priorAmountCents !== totalCents || priorServiceFeeCents !== serviceFeeCents)
         ) {
           try {
             await getStripeClient()!.paymentIntents.update(
               String(existingRow.stripe_payment_intent_id),
-              { amount: totalCents },
+              { amount: totalCents, application_fee_amount: serviceFeeCents },
             );
           } catch (err) {
             console.error("[checkout] payment intent amount update failed:", err);
@@ -5615,12 +5613,14 @@ function registerMarketplaceRoutes(app: express.Express) {
             paymentPublicUuid: existingUuid,
             clientSecret: null,
             amountCents: 0,
-            registrationAmountCents: priceCents,
+            registrationAmountCents,
             serviceFeeCents,
             currency: category.currency || "MXN",
             categoryName: category.name,
             eventTitle: event.title,
             fieldValues,
+            feePresentation,
+            listPriceCents,
             ...(discountCode ? { discountCode, discountAmountCents } : {}),
           });
         }
@@ -5654,7 +5654,7 @@ function registerMarketplaceRoutes(app: express.Express) {
             event.organizer_id,
             event.id,
             0,
-            priceCents,
+            registrationAmountCents,
             serviceFeeCents,
             category.currency || "MXN",
             "succeeded",
@@ -5667,11 +5667,13 @@ function registerMarketplaceRoutes(app: express.Express) {
           paymentPublicUuid: payUuid,
           clientSecret: null,
           amountCents: 0,
-          registrationAmountCents: priceCents,
+          registrationAmountCents,
           serviceFeeCents,
           currency: category.currency || "MXN",
           categoryName: category.name,
           eventTitle: event.title,
+          feePresentation,
+          listPriceCents,
           ...(discountCode ? { discountCode, discountAmountCents } : {}),
         });
       }
@@ -5717,7 +5719,7 @@ function registerMarketplaceRoutes(app: express.Express) {
           event.organizer_id,
           event.id,
           totalCents,
-          priceCents,
+          registrationAmountCents,
           serviceFeeCents,
           category.currency || "MXN",
           "pending",
@@ -5797,11 +5799,15 @@ function registerMarketplaceRoutes(app: express.Express) {
         paymentPublicUuid: payUuid,
         clientSecret,
         amountCents: totalCents,
-        registrationAmountCents: priceCents,
+        registrationAmountCents,
         serviceFeeCents,
         currency: category.currency || "MXN",
         categoryName: category.name,
         eventTitle: event.title,
+        feePresentation,
+        listPriceCents,
+        displayIvaCents: breakdown.displayIvaCents,
+        organizerFiscalNetCents: breakdown.organizerFiscalNetCents,
         ...(discountCode
           ? { discountCode, discountAmountCents }
           : {}),
@@ -6617,7 +6623,7 @@ function registerAthleteRoutes(app: express.Express) {
       const courseRow = courseRows[0];
       let course = null;
       if (courseRow) {
-        course = {
+        course = normalizeEventCourse({
           routeGeojson:
             typeof courseRow.route_geojson === "string"
               ? JSON.parse(courseRow.route_geojson as string)
@@ -6629,7 +6635,7 @@ function registerAthleteRoutes(app: express.Express) {
           distanceKm: courseRow.distance_km,
           elevationGainM: courseRow.elevation_gain_m,
           elevationProfile: parseElevationProfile(courseRow.elevation_profile_json),
-        };
+        });
       }
 
       const totalKm = Number(course?.distanceKm ?? splitRows[splitRows.length - 1]?.distance_km ?? 0);

@@ -1,5 +1,6 @@
-import type { StaffEventDetail, StaffEventUpsertRequest } from "@shared/api";
+import type { StaffEventDetail, StaffEventUpsertRequest, FeePresentation } from "@shared/api";
 import { fromDatetimeLocal, toDatetimeLocal } from "@/utils/datetimeLocal";
+import { parseFormCoordinate } from "@/utils/formCoordinates";
 
 export type EventEditFormValues = {
   title: string;
@@ -25,6 +26,7 @@ export type EventEditFormValues = {
   hero_image_url: string;
   banner_image_url: string;
   max_registrations: string;
+  fee_presentation: "inherit" | FeePresentation;
 };
 
 export function buildEventEditFormValues(
@@ -61,6 +63,7 @@ export function buildEventEditFormValues(
     hero_image_url: event?.hero_image_url ?? "",
     banner_image_url: event?.banner_image_url ?? "",
     max_registrations: event?.max_registrations?.toString() ?? "",
+    fee_presentation: event?.fee_presentation ?? "inherit",
   };
 }
 
@@ -68,8 +71,8 @@ export function buildStaffEventBody(
   values: EventEditFormValues,
   overrides?: Partial<StaffEventUpsertRequest>,
 ): StaffEventUpsertRequest {
-  const latRaw = values.location_lat.trim();
-  const lngRaw = values.location_lng.trim();
+  const location_lat = parseFormCoordinate(values.location_lat);
+  const location_lng = parseFormCoordinate(values.location_lng);
 
   return {
     title: values.title.trim(),
@@ -90,13 +93,15 @@ export function buildStaffEventBody(
     location_city: values.location_city.trim() || null,
     location_state: values.location_state.trim() || null,
     location_name: values.location_name.trim() || null,
-    location_lat: latRaw ? Number(latRaw) : null,
-    location_lng: lngRaw ? Number(lngRaw) : null,
+    location_lat,
+    location_lng,
     hero_image_url: values.hero_image_url.trim() || null,
     banner_image_url: values.banner_image_url.trim() || null,
     max_registrations: values.max_registrations
       ? Number(values.max_registrations)
       : null,
+    fee_presentation:
+      values.fee_presentation === "inherit" ? null : values.fee_presentation,
     ...overrides,
   };
 }

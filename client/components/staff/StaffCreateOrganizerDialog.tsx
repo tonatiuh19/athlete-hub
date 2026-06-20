@@ -25,6 +25,7 @@ import { createStaffOrganizer, fetchAdminEvents } from "@/store/slices/staffPort
 import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
 import { getDateFnsLocale } from "@/utils/dateLocale";
 import { isCatalogCitySelectionValid } from "@/utils/geoCityValidation";
+import { ORGANIZER_SLUG_MAX } from "@/utils/organizerForm";
 
 const schema = Yup.object({
   name: Yup.string().trim().required("Required"),
@@ -37,8 +38,6 @@ const schema = Yup.object({
 interface StaffCreateOrganizerDialogProps {
   onCreated?: () => void;
 }
-
-const ORGANIZER_SLUG_MAX = 80;
 
 export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrganizerDialogProps) {
   const { t, i18n } = useTranslation();

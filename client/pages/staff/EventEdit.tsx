@@ -53,6 +53,10 @@ import {
   enforceCatalogCityOnEventBody,
   isCatalogCitySelectionValid,
 } from "@/utils/geoCityValidation";
+import {
+  resolveStaffEventFeePresentation,
+  resolveStaffEventServiceFeePercent,
+} from "@/utils/staffFeePresentation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchGeoCities, fetchGeoStates } from "@/store/slices/geoSlice";
 import { fetchSportTypes } from "@/store/slices/marketplaceSlice";
@@ -100,6 +104,7 @@ import {
   type EventEditFormValues,
 } from "@/utils/buildStaffEventBody";
 import { isStaffEventCreateRoute } from "@/utils/staffEventRoutes";
+import { normalizeCoursePayloadForSave } from "@/utils/courseMapUtils";
 import { isEventEndBeforeStart } from "@/utils/staffEventDateValidation";
 import {
   checkInCloseWouldBeCapped,
@@ -122,12 +127,23 @@ import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
 } from "@/utils/staffNav";
+import {
+  parseFormCoordinate,
+  validateFormCoordinatePair,
+  type FormCoordinateError,
+} from "@/utils/formCoordinates";
 
 const CHECK_IN_VALIDATION_KEYS: Record<CheckInWindowValidationError, string> = {
   pair_required: "staffPortal.eventEdit.fieldCheckInErrorPair",
   opens_not_before_closes: "staffPortal.eventEdit.fieldCheckInErrorOrder",
   opens_after_event_end: "staffPortal.eventEdit.fieldCheckInErrorOpensAfterEnd",
   closes_after_event_end: "staffPortal.eventEdit.fieldCheckInErrorClosesAfterEnd",
+};
+
+const COORD_VALIDATION_KEYS: Record<FormCoordinateError, string> = {
+  pair_required: "staffPortal.eventEdit.fieldCoordErrorPair",
+  invalid_lat: "staffPortal.eventEdit.fieldCoordErrorLat",
+  invalid_lng: "staffPortal.eventEdit.fieldCoordErrorLng",
 };
 
 export default function StaffEventEdit() {
@@ -426,6 +442,18 @@ export default function StaffEventEdit() {
         });
         return;
       }
+      const coordError = validateFormCoordinatePair(
+        parseFormCoordinate(values.location_lat),
+        parseFormCoordinate(values.location_lng),
+      );
+      if (coordError) {
+        toast({
+          title: t("staffPortal.eventEdit.saveFailed"),
+          description: t(COORD_VALIDATION_KEYS[coordError]),
+          variant: "destructive",
+        });
+        return;
+      }
       setUploadingAssets(true);
       try {
         let heroUrl = values.hero_image_url.trim() || null;
@@ -533,6 +561,12 @@ export default function StaffEventEdit() {
             });
           }
         }
+      } catch (err) {
+        toast({
+          title: t("staffPortal.eventEdit.saveFailed"),
+          description: err instanceof Error ? err.message : t("staffPortal.eventEdit.saveFailed"),
+          variant: "destructive",
+        });
       } finally {
         setUploadingAssets(false);
       }
@@ -734,6 +768,39 @@ export default function StaffEventEdit() {
     [eventDetail?.categories],
   );
 
+  const effectiveFeePresentation = useMemo(
+    () =>
+      resolveStaffEventFeePresentation(
+        formik.values.fee_presentation === "inherit"
+          ? null
+          : formik.values.fee_presentation,
+        event?.organizer_fee_presentation,
+      ),
+    [formik.values.fee_presentation, event?.organizer_fee_presentation],
+  );
+
+  const staffServiceFeePercent = useMemo(
+    () =>
+      resolveStaffEventServiceFeePercent(
+        event?.service_fee_percent,
+        event?.organizer_service_fee_percent,
+      ),
+    [event?.service_fee_percent, event?.organizer_service_fee_percent],
+  );
+
+  const handleFeePresentationChange = (value: string) => {
+    const nextEffective = resolveStaffEventFeePresentation(
+      value === "inherit" ? null : (value as "pass_through" | "absorb_all"),
+      event?.organizer_fee_presentation,
+    );
+    if (hasPaidCategories && nextEffective !== effectiveFeePresentation) {
+      if (!window.confirm(t("staffPortal.eventEdit.feePresentationSwitchConfirm"))) {
+        return;
+      }
+    }
+    void formik.setFieldValue("fee_presentation", value);
+  };
+
   useEffect(() => {
     if (isAdmin && hasPaidCategories && event?.organizer_id) {
       void dispatch(fetchAdminOrganizerConnect({ organizerId: event.organizer_id }));
@@ -812,34 +879,10 @@ export default function StaffEventEdit() {
     waiverPublishBlocked ||
     payoutPublishBlocked;
 
-  const handleEventLocationFromCourse = useCallback(
-    (lat: number, lng: number) => {
-      void formik.setFieldValue("location_lat", String(lat));
-      void formik.setFieldValue("location_lng", String(lng));
-      if (!eventId || !role) return;
-      const latestValues = formValuesRef.current;
-      const latestDescription =
-        descriptionEditorRef.current?.getHtml() ?? descriptionHtmlRef.current;
-      void dispatch(
-        updateStaffEvent({
-          eventId,
-          role,
-          body: enforceCatalogCityOnEventBody(
-            buildStaffEventBody(
-              { ...latestValues, description: latestDescription },
-              {
-                location_lat: lat,
-                location_lng: lng,
-              },
-            ),
-            geoCityId,
-            savedEventLocation,
-          ),
-        }),
-      );
-    },
-    [dispatch, eventId, geoCityId, role, savedEventLocation],
-  );
+  const handleEventLocationFromCourse = useCallback((lat: number, lng: number) => {
+    void formikRef.current?.setFieldValue("location_lat", String(lat));
+    void formikRef.current?.setFieldValue("location_lng", String(lng));
+  }, []);
 
   if (isNew && isAdmin) {
     return <Navigate to="/staff/events" replace />;
@@ -973,8 +1016,9 @@ export default function StaffEventEdit() {
   };
 
   const handleSaveCourse = (course?: StaffEventCoursePayload) => {
-    const payload = course ?? courseDraft;
-    if (!eventId || !payload || !role) return;
+    const raw = course ?? courseDraft;
+    if (!eventId || !raw || !role) return;
+    const payload = normalizeCoursePayloadForSave(raw);
     setCourseDraft(payload);
     return dispatch(updateEventCourse({ eventId, role, course: payload }));
   };
@@ -1162,6 +1206,8 @@ export default function StaffEventEdit() {
         onOpenChange={setPublishPreviewOpen}
         event={event}
         categories={eventDetail?.categories ?? []}
+        feePresentation={effectiveFeePresentation}
+        serviceFeePercent={staffServiceFeePercent}
         sponsors={sponsorDrafts}
         courseDistanceKm={courseDraft?.distanceKm}
         waiverCount={activeWaivers.length}
@@ -1406,8 +1452,9 @@ export default function StaffEventEdit() {
                       <Label htmlFor="location_lat">{t("staffPortal.eventEdit.fieldLat")}</Label>
                       <Input
                         id="location_lat"
-                        type="number"
-                        step="any"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         placeholder="19.4326"
                         {...formik.getFieldProps("location_lat")}
                       />
@@ -1417,8 +1464,9 @@ export default function StaffEventEdit() {
                       <Label htmlFor="location_lng">{t("staffPortal.eventEdit.fieldLng")}</Label>
                       <Input
                         id="location_lng"
-                        type="number"
-                        step="any"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         placeholder="-99.1332"
                         {...formik.getFieldProps("location_lng")}
                       />
@@ -1475,6 +1523,43 @@ export default function StaffEventEdit() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="fee_presentation">
+                        {t("staffPortal.eventEdit.fieldFeePresentation")}
+                      </Label>
+                      <Select
+                        value={formik.values.fee_presentation}
+                        onValueChange={handleFeePresentationChange}
+                      >
+                        <SelectTrigger id="fee_presentation">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit">
+                            {t("staffPortal.eventEdit.feePresentation.inherit")}
+                          </SelectItem>
+                          <SelectItem value="pass_through">
+                            {t("staffPortal.eventEdit.feePresentation.passThrough")}
+                          </SelectItem>
+                          <SelectItem value="absorb_all">
+                            {t("staffPortal.eventEdit.feePresentation.absorbAll")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {t("staffPortal.eventEdit.fieldFeePresentationHint")}
+                      </p>
+                      {formik.values.fee_presentation === "inherit" ? (
+                        <p className="text-xs text-muted-foreground rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                          {t(
+                            effectiveFeePresentation === "absorb_all"
+                              ? "staffPortal.eventEdit.feePresentationEffectiveAbsorb"
+                              : "staffPortal.eventEdit.feePresentationEffectivePassThrough",
+                          )}
+                        </p>
+                      ) : null}
                     </div>
 
                     <label className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-border/60 p-3 cursor-pointer">
@@ -1650,6 +1735,8 @@ export default function StaffEventEdit() {
                   categories={eventDetail?.categories ?? []}
                   canManage={canManageCategories}
                   staffRole={staffRole}
+                  feePresentation={effectiveFeePresentation}
+                  serviceFeePercent={staffServiceFeePercent}
                 />
               ) : null}
             </TabsContent>

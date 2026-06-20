@@ -57,6 +57,7 @@ import {
 import { sanitizeHtml } from "@/utils/sanitizeHtml";
 import { optimizeEventMediaUrl, buildEventMediaSrcSet } from "@/lib/cdn-url";
 import type { CoursePoint } from "@shared/api";
+import { normalizeEventCourse } from "@shared/courseNormalize";
 import { pointColor } from "@/lib/leafletSetup";
 import { useMapPanelHeight } from "@/hooks/use-media-query";
 import { isWaiverMisconfigured } from "@/utils/eventRegistrationWaivers";
@@ -103,6 +104,12 @@ export default function EventDetail() {
   } = useAppSelector((s) => s.registrationCheckout);
   const [activeTab, setActiveTab] = useState("overview");
   const courseMapHeight = useMapPanelHeight({ compact: true });
+
+  const displayCourse = useMemo(() => {
+    const raw = eventDetail?.course;
+    if (!raw) return null;
+    return normalizeEventCourse({ ...raw });
+  }, [eventDetail?.course]);
 
   const waiverMisconfigured = isWaiverMisconfigured(eventDetail);
 
@@ -276,13 +283,14 @@ export default function EventDetail() {
   const {
     event,
     categories,
-    course,
     sponsors,
     tags,
     scheduleWaves,
     myRegistration,
     media,
+    feePresentation = "pass_through",
   } = eventDetail;
+  const absorbAllPricing = feePresentation === "absorb_all";
 
   const isRegisteredConfirmed = Boolean(myRegistration);
   const registrationWindowStatus = getRegistrationWindowStatus(event);
@@ -300,11 +308,16 @@ export default function EventDetail() {
     eventDescriptionPlainText(event.description) ||
     event.title;
 
-  const minPrice = categories.reduce(
-    (min, c) =>
-      c.price_cents != null && c.price_cents < min ? c.price_cents : min,
-    categories[0]?.price_cents ?? Infinity,
-  );
+  const minPrice = categories.reduce((min, c) => {
+    const displayCents = absorbAllPricing
+      ? (c.total_cents ?? c.price_cents)
+      : c.price_cents;
+    return displayCents != null && displayCents < min ? displayCents : min;
+  }, categories[0]
+    ? absorbAllPricing
+      ? (categories[0].total_cents ?? categories[0].price_cents)
+      : categories[0].price_cents
+    : Infinity);
 
   const heroImage = optimizeEventMediaUrl(event.hero_image_url, "detail");
   const bannerImage = optimizeEventMediaUrl(event.banner_image_url, "banner");
@@ -564,10 +577,14 @@ export default function EventDetail() {
                       {t("eventDetail.pendingPaymentTitle")}
                     </p>
                     <p className="text-sm text-gray-400 mt-1">
-                      {t("eventDetail.pendingPaymentDesc", {
+                      {t("eventDetail.pendingPaymentDescWithAmount", {
                         category:
                           pendingCheckout.category_name ??
                           t("eventDetail.inscription"),
+                        amount: formatPriceMxn(
+                          pendingCheckout.amount_cents,
+                          i18n.language,
+                        ),
                       })}
                     </p>
                   </div>
@@ -697,26 +714,26 @@ export default function EventDetail() {
           </TabsContent>
 
           <TabsContent value="course" className="space-y-6">
-            {course ? (
+            {displayCourse ? (
               <>
                 <div className="grid sm:grid-cols-3 gap-4">
-                  {course.distanceKm != null && (
+                  {displayCourse.distanceKm != null && (
                     <div className="p-4 rounded-xl border border-gray-700/50 bg-surface-dark/50">
                       <p className="text-xs text-gray-500 uppercase">
                         {t("eventDetail.distance")}
                       </p>
                       <p className="text-xl font-bold text-white">
-                        {course.distanceKm} km
+                        {displayCourse.distanceKm} km
                       </p>
                     </div>
                   )}
-                  {course.elevationGainM != null && (
+                  {displayCourse.elevationGainM != null && (
                     <div className="p-4 rounded-xl border border-gray-700/50 bg-surface-dark/50">
                       <p className="text-xs text-gray-500 uppercase">
                         {t("eventDetail.elevation")}
                       </p>
                       <p className="text-xl font-bold text-white">
-                        {course.elevationGainM} m
+                        {displayCourse.elevationGainM} m
                       </p>
                     </div>
                   )}
@@ -726,7 +743,7 @@ export default function EventDetail() {
                     </p>
                     <p className="text-xl font-bold text-white">
                       {
-                        course.points.filter(
+                        displayCourse.points.filter(
                           (p) => p.type === "hydration" || p.type === "aid",
                         ).length
                       }
@@ -735,8 +752,8 @@ export default function EventDetail() {
                 </div>
 
                 <EventsMap
-                  courseRoute={course.routeGeojson}
-                  coursePoints={course.points}
+                  courseRoute={displayCourse.routeGeojson}
+                  coursePoints={displayCourse.points}
                   interactive
                   height={courseMapHeight}
                   className="rounded-xl w-full"
@@ -745,18 +762,18 @@ export default function EventDetail() {
                 <CourseRouteDownloadPanel
                   eventTitle={event.title}
                   eventSlug={event.slug}
-                  course={course}
+                  course={displayCourse}
                   isRegistered={isRegisteredConfirmed}
                   onRegisterClick={() => setActiveTab("pricing")}
                 />
 
-                {course.elevationProfile &&
-                course.elevationProfile.length > 1 ? (
-                  <ElevationProfileChart profile={course.elevationProfile} />
+                {displayCourse.elevationProfile &&
+                displayCourse.elevationProfile.length > 1 ? (
+                  <ElevationProfileChart profile={displayCourse.elevationProfile} />
                 ) : null}
 
                 <div className="grid sm:grid-cols-2 gap-3">
-                  {course.points.map((p) => {
+                  {displayCourse.points.map((p) => {
                     const Icon = pointIcon(p.type);
                     return (
                       <div
@@ -927,12 +944,28 @@ export default function EventDetail() {
                       )}
                       <div className="flex justify-between items-center text-sm border-t border-gray-700/50 pt-3">
                         <span className="text-gray-400">
-                          {t("eventDetail.inscription")}
+                          {absorbAllPricing
+                            ? t("eventDetail.finalPrice")
+                            : t("eventDetail.inscription")}
                         </span>
-                        <span className="font-bold text-cyan text-base">
-                          {cat.price_formatted ||
-                            formatPriceMxn(cat.price_cents, i18n.language)}
-                        </span>
+                        <div className="text-right">
+                          <span className="font-bold text-cyan text-base">
+                            {(absorbAllPricing
+                              ? cat.total_formatted
+                              : cat.price_formatted) ||
+                              formatPriceMxn(
+                                absorbAllPricing
+                                  ? (cat.total_cents ?? cat.price_cents)
+                                  : cat.price_cents,
+                                i18n.language,
+                              )}
+                          </span>
+                          {absorbAllPricing ? (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              {t("eventDetail.finalPriceIvaIncluded")}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                       {spotsLeft != null && !isSoldOut && (
                         <p className="text-xs text-gray-500 mt-3">

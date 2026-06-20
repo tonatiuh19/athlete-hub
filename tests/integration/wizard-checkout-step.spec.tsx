@@ -136,6 +136,7 @@ function renderStep(
           category={category}
           fields={[]}
           serviceFeePercent={11}
+          feePresentation="pass_through"
           idempotencyKey="test-idem-001"
           checkoutPaymentReady={props?.checkoutPaymentReady ?? false}
           onCheckoutPaymentReady={onReady}

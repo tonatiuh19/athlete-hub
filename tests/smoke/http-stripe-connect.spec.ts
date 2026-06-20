@@ -92,6 +92,42 @@ describe("HTTP smoke: Stripe Connect checkout gating", () => {
     expect(stripe.customers.create).toHaveBeenCalled();
   });
 
+  it("creates absorb-all checkout: athlete pays sticker, organizer transfer = sticker − fee", async () => {
+    const stripe = createMockStripeClient({ accountId: "acct_test_ready" });
+    const { app, authHeader, db } = await mountRegistrationScenario(
+      seeds.paidConnectAbsorbAll(),
+      { stripe },
+    );
+
+    const res = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/checkout`)
+      .set("Authorization", authHeader)
+      .send({
+        categoryId: SCENARIO.categoryId,
+        fieldValues: {},
+        idempotencyKey: "idem-absorb-all",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.amountCents).toBe(100_000);
+    expect(res.body.serviceFeeCents).toBe(11_000);
+    expect(res.body.registrationAmountCents).toBe(89_000);
+    expect(res.body.feePresentation).toBe("absorb_all");
+
+    const piParams = stripe.createdPaymentIntents[0]!;
+    expect(piParams.amount).toBe(100_000);
+    expect(piParams.application_fee_amount).toBe(11_000);
+
+    const pay = db.payments.find((p) => p.public_uuid === res.body.paymentPublicUuid);
+    expect(pay?.amount_cents).toBe(100_000);
+    expect(pay?.registration_amount_cents).toBe(89_000);
+    expect(pay?.service_fee_cents).toBe(11_000);
+    const meta = JSON.parse(String(pay?.metadata_json ?? "{}")) as {
+      breakdown?: { organizerFiscalNetCents?: number };
+    };
+    expect(meta.breakdown?.organizerFiscalNetCents).toBe(73_000);
+  });
+
   it("confirm completes registration and stores Connect transfer/fee ids", async () => {
     const stripe = createMockStripeClient({
       transferId: "tr_confirm_test",

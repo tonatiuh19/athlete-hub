@@ -174,8 +174,45 @@ export default function StaffPaymentDetailSheet({
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <dt className="text-muted-foreground">{t("staffPortal.finance.colProvider")}</dt>
                 <dd className="capitalize">{payment.provider}</dd>
+                {payment.fee_presentation ? (
+                  <>
+                    <dt className="text-muted-foreground">{t("staffPortal.finance.feePresentation")}</dt>
+                    <dd>
+                      {payment.fee_presentation === "absorb_all"
+                        ? t("staffPortal.eventEdit.feePresentation.absorbAll")
+                        : t("staffPortal.eventEdit.feePresentation.passThrough")}
+                    </dd>
+                  </>
+                ) : null}
                 <dt className="text-muted-foreground">{t("staffPortal.finance.serviceFee")}</dt>
                 <dd>${(payment.service_fee_cents / 100).toLocaleString(numLocale)}</dd>
+                <dt className="text-muted-foreground">{t("staffPortal.finance.organizerTransfer")}</dt>
+                <dd>
+                  ${(payment.registration_amount_cents / 100).toLocaleString(numLocale)}
+                </dd>
+                {payment.checkout_breakdown ? (
+                  <>
+                    <dt className="text-muted-foreground">{t("staffPortal.finance.listPrice")}</dt>
+                    <dd>
+                      ${(payment.checkout_breakdown.listPriceCents / 100).toLocaleString(numLocale)}
+                    </dd>
+                    {payment.fee_presentation === "absorb_all" ? (
+                      <>
+                        <dt className="text-muted-foreground">{t("staffPortal.finance.displayIva")}</dt>
+                        <dd>
+                          ${(payment.checkout_breakdown.displayIvaCents / 100).toLocaleString(numLocale)}
+                        </dd>
+                        <dt className="text-muted-foreground">{t("staffPortal.finance.fiscalNet")}</dt>
+                        <dd>
+                          $
+                          {(payment.checkout_breakdown.organizerFiscalNetCents / 100).toLocaleString(
+                            numLocale,
+                          )}
+                        </dd>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
                 {payment.paid_at ? (
                   <>
                     <dt className="text-muted-foreground">{t("staffPortal.finance.colPaidAt")}</dt>

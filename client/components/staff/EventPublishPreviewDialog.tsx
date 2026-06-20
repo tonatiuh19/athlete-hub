@@ -14,12 +14,16 @@ import { getDateFnsLocale } from "@/utils/dateLocale";
 import { getNumberLocale } from "@/utils/dateLocale";
 import type { StaffEventCategory, StaffEventDetail } from "@shared/api";
 import type { EventSponsorInput } from "@shared/api";
+import type { FeePresentation } from "@shared/checkoutBreakdown";
+import { athleteFacingCategoryTotalCents } from "@/utils/staffFeePresentation";
 
 export interface EventPublishPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   event: StaffEventDetail | null | undefined;
   categories: StaffEventCategory[];
+  feePresentation?: FeePresentation;
+  serviceFeePercent?: number;
   sponsors: EventSponsorInput[];
   courseDistanceKm?: number | null;
   waiverCount?: number;
@@ -36,6 +40,8 @@ export default function EventPublishPreviewDialog({
   onOpenChange,
   event,
   categories,
+  feePresentation = "pass_through",
+  serviceFeePercent = 11,
   sponsors,
   courseDistanceKm,
   waiverCount = 0,
@@ -56,6 +62,24 @@ export default function EventPublishPreviewDialog({
   const startLabel = event.start_date
     ? format(new Date(event.start_date), "PPp", { locale: dateLocale })
     : "—";
+
+  const absorbAll = feePresentation === "absorb_all";
+
+  const formatPreviewPrice = (priceCents: number) => {
+    const list = (priceCents / 100).toLocaleString(numLocale);
+    if (absorbAll) {
+      return t("staffPortal.eventEdit.preview.categoryPriceAbsorb", { price: list });
+    }
+    const total = athleteFacingCategoryTotalCents(
+      priceCents,
+      serviceFeePercent,
+      feePresentation,
+    );
+    return t("staffPortal.eventEdit.preview.categoryPricePassThrough", {
+      inscription: list,
+      total: (total / 100).toLocaleString(numLocale),
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -114,8 +138,8 @@ export default function EventPublishPreviewDialog({
                       className="flex justify-between gap-2 text-sm rounded-lg bg-secondary/50 px-3 py-2"
                     >
                       <span className="font-medium truncate">{c.name}</span>
-                      <span className="text-muted-foreground shrink-0">
-                        ${(c.price_cents / 100).toLocaleString(numLocale)}
+                      <span className="text-muted-foreground shrink-0 text-right">
+                        {formatPreviewPrice(c.price_cents)}
                       </span>
                     </li>
                   ))}

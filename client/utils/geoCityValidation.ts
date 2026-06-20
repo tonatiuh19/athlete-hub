@@ -32,6 +32,18 @@ export function isCatalogCitySelectionValid(
   return false;
 }
 
+/** Organizer city: catalog id, unchanged saved city, or empty. */
+export function isOrganizerCitySelectionValid(
+  geoCityId: number | null,
+  city: string,
+  savedCity?: string | null,
+): boolean {
+  if (!city.trim()) return true;
+  if (geoCityId != null) return true;
+  if (savedCity && city.trim() === savedCity.trim()) return true;
+  return false;
+}
+
 /** Strip denormalized city/state unless a catalog row was selected. */
 export function enforceCatalogCityOnEventBody<
   T extends { location_city?: string | null; location_state?: string | null },

@@ -55,6 +55,7 @@ function eventDetailFixture(
     tags: [],
     scheduleWaves: [],
     serviceFeePercent: 5,
+    feePresentation: "pass_through",
     course: null,
     media: [],
     waivers,

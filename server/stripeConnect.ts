@@ -1,6 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type Stripe from "stripe";
+import type { FeePresentation } from "../shared/checkoutBreakdown.js";
 import {
   buildStripePayoutChecklist,
   buildTribooPayoutChecklist,
@@ -21,6 +22,7 @@ const ORGANIZER_CONNECT_SELECT = `
   o.rfc,
   o.tax_regime,
   o.service_fee_percent,
+  o.fee_presentation,
   o.status,
   o.stripe_account_id,
   o.stripe_onboarding_complete,
@@ -56,6 +58,7 @@ type OrganizerConnectRow = RowDataPacket & {
   rfc: string | null;
   tax_regime: string | null;
   service_fee_percent: number | string;
+  fee_presentation: FeePresentation;
   status: string;
   stripe_account_id: string | null;
   stripe_onboarding_complete: number;
@@ -101,6 +104,8 @@ function rowToConnectState(
     rfc: row.rfc,
     tax_regime: row.tax_regime,
     service_fee_percent: Number(row.service_fee_percent ?? 11),
+    fee_presentation:
+      row.fee_presentation === "absorb_all" ? "absorb_all" : "pass_through",
     stripe_account_id: row.stripe_account_id,
     stripe_onboarding_complete: Boolean(row.stripe_onboarding_complete),
     stripe_connect_status: row.stripe_connect_status ?? "not_started",
@@ -151,6 +156,7 @@ export function buildConnectStatusPayload(
     stripeChecklist,
     payoutReady: ready,
     serviceFeePercent: state.service_fee_percent,
+    feePresentation: state.fee_presentation,
   };
 }
 
@@ -600,6 +606,14 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
     if (req.body?.tax_regime != null) {
       updates.push("tax_regime = ?");
       params.push(String(req.body.tax_regime).trim().slice(0, 10) || null);
+    }
+    if (req.body?.fee_presentation != null) {
+      const fp = String(req.body.fee_presentation);
+      if (fp !== "pass_through" && fp !== "absorb_all") {
+        return res.status(400).json({ error: "Invalid fee_presentation" });
+      }
+      updates.push("fee_presentation = ?");
+      params.push(fp);
     }
 
     if (updates.length === 0) {

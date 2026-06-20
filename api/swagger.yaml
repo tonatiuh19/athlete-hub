@@ -575,6 +575,17 @@ paths:
       responses:
         "200":
           description: Event detail (may include myRegistration for signed-in athletes)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feePresentation:
+                    $ref: "#/components/schemas/FeePresentation"
+                  categories:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventCategoryPricing"
         "404":
           description: Event not found
 
@@ -993,6 +1004,10 @@ paths:
       responses:
         "200":
           description: Checkout session with client secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationCheckoutResponse"
         "401":
           description: Unauthorized
         "409":
@@ -2690,6 +2705,9 @@ paths:
                   type: string
                 tax_regime:
                   type: string
+                fee_presentation:
+                  type: string
+                  enum: [pass_through, absorb_all]
       responses:
         "200":
           description: Updated payout status payload
@@ -3012,6 +3030,16 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fee_presentation:
+                  $ref: "#/components/schemas/FeePresentation"
+                service_fee_percent:
+                  type: number
       responses:
         "200":
           description: Updated organizer
@@ -3196,7 +3224,7 @@ paths:
           description: Paginated admin list
     post:
       tags: [Admin]
-      summary: Invite platform admin (super_admin only)
+      summary: Invite platform admin (admin role; super_admin required to create super_admin)
       security:
         - bearerAuth: []
       responses:
@@ -3206,7 +3234,7 @@ paths:
   /admin/admins/{adminId}:
     patch:
       tags: [Admin]
-      summary: Update platform admin (super_admin only)
+      summary: Update platform admin status or role (role changes require super_admin)
       security:
         - bearerAuth: []
       parameters:
@@ -3417,3 +3445,57 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  schemas:
+    FeePresentation:
+      type: string
+      enum: [pass_through, absorb_all]
+    RegistrationCheckoutResponse:
+      type: object
+      properties:
+        paymentPublicUuid:
+          type: string
+        clientSecret:
+          type: string
+          nullable: true
+        amountCents:
+          type: integer
+        registrationAmountCents:
+          type: integer
+        serviceFeeCents:
+          type: integer
+        currency:
+          type: string
+        categoryName:
+          type: string
+        eventTitle:
+          type: string
+        feePresentation:
+          $ref: "#/components/schemas/FeePresentation"
+        listPriceCents:
+          type: integer
+        displayIvaCents:
+          type: integer
+        organizerFiscalNetCents:
+          type: integer
+        discountCode:
+          type: string
+        discountAmountCents:
+          type: integer
+    EventCategoryPricing:
+      type: object
+      properties:
+        price_cents:
+          type: integer
+        total_cents:
+          type: integer
+          description: Athlete-facing checkout total for this category
+        display_iva_cents:
+          type: integer
+        organizer_fiscal_net_cents:
+          type: integer
+    MarketplaceEventCard:
+      type: object
+      properties:
+        from_price_cents:
+          type: integer
+          description: Minimum athlete-facing category total (includes pass-through fees)

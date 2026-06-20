@@ -2,6 +2,10 @@
  * Shared types between client and server
  */
 
+import type { CheckoutBreakdownSnapshot, FeePresentation } from "./checkoutBreakdown.js";
+
+export type { CheckoutBreakdownSnapshot, FeePresentation };
+
 export interface HealthResponse {
   status: string;
   database?: string;
@@ -283,6 +287,8 @@ export interface EventCategory {
   price_cents: number;
   service_fee_cents?: number;
   total_cents?: number;
+  display_iva_cents?: number;
+  organizer_fiscal_net_cents?: number;
   price_formatted?: string;
   service_fee_formatted?: string;
   total_formatted?: string;
@@ -329,6 +335,7 @@ export interface EventDetailResponse {
   tags: EventTag[];
   scheduleWaves: ScheduleWave[];
   serviceFeePercent: number;
+  feePresentation: FeePresentation;
   course: EventCourse | null;
   media: EventMediaAsset[];
   /** All active waivers, ordered for registration */
@@ -648,6 +655,10 @@ export interface RegistrationCheckoutResponse {
   currency: string;
   categoryName: string;
   eventTitle: string;
+  feePresentation?: FeePresentation;
+  listPriceCents?: number;
+  displayIvaCents?: number;
+  organizerFiscalNetCents?: number;
   discountAmountCents?: number;
   discountCode?: string;
   fieldValues?: Record<string, string | boolean>;
@@ -673,10 +684,13 @@ export interface DiscountValidateResponse {
   discountType: "percent" | "fixed_cents";
   discountValue: number;
   appliesTo: "registration" | "service_fee" | "total";
+  feePresentation: FeePresentation;
   discountAmountCents: number;
   priceCents: number;
   serviceFeeCents: number;
   totalCents: number;
+  displayIvaCents: number;
+  organizerFiscalNetCents: number;
   originalPriceCents: number;
   originalServiceFeeCents: number;
   originalTotalCents: number;
@@ -1055,6 +1069,8 @@ export interface AdminPaymentDetail extends AdminPaymentRow {
   failure_code?: string | null;
   failure_message?: string | null;
   stripe_charge_id?: string | null;
+  fee_presentation?: FeePresentation | null;
+  checkout_breakdown?: CheckoutBreakdownSnapshot | null;
 }
 
 export interface AdminPaymentDetailResponse {
@@ -1096,6 +1112,10 @@ export interface StaffEventDetail {
   registration_count: number;
   max_registrations?: number | null;
   requires_waiver?: boolean | number;
+  fee_presentation?: FeePresentation | null;
+  organizer_fee_presentation?: FeePresentation;
+  service_fee_percent?: number | string | null;
+  organizer_service_fee_percent?: number | string | null;
   submitted_for_approval_at?: string | null;
   approval_rejection_reason?: string | null;
   sport_name?: string;
@@ -1181,6 +1201,8 @@ export interface StaffEventUpsertRequest {
   banner_image_url?: string | null;
   max_registrations?: number | null;
   requires_waiver?: boolean;
+  /** null = inherit organizer default */
+  fee_presentation?: FeePresentation | null;
 }
 
 export interface StaffEventCategoryInput {
@@ -1444,6 +1466,7 @@ export interface AdminOrganizerDetail extends AdminOrganizerRow {
   payout_terms_accepted_at?: string | null;
   payout_fee_acknowledged_at?: string | null;
   service_fee_percent?: number | string;
+  fee_presentation?: FeePresentation;
   rfc?: string | null;
 }
 
@@ -1489,6 +1512,7 @@ export interface AdminOrganizerUpdateRequest {
   phone?: string;
   status?: "pending" | "active" | "suspended" | "inactive";
   service_fee_percent?: number;
+  fee_presentation?: FeePresentation;
   legal_name?: string;
   billing_email?: string;
   rfc?: string;
@@ -1517,6 +1541,7 @@ export interface OrganizerConnectInfo {
   rfc?: string | null;
   tax_regime?: string | null;
   service_fee_percent: number;
+  fee_presentation: FeePresentation;
   stripe_account_id?: string | null;
   stripe_onboarding_complete?: boolean | number;
   stripe_connect_status: StripeConnectStatus;
@@ -1539,6 +1564,7 @@ export interface OrganizerPayoutStatusResponse {
   stripeChecklist: { items: PayoutChecklistItem[]; complete: boolean };
   payoutReady: boolean;
   serviceFeePercent: number;
+  feePresentation: FeePresentation;
 }
 
 export interface OrganizerPayoutOnboardResponse extends OrganizerPayoutStatusResponse {
@@ -1554,14 +1580,21 @@ export interface OrganizerPayoutProfileUpdateRequest {
   billing_email?: string;
   rfc?: string;
   tax_regime?: string;
+  fee_presentation?: FeePresentation;
 }
 
 export interface CheckoutBreakdownPreview {
+  mode: FeePresentation;
+  listPriceCents: number;
   inscriptionCents: number;
   serviceFeePercent: number;
   serviceFeeCents: number;
+  displayIvaCents: number;
   totalCents: number;
+  athleteTotalCents: number;
   organizerReceivesCents: number;
+  organizerFiscalNetCents: number;
+  stripeOrganizerTransferCents: number;
   platformFeeCents: number;
   inscriptionBaseCents: number;
   inscriptionIvaCents: number;

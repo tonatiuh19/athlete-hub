@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@clerk/clerk-react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { useTranslation } from "react-i18next";
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
+import AuthFlowLoadingPanel from "@/components/auth/AuthFlowLoadingPanel";
 import AuthPageHeader from "@/components/auth/AuthPageHeader";
 import AuthFormError from "@/components/auth/AuthFormError";
 import PasswordStrengthField from "@/components/auth/PasswordStrengthField";
@@ -37,6 +39,14 @@ import {
   loginAthlete,
   registerAthlete,
 } from "@/store/slices/athleteAuthSlice";
+import { getAthleteToken, isClerkEnabled } from "@/lib/api";
+import { CLERK_SSO_CALLBACK_PATH } from "@/config/clerkUrls";
+import {
+  clearAthleteIntentionalLogout,
+  shouldSkipClerkAthleteResume,
+} from "@/utils/athleteSessionLogout";
+import { resumeClerkAthleteSession } from "@/utils/clerkAthleteSync";
+import { isAthleteOauthCompleting } from "@/utils/athleteSsoUx";
 
 type AuthStep = "identify" | "login" | "register" | "forgot" | "socialLogin";
 
@@ -44,6 +54,7 @@ export default function AthleteLogin() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     checkingEmail,
     signingIn,
@@ -51,9 +62,43 @@ export default function AthleteLogin() {
     resettingPassword,
     error,
     passwordResetSent,
+    syncingClerk,
   } = useAppSelector((s) => s.athleteAuth);
   const [step, setStep] = useState<AuthStep>("identify");
   const [email, setEmail] = useState("");
+  const { isLoaded: clerkLoaded, isSignedIn, getToken } = useAuth();
+  const clerkResumeAttemptedRef = useRef(false);
+  const athleteToken = useAppSelector((s) => s.athleteAuth.token);
+
+  useEffect(() => {
+    if (athleteToken || getAthleteToken()) {
+      navigate("/portal", { replace: true });
+    }
+  }, [athleteToken, navigate]);
+
+  useEffect(() => {
+    const intentionalLogout = shouldSkipClerkAthleteResume();
+    if (
+      !isClerkEnabled ||
+      !clerkLoaded ||
+      !isSignedIn ||
+      getAthleteToken() ||
+      clerkResumeAttemptedRef.current ||
+      intentionalLogout
+    ) {
+      if (intentionalLogout) {
+        clearAthleteIntentionalLogout();
+        clerkResumeAttemptedRef.current = true;
+      }
+      return;
+    }
+    clerkResumeAttemptedRef.current = true;
+    void resumeClerkAthleteSession({ dispatch, getToken }).then((resumed) => {
+      if (resumed.ok) {
+        navigate(resumed.path, { replace: true });
+      }
+    });
+  }, [clerkLoaded, dispatch, getToken, isSignedIn, navigate]);
 
   const stats = useMemo(
     () => [
@@ -182,6 +227,11 @@ export default function AthleteLogin() {
     },
   });
 
+  const oauthCallbackRedirect =
+    isAthleteOauthCompleting() && location.pathname !== CLERK_SSO_CALLBACK_PATH
+      ? `${CLERK_SSO_CALLBACK_PATH}${location.search}${location.hash}`
+      : null;
+
   const heading =
     step === "identify" ? (
       <>
@@ -211,6 +261,22 @@ export default function AthleteLogin() {
           : step === "socialLogin"
             ? t("auth.athlete.socialOnlySubtitle", { email })
             : t("auth.athlete.subtitleLogin", { email });
+
+  if (oauthCallbackRedirect) {
+    return <Navigate to={oauthCallbackRedirect} replace />;
+  }
+
+  if (syncingClerk) {
+    return (
+      <>
+        <MetaHelmet title={t("auth.sso.completing")} noindex />
+        <AuthFlowLoadingPanel
+          statusMessage={t("auth.sso.syncingAccount")}
+          step="sync"
+        />
+      </>
+    );
+  }
 
   const busyIdentify = checkingEmail;
 

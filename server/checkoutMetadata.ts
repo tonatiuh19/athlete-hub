@@ -1,9 +1,12 @@
+import type { CheckoutBreakdownSnapshot, FeePresentation } from "../shared/checkoutBreakdown.js";
 import { parseWaiverSignatures, type WaiverSignatureInput } from "./eventWaivers.js";
 
 export type CheckoutPaymentMetadata = {
   categoryId: number;
   fieldValues: Record<string, string | boolean>;
   categoryName: string;
+  feePresentation?: FeePresentation;
+  breakdown?: CheckoutBreakdownSnapshot;
   waiverSignatures?: WaiverSignatureInput[];
   /** @deprecated legacy single-waiver checkout */
   waiverId?: number;
@@ -52,6 +55,15 @@ export function parseCheckoutPaymentMetadata(raw: unknown): CheckoutPaymentMetad
     data.discountAmountCents != null && Number.isFinite(Number(data.discountAmountCents))
       ? Number(data.discountAmountCents)
       : undefined;
+  const feePresentation =
+    data.feePresentation === "absorb_all" || data.feePresentation === "pass_through"
+      ? data.feePresentation
+      : undefined;
+  const breakdownRaw = data.breakdown;
+  const breakdown =
+    breakdownRaw && typeof breakdownRaw === "object"
+      ? (breakdownRaw as CheckoutBreakdownSnapshot)
+      : undefined;
   const waitlistEntryId =
     data.waitlistEntryId != null && Number.isFinite(Number(data.waitlistEntryId))
       ? Number(data.waitlistEntryId)
@@ -70,6 +82,8 @@ export function parseCheckoutPaymentMetadata(raw: unknown): CheckoutPaymentMetad
     discountCodeId,
     discountCode,
     discountAmountCents,
+    feePresentation,
+    breakdown,
     waitlistEntryId,
   };
 }

@@ -6,16 +6,21 @@ import TribooLogo from "@/components/brand/TribooLogo";
 import AuthFlowLoadingPanel, {
   type AuthFlowLoadingStep,
 } from "@/components/auth/AuthFlowLoadingPanel";
+import { resumeClerkAthleteSession, clerkResumeError, clerkResumePath } from "@/utils/clerkAthleteSync";
 import { extractApiErrorMessage } from "@/utils/apiError";
-import { athletePostAuthPath } from "@/utils/athleteProfileCompletion";
+import { clerkSignInUrl } from "@/config/clerkUrls";
 import { clerkSsoCallbackUrl } from "@/utils/clerkSso";
+import {
+  clerkOAuthCallbackParams,
+  clerkOAuthRoutingSnapshot,
+} from "@/utils/clerkOAuthRouting";
 import { logger } from "@/utils/logger";
 import { useAppDispatch } from "@/store/hooks";
-import { syncAthleteClerk } from "@/store/slices/athleteAuthSlice";
 import { isClerkEnabled } from "@/lib/api";
 import { resolveSsoReturnTo } from "@/utils/ssoReturnStorage";
 import {
   clearSsoOAuthStarted,
+  installSsoNavigationProbe,
   serializeClerkError,
   ssoClerkSnapshot,
   ssoTrace,
@@ -37,23 +42,24 @@ function SsoCallbackInner() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const clerk = useClerk();
+  const oauthCallbackParams = useMemo(() => clerkOAuthCallbackParams(), []);
   const { isLoaded, isSignedIn, getToken, userId } = useAuth();
   const { session } = useSession();
   const { signIn, setActive: setActiveFromSignIn, isLoaded: signInLoaded } = useSignIn();
   const { signUp, setActive: setActiveFromSignUp, isLoaded: signUpLoaded } = useSignUp();
   const callbackHandledRef = useRef(false);
   const syncStartedRef = useRef(false);
+  const [clerkCallbackReady, setClerkCallbackReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState(t("auth.sso.completing"));
   const [step, setStep] = useState<AuthFlowLoadingStep>("verify");
 
-  const callbackUrl = clerkSsoCallbackUrl();
   const hasClerkSession = Boolean(session?.id || isSignedIn || clerk.session?.id);
 
   const snapshot = () => ({
     url: ssoUrlSnapshot(),
     returnTo,
-    callbackUrl,
+    routing: clerkOAuthRoutingSnapshot(),
     clerk: ssoClerkSnapshot({
       clerkLoaded: clerk.loaded,
       authLoaded: isLoaded,
@@ -67,10 +73,17 @@ function SsoCallbackInner() {
   });
 
   useEffect(() => {
+    installSsoNavigationProbe();
     ssoTrace("page:mount", snapshot());
+    if (window.location.hostname.endsWith(".accounts.dev")) {
+      ssoTrace("page:accounts-dev-detected", {
+        hint: "Clerk Account Portal — callback missing signInUrl/signUpUrl or Dashboard Paths wrong",
+        ...snapshot(),
+      });
+    }
   }, []);
 
-  // Step 1: Complete Clerk OAuth redirect on this exact URL (matches authenticateWithRedirect).
+  // Step 1: Complete Clerk OAuth redirect (must pass signInUrl/signUpUrl or Clerk uses Account Portal).
   useEffect(() => {
     if (!clerk.loaded || !signInLoaded || !signUpLoaded || callbackHandledRef.current) return;
     callbackHandledRef.current = true;
@@ -82,12 +95,7 @@ function SsoCallbackInner() {
       ssoTrace("callback:start", snapshot());
 
       try {
-        await clerk.handleRedirectCallback({
-          redirectUrl: callbackUrl,
-          signInFallbackRedirectUrl: callbackUrl,
-          signUpFallbackRedirectUrl: callbackUrl,
-          continueSignUpUrl: "/login",
-        });
+        await clerk.handleRedirectCallback(oauthCallbackParams);
         ssoTrace("callback:handleRedirectCallback:done", snapshot());
       } catch (err) {
         ssoTrace("callback:handleRedirectCallback:error", {
@@ -134,11 +142,14 @@ function SsoCallbackInner() {
           ...snapshot(),
         });
         logger.error("[sso-callback] session activation failed", err);
+      } finally {
+        setClerkCallbackReady(true);
+        ssoTrace("callback:ready-for-triboo-sync", snapshot());
       }
     })();
   }, [
-    callbackUrl,
     clerk,
+    oauthCallbackParams,
     setActiveFromSignIn,
     setActiveFromSignUp,
     signIn,
@@ -148,13 +159,12 @@ function SsoCallbackInner() {
     t,
   ]);
 
-  // Step 2: Exchange Clerk session for Triboo JWT, then navigate.
+  // Step 2: Exchange Clerk session for Triboo JWT — only after Clerk callback finishes.
   useEffect(() => {
     if (!isLoaded || syncStartedRef.current || error) return;
-    if (!hasClerkSession) return;
+    if (!clerkCallbackReady || !hasClerkSession) return;
 
     syncStartedRef.current = true;
-    clearSsoOAuthStarted();
 
     void (async () => {
       try {
@@ -162,37 +172,40 @@ function SsoCallbackInner() {
         setStatusMessage(t("auth.sso.syncingAccount"));
         ssoTrace("sync:start", snapshot());
 
-        const sessionToken = await getToken();
-        if (!sessionToken) {
-          throw new Error("no_clerk_token");
-        }
-
-        const result = await dispatch(syncAthleteClerk({ sessionToken }));
-        if (syncAthleteClerk.fulfilled.match(result)) {
-          ssoTrace("sync:success", {
-            athleteId: result.payload.athlete?.id,
-            isNew: result.payload.isNew,
-          });
+        const resumed = await resumeClerkAthleteSession({
+          dispatch,
+          getToken,
+          returnTo,
+        });
+        if (resumed.ok) {
+          const path = clerkResumePath(resumed);
+          if (!path) {
+            clearSsoOAuthStarted();
+            setError(t("auth.sso.failed"));
+            return;
+          }
+          ssoTrace("sync:success", { path });
           setStep("ready");
           setStatusMessage(t("auth.sso.almostThere"));
           await new Promise((r) => setTimeout(r, 300));
-          navigate(athletePostAuthPath(result.payload.athlete, returnTo), {
-            replace: true,
-          });
+          clearSsoOAuthStarted();
+          navigate(path, { replace: true });
           return;
         }
 
-        setError(result.payload || t("auth.sso.failed"));
+        clearSsoOAuthStarted();
+        setError(clerkResumeError(resumed) || t("auth.sso.failed"));
       } catch (err) {
         ssoTrace("sync:error", { error: serializeClerkError(err), ...snapshot() });
         logger.error("[sso-callback] sync failed", err);
+        clearSsoOAuthStarted();
         setError(t("auth.sso.failed"));
       }
     })();
-  }, [dispatch, error, getToken, hasClerkSession, isLoaded, navigate, returnTo, t]);
+  }, [clerkCallbackReady, dispatch, error, getToken, hasClerkSession, isLoaded, navigate, returnTo, t]);
 
   useEffect(() => {
-    if (!isLoaded || hasClerkSession || error) return;
+    if (!isLoaded || hasClerkSession || error || !clerkCallbackReady) return;
 
     const timer = window.setTimeout(() => {
       if (!syncStartedRef.current) {
@@ -202,7 +215,7 @@ function SsoCallbackInner() {
     }, CALLBACK_WAIT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [error, hasClerkSession, isLoaded, t]);
+  }, [clerkCallbackReady, error, hasClerkSession, isLoaded, t]);
 
   if (error) {
     return (
@@ -212,7 +225,9 @@ function SsoCallbackInner() {
         <p className="text-destructive text-sm max-w-sm">{extractApiErrorMessage(error)}</p>
         {import.meta.env.DEV ? (
           <p className="text-xs text-muted-foreground max-w-sm">
-            Dev: filter Console by <code className="text-cyan">[sso]</code> for the trace.
+            Dev: filter Console by <code className="text-cyan">[sso]</code>. Clerk Dashboard → Paths →
+            Sign-in URL must be{" "}
+            <code className="text-cyan">{clerkSignInUrl()}</code>
           </p>
         ) : null}
         <Link to="/login" className="text-sm text-cyan hover:underline">

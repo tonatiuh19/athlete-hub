@@ -34,13 +34,23 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
     staffAdminsPagination,
     loadingStaffAdmins,
     staffAdminsError,
+    staffAdminSaveError,
   } = useAppSelector((s) => s.staffPortal);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const { page, setPage, sortBy, sortDir, onSort, gridParams } = useGridListState("created_at");
   const dateLocale = getDateFnsLocale(i18n.language);
   const isSuperAdmin = user?.type === "admin" && user.role === "super_admin";
+  const isPlatformAdmin = user?.type === "admin";
   const currentAdmin = user?.type === "admin" ? user : null;
+
+  const canManageAdminStatus = (target: AdminStaffRow) =>
+    isPlatformAdmin &&
+    target.id !== user?.id &&
+    (isSuperAdmin || target.role !== "super_admin");
+
+  const canManageAdminRole = (target: AdminStaffRow) =>
+    isSuperAdmin && target.id !== user?.id;
 
   const displayAdmins = useMemo(() => {
     if (!currentAdmin) return staffAdmins;
@@ -102,7 +112,7 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
         sortable: true,
         shrink: true,
         render: (a) =>
-          isSuperAdmin && a.id !== user?.id ? (
+          canManageAdminRole(a) ? (
             <Select
               value={a.role}
               onValueChange={(v) =>
@@ -127,7 +137,7 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
         sortable: true,
         shrink: true,
         render: (a) =>
-          isSuperAdmin && a.id !== user?.id ? (
+          canManageAdminStatus(a) ? (
             <Select
               value={a.status}
               onValueChange={(v) =>
@@ -172,7 +182,7 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
         render: (a) => format(new Date(a.created_at), "d MMM yyyy", { locale: dateLocale }),
       },
     ];
-  }, [t, dateLocale, dispatch, isSuperAdmin, user?.id, currentAdmin?.id]);
+  }, [t, dateLocale, dispatch, isSuperAdmin, isPlatformAdmin, user?.id, currentAdmin?.id]);
 
   return (
     <div className="space-y-4">
@@ -198,7 +208,7 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
 
       {!isSuperAdmin ? (
         <p className="text-sm text-muted-foreground card-sport p-4">
-          {t("staffPortal.staffManagement.superAdminOnly")}
+          {t("staffPortal.staffManagement.adminRoleSuperOnly")}
         </p>
       ) : null}
 
@@ -212,10 +222,13 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
             className="pl-9"
           />
         </div>
-        {isSuperAdmin ? <StaffCreateAdminDialog onCreated={reload} /> : null}
+        {isPlatformAdmin ? <StaffCreateAdminDialog isSuperAdmin={isSuperAdmin} onCreated={reload} /> : null}
       </div>
 
       <PortalErrorAlert error={staffAdminsError} onRetry={reload} />
+      {staffAdminSaveError ? (
+        <p className="text-sm text-destructive card-sport p-3">{staffAdminSaveError}</p>
+      ) : null}
 
       <div className="card-sport p-6">
         <DataGrid<AdminStaffRow>

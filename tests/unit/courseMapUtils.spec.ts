@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { simplifyRoute } from "@/utils/courseMapUtils";
+import { simplifyRoute, normalizeCoursePayloadForSave } from "@/utils/courseMapUtils";
 import { MAX_ROUTE_POINTS } from "@shared/courseValidation";
+import { buildRouteGeoJson } from "@shared/courseGeoJson";
 
 describe("simplifyRoute", () => {
   it("preserves start and end when simplifying", () => {
@@ -20,5 +21,41 @@ describe("simplifyRoute", () => {
       { lat: 19.44, lng: -99.12 },
     ];
     expect(simplifyRoute(route)).toEqual(route);
+  });
+});
+
+describe("normalizeCoursePayloadForSave", () => {
+  it("realigns GPX start/finish POIs with route endpoints", () => {
+    const route = [
+      { lat: 20.97, lng: -89.62 },
+      { lat: 20.98, lng: -89.61 },
+    ];
+    const routeGeojson = buildRouteGeoJson(route, "gpx");
+    const normalized = normalizeCoursePayloadForSave({
+      routeGeojson,
+      points: [
+        { type: "start", name: "Start", lat: 20.67, lng: -103.35 },
+        { type: "finish", name: "Finish", lat: 19.0, lng: -99.0 },
+      ],
+    });
+    const start = normalized.points?.find((p) => p.type === "start");
+    const finish = normalized.points?.find((p) => p.type === "finish");
+    expect(start?.lat).toBeCloseTo(20.97);
+    expect(start?.lng).toBeCloseTo(-89.62);
+    expect(finish?.lat).toBeCloseTo(20.98);
+    expect(finish?.lng).toBeCloseTo(-89.61);
+  });
+
+  it("realigns legacy dense LineString courses without gpx metadata", () => {
+    const route = Array.from({ length: 40 }, (_, i) => ({
+      lat: 20.97 + i * 0.0002,
+      lng: -89.62 - i * 0.0002,
+    }));
+    const routeGeojson = { type: "LineString", coordinates: route.map((p) => [p.lng, p.lat]) };
+    const normalized = normalizeCoursePayloadForSave({
+      routeGeojson,
+      points: [{ type: "start", name: "Start", lat: 20.67, lng: -103.35 }],
+    });
+    expect(normalized.points?.find((p) => p.type === "start")?.lat).toBeCloseTo(route[0]!.lat);
   });
 });

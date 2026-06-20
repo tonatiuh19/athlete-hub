@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { parseLineString } from "@/utils/courseMapUtils";
+import { resolveCareerStartCoords } from "@/utils/resolveCareerStart";
 import type { StaffEventCoursePayload } from "@shared/api";
 import { isValidGeoCoordinate } from "@shared/courseValidation";
 import { cn } from "@/lib/utils";
@@ -71,10 +72,23 @@ export default function StaffCourseWizardDialog({
   }, [routePoints]);
 
   const hasValidStart = useMemo(() => {
+    if (routeSource === "gpx" && routePoints.length >= 2) {
+      return routePoints.every((p) => isValidGeoCoordinate(p.lat, p.lng));
+    }
+    const fromDraft = draft
+      ? resolveCareerStartCoords({
+          points: draft.points ?? [],
+          eventLat,
+          eventLng,
+          route: routePoints,
+          preferRouteStart: routeSource === "gpx",
+        })
+      : null;
+    if (fromDraft) return true;
     const lat = parseCoord(eventLat);
     const lng = parseCoord(eventLng);
     return lat != null && lng != null && isValidGeoCoordinate(lat, lng);
-  }, [eventLat, eventLng]);
+  }, [draft, eventLat, eventLng, routePoints, routeSource]);
 
   const canNextRoute =
     hasValidRoute && (routeSource === "gpx" || hasValidStart);

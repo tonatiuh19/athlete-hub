@@ -1,6 +1,6 @@
 import type { LatLng } from "@/utils/courseMapUtils";
 import type { ElevationProfilePoint } from "@shared/api";
-import { MAX_GPX_FILE_BYTES } from "@shared/courseValidation";
+import { MAX_GPX_FILE_BYTES, isValidGeoCoordinate } from "@shared/courseValidation";
 import { haversineKm, polylineLengthKm, simplifyRoute } from "@/utils/courseMapUtils";
 
 export interface GpxParseResult {
@@ -65,18 +65,90 @@ function pointsFromRouteContainer(container: Element): Element[] {
   return findElementsByLocalName(container, "rtept");
 }
 
-function collectGpxTrackPoints(doc: Document): { points: Element[]; source: GpxParseResult["source"] } {
-  const tracks = findElementsByLocalName(doc, "trk");
-  if (tracks.length > 0) {
-    const points = pointsFromTrackContainer(tracks[0]);
-    if (points.length > 0) return { points, source: "track" };
+function routeCentroid(route: LatLng[]): LatLng {
+  if (route.length === 0) return { lat: 0, lng: 0 };
+  let latSum = 0;
+  let lngSum = 0;
+  for (const p of route) {
+    latSum += p.lat;
+    lngSum += p.lng;
+  }
+  return { lat: latSum / route.length, lng: lngSum / route.length };
+}
+
+function elementsToRoute(pointNodes: Element[]): LatLng[] {
+  const route: LatLng[] = [];
+  pointNodes.forEach((pt) => {
+    const lat = parseFloat(pt.getAttribute("lat") || "");
+    const lng = parseFloat(pt.getAttribute("lon") || "");
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!isValidGeoCoordinate(lat, lng)) return;
+    route.push({ lat, lng });
+  });
+  return route;
+}
+
+type GpxCandidate = { points: Element[]; source: GpxParseResult["source"] };
+
+function collectGpxCandidates(doc: Document): GpxCandidate[] {
+  const candidates: GpxCandidate[] = [];
+
+  for (const track of findElementsByLocalName(doc, "trk")) {
+    const points = pointsFromTrackContainer(track);
+    if (points.length >= 2) candidates.push({ points, source: "track" });
   }
 
-  const routes = findElementsByLocalName(doc, "rte");
-  if (routes.length > 0) {
-    const points = pointsFromRouteContainer(routes[0]);
-    if (points.length > 0) return { points, source: "route" };
+  for (const route of findElementsByLocalName(doc, "rte")) {
+    const points = pointsFromRouteContainer(route);
+    if (points.length >= 2) candidates.push({ points, source: "route" });
   }
+
+  return candidates;
+}
+
+/** Pick the race course track — not a commute segment or metadata stub. */
+export function selectBestGpxCandidate(
+  candidates: GpxCandidate[],
+  options?: { preferStartNear?: LatLng | null },
+): GpxCandidate | null {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0]!;
+
+  const preferStartNear = options?.preferStartNear;
+  let best = candidates[0]!;
+  let bestScore = Infinity;
+
+  for (const candidate of candidates) {
+    const route = elementsToRoute(candidate.points);
+    if (route.length < 2) continue;
+
+    const first = route[0]!;
+    const centroid = routeCentroid(route);
+    const startToCentroidKm = haversineKm(first, centroid);
+    const startToEventKm = preferStartNear ? haversineKm(first, preferStartNear) : 0;
+
+    // Lower is better: start should sit on the course (near centroid) and near the event when known.
+    const score =
+      startToEventKm * 100 +
+      startToCentroidKm * 10 -
+      Math.log10(Math.max(route.length, 2));
+
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function collectGpxTrackPoints(
+  doc: Document,
+  options?: { preferStartNear?: LatLng | null },
+): { points: Element[]; source: GpxParseResult["source"] } {
+  const candidates = collectGpxCandidates(doc);
+  const best = selectBestGpxCandidate(candidates, options);
+  if (best) return best;
 
   const waypoints = findElementsByLocalName(doc, "wpt");
   if (waypoints.length >= 2) {
@@ -94,15 +166,20 @@ function readElevation(node: Element): number {
   return Number.isFinite(ele) ? ele : NaN;
 }
 
+export type GpxParseOptions = {
+  /** Bias multi-track GPX toward the track whose start is nearest this point (event venue). */
+  preferStartNear?: LatLng | null;
+};
+
 /** Parse GPX track or route points into lat/lng pairs and elevation profile. */
-export function parseGpxFile(text: string): GpxParseResult {
+export function parseGpxFile(text: string, options?: GpxParseOptions): GpxParseResult {
   const parser = new DOMParser();
   const doc = parser.parseFromString(text, "application/xml");
   if (doc.querySelector("parsererror")) {
     return { route: [], elevationProfile: [], elevationGainM: 0, simplified: false, source: "track" };
   }
 
-  const { points: pointNodes, source } = collectGpxTrackPoints(doc);
+  const { points: pointNodes, source } = collectGpxTrackPoints(doc, options);
   const route: LatLng[] = [];
   const elevations: number[] = [];
 
@@ -110,6 +187,7 @@ export function parseGpxFile(text: string): GpxParseResult {
     const lat = parseFloat(pt.getAttribute("lat") || "");
     const lng = parseFloat(pt.getAttribute("lon") || "");
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!isValidGeoCoordinate(lat, lng)) return;
     route.push({ lat, lng });
     elevations.push(readElevation(pt));
   });

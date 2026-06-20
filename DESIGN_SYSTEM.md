@@ -66,7 +66,9 @@ Source URLs documented in `client/constants/tribooBrand.ts`.
 
 - **Route:** `/staff/payouts` — organizer owner/finance/organizer roles.
 - **Dual checklist pattern:** Triboo profile (Step 1) then bank verification (Step 2). Use `destructive` border/text for incomplete blocking states; `accent` for ready/CTA. Do not surface third-party payment provider names in UI copy.
-- **`StaffFeeCalculatorCard`:** Reusable fee breakdown (inscription + service fee, IVA-inclusive labels). Used on Payouts page and admin create-organizer dialog.
+- **`StaffFeeCalculatorCard`:** Reusable fee breakdown for **pass-through** (inscription + service fee) and **absorb-all** (public sticker with illustrative IVA slice). Props: `feePresentation`, `serviceFeePercent`. Used on Payouts, admin Connect panel, and create-organizer dialog.
+- **Fee modes:** Organizer default on `/staff/payouts`; optional per-event override on Event Edit (`inherit` | `pass_through` | `absorb_all`). Category price labels change with mode (inscription vs sticker).
+- **Marketplace `from_price_cents`:** Athlete-facing minimum (pass-through includes service fee).
 - **`StaffAdminConnectPanel`:** Admin assisted onboarding in organizer detail sheet — never implies KYC can be skipped.
 - **EventEdit publish gate:** Destructive banner when paid categories exist and `payoutReady` is false (organizer → `/staff/payouts`; admin → `/staff/people?tab=organizers`).
 - **Event approval workflow:** Organizer **Submit for approval** sets `status: pending_approval` (not public). Admin **Publish** only from `pending_approval` → `published`. Admin **Reject** returns to `draft` and stores `approval_rejection_reason`. Use `StaffStatusBadge` / `pending_approval` token in lists and event edit banners.

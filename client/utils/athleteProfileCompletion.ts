@@ -3,6 +3,7 @@ import {
   findPendingRegistrationReturnPath,
   hasPendingRegistrationAuth,
 } from "@/utils/registrationSessionStorage";
+import { normalizeSsoReturnTo } from "@/utils/ssoReturnStorage";
 
 export function athleteNeedsProfileCompletion(
   user: AthleteUser | null | undefined,
@@ -14,14 +15,15 @@ export function athletePostAuthPath(
   user: AthleteUser | null | undefined,
   returnTo?: string | null,
 ): string {
-  const registrationReturn = findPendingRegistrationReturnPath(returnTo);
+  const safeReturnTo = normalizeSsoReturnTo(returnTo);
+  const registrationReturn = findPendingRegistrationReturnPath(safeReturnTo);
   if (registrationReturn) {
     return registrationReturn;
   }
   if (athleteNeedsProfileCompletion(user)) {
     return "/portal/complete-profile";
   }
-  return returnTo || "/portal";
+  return safeReturnTo || "/portal";
 }
 
 export function shouldResumeRegistrationAfterAuth(returnTo?: string | null): boolean {

@@ -106,6 +106,26 @@ Todos los precios mostrados dentro de la plataforma incluyen IVA.
 
 ---
 
+## Modo pass-through (predeterminado)
+
+- `price_cents` en categoría = inscripción del organizador.
+- El atleta paga inscripción + comisión (ej. 11%).
+- Stripe transfiere la inscripción al organizador; la comisión va a la plataforma.
+
+## Modo absorb_all (opcional por organizador / evento)
+
+- `price_cents` en categoría = **precio público final** (IVA incluido).
+- El atleta paga solo el sticker (ej. $1,000).
+- Comisión plataforma = sticker × 11% ($110).
+- IVA informativo en desglose = sticker × 16% ($160).
+- Neto organizador (calculadora) = sticker − comisión − IVA informativo ($730).
+- Stripe transfiere sticker − comisión ($890) al organizador Connect.
+- El desglose IVA es informativo para factura; los CFDI usan back-calculation SAT.
+
+Configuración: `/staff/payouts` (organizador) o edición de evento (heredar / override).
+
+---
+
 # Flujo Financiero Simplificado
 
 ```text

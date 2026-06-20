@@ -15,6 +15,10 @@ import {
 } from "@/utils/eventCategoryTemplates";
 import { formatCategoryEligibility } from "@/utils/formatCategoryEligibility";
 import { getNumberLocale } from "@/utils/dateLocale";
+import {
+  athleteFacingCategoryTotalCents,
+} from "@/utils/staffFeePresentation";
+import type { FeePresentation } from "@shared/checkoutBreakdown";
 import { fromDatetimeLocal, toDatetimeLocal } from "@/utils/datetimeLocal";
 import type {
   StaffEventCategory,
@@ -35,6 +39,8 @@ export interface StaffEventCategoriesSectionProps {
   categories: StaffEventCategory[];
   canManage: boolean;
   staffRole: StaffRole;
+  feePresentation?: FeePresentation;
+  serviceFeePercent?: number;
 }
 
 export default function StaffEventCategoriesSection({
@@ -42,6 +48,8 @@ export default function StaffEventCategoriesSection({
   categories,
   canManage,
   staffRole,
+  feePresentation = "pass_through",
+  serviceFeePercent = 11,
 }: StaffEventCategoriesSectionProps) {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
@@ -139,6 +147,23 @@ export default function StaffEventCategoriesSection({
     }));
   };
 
+  const absorbAll = feePresentation === "absorb_all";
+
+  const formatCategoryPriceLine = (priceCents: number) => {
+    const listMxn = (priceCents / 100).toLocaleString(numLocale);
+    if (absorbAll) {
+      return t("staffPortal.eventEdit.categoryListPriceAbsorb", { price: listMxn });
+    }
+    const athleteTotal = athleteFacingCategoryTotalCents(
+      priceCents,
+      serviceFeePercent,
+      feePresentation,
+    );
+    return t("staffPortal.eventEdit.categoryListPricePassThrough", {
+      inscription: listMxn,
+      total: (athleteTotal / 100).toLocaleString(numLocale),
+    });
+  };
   const canAdd =
     Boolean(newCategory.name.trim()) &&
     Boolean(newPriceMxn) &&
@@ -171,6 +196,7 @@ export default function StaffEventCategoriesSection({
                     <StaffEventCategoryFormFields
                       idPrefix={`cat-edit-${c.id}`}
                       values={categoryDraft}
+                      feePresentation={feePresentation}
                       onChange={(patch) =>
                         setCategoryDraft((d) => ({ ...d, ...patch }))
                       }
@@ -193,7 +219,7 @@ export default function StaffEventCategoriesSection({
                     <div className="min-w-0 space-y-1">
                       <p className="font-medium">{c.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        ${(c.price_cents / 100).toLocaleString(numLocale)} MXN ·{" "}
+                        {formatCategoryPriceLine(c.price_cents)} ·{" "}
                         {c.sold_count}
                         {c.capacity != null ? ` / ${c.capacity}` : ""}{" "}
                         {t("staffPortal.dashboard.registered").toLowerCase()}
@@ -288,6 +314,7 @@ export default function StaffEventCategoriesSection({
               <StaffEventCategoryFormFields
                 idPrefix="cat-new"
                 values={newCategory}
+                feePresentation={feePresentation}
                 onChange={(patch) =>
                   setNewCategory((prev) => ({ ...prev, ...patch }))
                 }

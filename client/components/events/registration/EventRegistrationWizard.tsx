@@ -306,6 +306,7 @@ export default function EventRegistrationWizard() {
               category={category}
               fields={eventDetail.registrationFields}
               serviceFeePercent={eventDetail.serviceFeePercent}
+              feePresentation={eventDetail.feePresentation ?? "pass_through"}
               idempotencyKey={idempotencyKey}
               restoredFieldValues={restoredFieldValues ?? checkout?.fieldValues}
               checkoutPaymentReady={checkoutPaymentReady || Boolean(checkout)}

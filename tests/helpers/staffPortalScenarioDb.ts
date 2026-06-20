@@ -437,6 +437,14 @@ export class StaffPortalScenarioDb {
             event.submitted_for_approval_at = null;
           }
         }
+        event.location_name = params[params.length - 10] as string | null;
+        event.location_city = params[params.length - 9] as string | null;
+        event.location_state = params[params.length - 8] as string | null;
+        event.location_lat = params[params.length - 7] as number | null;
+        event.location_lng = params[params.length - 6] as number | null;
+        event.hero_image_url = params[params.length - 5] as string | null;
+        event.banner_image_url = params[params.length - 4] as string | null;
+        event.max_registrations = params[params.length - 3] as number | null;
       }
       if (q.includes("submitted_for_approval_at = null")) {
         event.submitted_for_approval_at = null;
@@ -524,6 +532,8 @@ export class StaffPortalScenarioDb {
       const catalog = new Map([
         ["ciudad de méxico", { name: "Ciudad de México", state_name: "CDMX" }],
         ["ciudad de mexico", { name: "Ciudad de México", state_name: "CDMX" }],
+        ["homún", { name: "Homún", state_name: "Yucatán" }],
+        ["homun", { name: "Homún", state_name: "Yucatán" }],
       ]);
       const hit = catalog.get(city);
       return hit ? [[hit], []] : [[], []];

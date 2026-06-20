@@ -3,7 +3,7 @@ import { useFormik } from "formik";
 import * as Yup from "yup";
 import { ArrowLeft, Loader2, Receipt } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { DiscountValidateResponse, EventCategory, EventRegistrationField } from "@shared/api";
+import type { DiscountValidateResponse, EventCategory, EventRegistrationField, FeePresentation } from "@shared/api";
 import {
   buildRegistrationFieldInitialValues,
   normalizeCheckoutFieldValues,
@@ -44,6 +44,7 @@ interface WizardCheckoutStepProps {
   category: EventCategory;
   fields: EventRegistrationField[];
   serviceFeePercent: number;
+  feePresentation: FeePresentation;
   idempotencyKey: string;
   restoredFieldValues?: Record<string, string | boolean> | null;
   checkoutPaymentReady: boolean;
@@ -115,6 +116,10 @@ function CheckoutOrderSummary({
   priceCents,
   serviceFeeCents,
   totalCents,
+  displayIvaCents,
+  organizerFiscalNetCents,
+  serviceFeePercent,
+  feePresentation,
   discountPreview,
   language,
 }: {
@@ -123,10 +128,16 @@ function CheckoutOrderSummary({
   priceCents: number;
   serviceFeeCents: number;
   totalCents: number;
+  displayIvaCents?: number;
+  organizerFiscalNetCents?: number;
+  feePresentation: FeePresentation;
+  serviceFeePercent: number;
   discountPreview: DiscountValidateResponse | null;
   language: string;
 }) {
   const { t } = useTranslation();
+  const absorbAll = feePresentation === "absorb_all";
+
   return (
     <div className="rounded-xl border border-gray-700/50 bg-surface-dark/40 p-4">
       <div className="flex items-start gap-3">
@@ -135,14 +146,23 @@ function CheckoutOrderSummary({
           <p className="text-xs text-gray-500 truncate">{eventTitle}</p>
           <p className="text-sm font-bold text-white">{categoryName}</p>
           <div className="mt-3 space-y-1 text-xs text-gray-400">
-            <div className="flex justify-between">
-              <span>{t("eventDetail.inscription")}</span>
-              <span>{formatPriceMxn(priceCents, language)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>{t("eventDetail.serviceFee")}</span>
-              <span>{formatPriceMxn(serviceFeeCents, language)}</span>
-            </div>
+            {absorbAll ? (
+              <div className="flex justify-between">
+                <span>{t("registrationWizard.checkout.finalPrice")}</span>
+                <span>{formatPriceMxn(priceCents, language)}</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between">
+                  <span>{t("eventDetail.inscription")}</span>
+                  <span>{formatPriceMxn(priceCents, language)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{t("eventDetail.serviceFee")}</span>
+                  <span>{formatPriceMxn(serviceFeeCents, language)}</span>
+                </div>
+              </>
+            )}
             {discountPreview?.valid && discountPreview.discountAmountCents > 0 ? (
               <div className="flex justify-between text-accent">
                 <span>{t("registrationWizard.checkout.discountApplied")}</span>
@@ -155,6 +175,33 @@ function CheckoutOrderSummary({
               <span>{t("eventDetail.total")}</span>
               <span>{formatPriceMxn(totalCents, language)}</span>
             </div>
+            {absorbAll && displayIvaCents != null ? (
+              <details className="pt-2 text-[11px] text-gray-500">
+                <summary className="cursor-pointer text-gray-400">
+                  {t("registrationWizard.checkout.invoicePreviewToggle")}
+                </summary>
+                <div className="mt-2 space-y-1 pl-1">
+                  <div className="flex justify-between">
+                    <span>
+                      {t("registrationWizard.checkout.invoiceServiceFeePercent", {
+                        percent: serviceFeePercent,
+                      })}
+                    </span>
+                    <span>{formatPriceMxn(serviceFeeCents, language)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>{t("registrationWizard.checkout.invoiceIva")}</span>
+                    <span>{formatPriceMxn(displayIvaCents, language)}</span>
+                  </div>
+                  {organizerFiscalNetCents != null ? (
+                    <div className="flex justify-between">
+                      <span>{t("registrationWizard.checkout.invoiceOrganizerPortion")}</span>
+                      <span>{formatPriceMxn(organizerFiscalNetCents, language)}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       </div>
@@ -168,6 +215,7 @@ export default function WizardCheckoutStep({
   category,
   fields,
   serviceFeePercent,
+  feePresentation,
   idempotencyKey,
   restoredFieldValues,
   checkoutPaymentReady,
@@ -213,6 +261,7 @@ export default function WizardCheckoutStep({
 
   const appliedDiscountCode = resolveAppliedDiscountCode(discountPreview, discountCode);
 
+  const absorbAll = feePresentation === "absorb_all";
   const serviceFeeCents =
     discountPreview?.serviceFeeCents ??
     category.service_fee_cents ??
@@ -221,7 +270,11 @@ export default function WizardCheckoutStep({
   const totalCents =
     discountPreview?.totalCents ??
     category.total_cents ??
-    category.price_cents + serviceFeeCents;
+    (absorbAll ? category.price_cents : category.price_cents + serviceFeeCents);
+  const displayIvaCents =
+    discountPreview?.displayIvaCents ?? category.display_iva_cents;
+  const organizerFiscalNetCents =
+    discountPreview?.organizerFiscalNetCents ?? category.organizer_fiscal_net_cents;
 
   const handleCheckout = useCallback(
     async (values: Record<string, string | boolean>) => {
@@ -496,6 +549,10 @@ export default function WizardCheckoutStep({
             priceCents={priceCents}
             serviceFeeCents={serviceFeeCents}
             totalCents={totalCents}
+            displayIvaCents={displayIvaCents}
+            organizerFiscalNetCents={organizerFiscalNetCents}
+            feePresentation={feePresentation}
+            serviceFeePercent={serviceFeePercent}
             discountPreview={discountPreview}
             language={i18n.language}
           />
@@ -604,6 +661,10 @@ export default function WizardCheckoutStep({
             priceCents={priceCents}
             serviceFeeCents={serviceFeeCents}
             totalCents={totalCents}
+            displayIvaCents={displayIvaCents}
+            organizerFiscalNetCents={organizerFiscalNetCents}
+            feePresentation={feePresentation}
+            serviceFeePercent={serviceFeePercent}
             discountPreview={discountPreview}
             language={i18n.language}
           />

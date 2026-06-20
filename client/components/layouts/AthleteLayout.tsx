@@ -4,8 +4,6 @@ import {
   Navigate,
   Outlet,
   useLocation,
-  useMatches,
-  useNavigate,
 } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -25,13 +23,13 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import TribooLogo from "@/components/brand/TribooLogo";
 import EventRegistrationWizard from "@/components/events/registration/EventRegistrationWizard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { athleteLogout, fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
+import { fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
+import { useAthleteLogout } from "@/hooks/useAthleteLogout";
 import { dismissRegistrationWizard } from "@/utils/dismissRegistrationWizard";
 import { athleteNeedsProfileCompletion } from "@/utils/athleteProfileCompletion";
 
-export type AthleteLayoutHandle = {
-  allowIncompleteProfile?: boolean;
-};
+/** Routes where incomplete-profile redirect is skipped (must stay in sync with App.tsx). */
+const ATHLETE_INCOMPLETE_PROFILE_ALLOWED = ["/portal/complete-profile"] as const;
 
 function AthletePageFallback() {
   return (
@@ -44,17 +42,16 @@ function AthletePageFallback() {
 export default function AthleteLayout() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const navigate = useNavigate();
   const location = useLocation();
-  const matches = useMatches();
-  const allowIncompleteProfile = matches.some((match) =>
-    Boolean((match.handle as AthleteLayoutHandle | undefined)?.allowIncompleteProfile),
+  const allowIncompleteProfile = ATHLETE_INCOMPLETE_PROFILE_ALLOWED.some((path) =>
+    location.pathname === path || location.pathname.startsWith(`${path}/`),
   );
   const { token, user, loading } = useAppSelector((s) => s.athleteAuth);
   const { open: wizardOpen, step: wizardStep } = useAppSelector(
     (s) => s.registrationCheckout,
   );
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { logout: handleLogout, loggingOut } = useAthleteLogout();
 
   // Success modal must not follow athletes into the portal.
   useEffect(() => {
@@ -111,8 +108,16 @@ export default function AthleteLayout() {
     if (token && !user) dispatch(fetchAthleteMe());
   }, [token, user, dispatch]);
 
-  if (!token) {
+  if (!token && !loggingOut) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+
+  if (loggingOut) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-10 h-10 border-2 border-cyan border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   if (loading && !user) {
@@ -137,11 +142,6 @@ export default function AthleteLayout() {
       />
     );
   }
-
-  const handleLogout = async () => {
-    await dispatch(athleteLogout());
-    navigate("/login", { replace: true });
-  };
 
   const NavItems = ({ mobile = false }: { mobile?: boolean }) => (
     <>
@@ -203,8 +203,9 @@ export default function AthleteLayout() {
           </div>
           <button
             type="button"
-            onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            onClick={() => void handleLogout()}
+            disabled={loggingOut}
+            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
           >
             <LogOut className="w-4 h-4" /> {t("common.signOut")}
           </button>
@@ -236,8 +237,9 @@ export default function AthleteLayout() {
               <NavItems mobile />
               <button
                 type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 text-destructive"
+                onClick={() => void handleLogout()}
+                disabled={loggingOut}
+                className="w-full flex items-center gap-3 px-4 py-3 text-destructive disabled:opacity-50"
               >
                 <LogOut className="w-5 h-5" /> {t("common.signOut")}
               </button>

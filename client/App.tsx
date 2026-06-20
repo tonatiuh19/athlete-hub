@@ -93,11 +93,7 @@ function AppRoutes() {
           <Route path="/sso-callback" element={<SsoCallback />} />
 
           <Route path="/portal" element={<AthleteLayout />}>
-            <Route
-              path="complete-profile"
-              element={<CompleteProfile />}
-              handle={{ allowIncompleteProfile: true }}
-            />
+            <Route path="complete-profile" element={<CompleteProfile />} />
             <Route index element={<AthleteDashboard />} />
             <Route path="registrations" element={<AthleteRegistrations />} />
             <Route path="events" element={<AthleteEvents />} />

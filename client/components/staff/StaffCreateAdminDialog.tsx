@@ -32,9 +32,13 @@ const schema = Yup.object({
 
 interface StaffCreateAdminDialogProps {
   onCreated?: () => void;
+  isSuperAdmin?: boolean;
 }
 
-export default function StaffCreateAdminDialog({ onCreated }: StaffCreateAdminDialogProps) {
+export default function StaffCreateAdminDialog({
+  onCreated,
+  isSuperAdmin = false,
+}: StaffCreateAdminDialogProps) {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const { savingStaffAdmin, staffAdminSaveError } = useAppSelector((s) => s.staffPortal);
@@ -96,7 +100,7 @@ export default function StaffCreateAdminDialog({ onCreated }: StaffCreateAdminDi
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="admin">admin</SelectItem>
-                <SelectItem value="super_admin">super_admin</SelectItem>
+                {isSuperAdmin ? <SelectItem value="super_admin">super_admin</SelectItem> : null}
               </SelectContent>
             </Select>
           </div>

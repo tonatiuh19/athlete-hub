@@ -72,6 +72,38 @@ export function ssoTrace(step: string, data?: Record<string, unknown>) {
   logger.info(`[sso] ${step}`, data ?? {});
 }
 
+let ssoNavigationProbeInstalled = false;
+
+/** Log outbound navigations while an OAuth round-trip is in flight (dev diagnosis). */
+export function installSsoNavigationProbe() {
+  if (ssoNavigationProbeInstalled || typeof window === "undefined") return;
+  ssoNavigationProbeInstalled = true;
+
+  window.addEventListener("pagehide", () => {
+    if (!readSsoOAuthStartedAt()) return;
+    ssoTrace("navigation:pagehide", {
+      ...ssoUrlSnapshot(),
+      onAccountsDev: window.location.hostname.endsWith(".accounts.dev"),
+    });
+  });
+
+  const wrapHistory = (method: "pushState" | "replaceState") => {
+    const original = history[method].bind(history);
+    history[method] = ((...args: Parameters<History["pushState"]>) => {
+      if (readSsoOAuthStartedAt()) {
+        ssoTrace(`navigation:${method}`, {
+          url: args[2] ?? null,
+          ...ssoUrlSnapshot(),
+        });
+      }
+      return original(...args);
+    }) as History["pushState"];
+  };
+
+  wrapHistory("pushState");
+  wrapHistory("replaceState");
+}
+
 export function ssoTraceSignIn(signIn: unknown) {
   if (!signIn || typeof signIn !== "object") {
     return { signIn: null };

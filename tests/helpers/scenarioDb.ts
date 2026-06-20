@@ -83,6 +83,7 @@ export type OrganizerConnectSeed = {
   rfc?: string | null;
   tax_regime?: string | null;
   service_fee_percent?: number;
+  fee_presentation?: "pass_through" | "absorb_all";
   stripe_account_id?: string | null;
   stripe_onboarding_complete?: number;
   stripe_connect_status?: string;
@@ -101,6 +102,7 @@ export interface ScenarioSeed {
   waivers?: Array<{ id: number; title: string; version: number }>;
   discountCodes?: DiscountCodeSeed[];
   organizer?: OrganizerConnectSeed;
+  event?: { fee_presentation?: "pass_through" | "absorb_all" | null };
   category?: {
     name?: string;
     price_cents?: number;
@@ -187,6 +189,8 @@ export class RegistrationScenarioDb {
       organizer_id: SCENARIO.organizerId,
       service_fee_percent: 11,
       org_fee_percent: 11,
+      fee_presentation: seed.event?.fee_presentation ?? null,
+      org_fee_presentation: seed.organizer?.fee_presentation ?? "pass_through",
       requires_waiver: this.requiresWaiver ? 1 : 0,
       registration_opens_at: null,
       registration_closes_at: null,
@@ -220,6 +224,7 @@ export class RegistrationScenarioDb {
       rfc: org.rfc ?? null,
       tax_regime: org.tax_regime ?? null,
       service_fee_percent: org.service_fee_percent ?? 11,
+      fee_presentation: org.fee_presentation ?? "pass_through",
       status: org.status ?? "active",
       stripe_account_id: org.stripe_account_id ?? null,
       stripe_onboarding_complete: org.stripe_onboarding_complete ?? 0,
@@ -311,6 +316,8 @@ export class RegistrationScenarioDb {
       stripe_charges_enabled: this.organizer.stripe_charges_enabled,
       stripe_payouts_enabled: this.organizer.stripe_payouts_enabled,
       org_fee_percent: this.organizer.service_fee_percent,
+      org_fee_presentation: this.organizer.fee_presentation ?? "pass_through",
+      fee_presentation: this.event.fee_presentation ?? null,
     } as RowDataPacket;
   }
 
@@ -1163,6 +1170,26 @@ export const seeds = {
       billing_email: "billing@trail.mx",
       payout_terms_accepted_at: "2026-01-01 00:00:00",
       payout_fee_acknowledged_at: "2026-01-01 00:00:00",
+      fee_presentation: "pass_through",
+      stripe_account_id: "acct_test_ready",
+      stripe_onboarding_complete: 1,
+      stripe_connect_status: "ready",
+      stripe_charges_enabled: 1,
+      stripe_payouts_enabled: 1,
+      stripe_details_submitted: 1,
+      stripe_connect_onboarded_at: "2026-01-01 00:00:00",
+    },
+  }),
+  paidConnectAbsorbAll: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 100_000, capacity: 100 },
+    organizer: {
+      legal_name: "Trail MX SA",
+      rfc: "TRM123456ABC",
+      billing_email: "billing@trail.mx",
+      payout_terms_accepted_at: "2026-01-01 00:00:00",
+      payout_fee_acknowledged_at: "2026-01-01 00:00:00",
+      fee_presentation: "absorb_all",
       stripe_account_id: "acct_test_ready",
       stripe_onboarding_complete: 1,
       stripe_connect_status: "ready",

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { StaffEventCategoryPatch } from "@shared/api";
+import type { FeePresentation } from "@shared/checkoutBreakdown";
 
 export type CategoryFormValues = StaffEventCategoryPatch & {
   name?: string;
@@ -24,6 +25,7 @@ export interface StaffEventCategoryFormFieldsProps {
   showPrice?: boolean;
   priceDisplay?: number;
   onPriceChange?: (priceMxn: number) => void;
+  feePresentation?: FeePresentation;
 }
 
 const DIFFICULTIES = ["beginner", "intermediate", "advanced", "expert"] as const;
@@ -36,8 +38,10 @@ export default function StaffEventCategoryFormFields({
   showPrice = true,
   priceDisplay,
   onPriceChange,
+  feePresentation = "pass_through",
 }: StaffEventCategoryFormFieldsProps) {
   const { t } = useTranslation();
+  const absorbAll = feePresentation === "absorb_all";
 
   const priceMxn =
     priceDisplay ??
@@ -60,7 +64,10 @@ export default function StaffEventCategoryFormFields({
       {showPrice ? (
         <div className="space-y-1.5">
           <Label htmlFor={`${idPrefix}-price`}>
-            {t("staffPortal.eventEdit.categoryPrice")} *
+            {absorbAll
+              ? t("staffPortal.eventEdit.categoryPriceSticker")
+              : t("staffPortal.eventEdit.categoryPriceInscription")}{" "}
+            *
           </Label>
           <Input
             id={`${idPrefix}-price`}
@@ -81,6 +88,11 @@ export default function StaffEventCategoryFormFields({
               }
             }}
           />
+          <p className="text-xs text-muted-foreground">
+            {absorbAll
+              ? t("staffPortal.eventEdit.categoryPriceHintAbsorb")
+              : t("staffPortal.eventEdit.categoryPriceHintPassThrough")}
+          </p>
         </div>
       ) : null}
 

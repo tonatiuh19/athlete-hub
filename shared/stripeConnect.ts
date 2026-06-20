@@ -8,6 +8,9 @@ export type StripeConnectStatus =
 
 export type StripeConnectOnboardingMode = "self" | "admin";
 
+export type { FeePresentation } from "./checkoutBreakdown.js";
+import type { FeePresentation } from "./checkoutBreakdown.js";
+
 export interface OrganizerPayoutProfileInput {
   legal_name?: string | null;
   billing_email?: string | null;
@@ -21,6 +24,7 @@ export interface OrganizerConnectState extends OrganizerPayoutProfileInput {
   organizer_id: number;
   email: string;
   service_fee_percent: number;
+  fee_presentation: FeePresentation;
   stripe_account_id?: string | null;
   stripe_onboarding_complete?: boolean | number;
   stripe_connect_status: StripeConnectStatus;

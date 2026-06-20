@@ -23,6 +23,7 @@ import {
 import type { GeoJsonLineString } from "@shared/api";
 import { formatEventDate } from "@/utils/eventFormat";
 import { routeToLeafletPositions } from "@/utils/courseMapUtils";
+import { normalizeEventCourse } from "@shared/courseNormalize";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import {
@@ -154,6 +155,14 @@ export default function EventsMap({
     [courseRoute],
   );
 
+  const displayCoursePoints = useMemo(() => {
+    if (!courseRoute || !coursePoints?.length) return coursePoints;
+    return normalizeEventCourse({
+      routeGeojson: courseRoute,
+      points: coursePoints,
+    }).points;
+  }, [courseRoute, coursePoints]);
+
   const mappableEvents = useMemo(
     () => events.filter((e) => parseEventLatLng(e) != null),
     [events],
@@ -200,7 +209,7 @@ export default function EventsMap({
         <FitBounds
           events={mappableEvents}
           courseRoute={courseRoute}
-          coursePoints={coursePoints}
+          coursePoints={displayCoursePoints}
           selectedSlug={fitBoundsSelectionSlug}
         />
         <FlyToSelected slug={resolvedFlyToSlug} events={mappableEvents} />
@@ -218,7 +227,7 @@ export default function EventsMap({
           </>
         )}
 
-        {coursePoints?.map((p) => (
+        {displayCoursePoints?.map((p) => (
           <CircleMarker
             key={`${p.type}-${p.name}-${p.km}`}
             center={[p.lat, p.lng]}

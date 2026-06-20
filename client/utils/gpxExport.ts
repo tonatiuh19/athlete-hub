@@ -1,5 +1,6 @@
 import type { CoursePoint, ElevationProfilePoint, EventCourse } from "@shared/api";
 import { parseRouteGeoJson } from "@shared/courseGeoJson";
+import { normalizeEventCourse } from "@shared/courseNormalize";
 import { kmAlongRoute } from "@/utils/courseMapUtils";
 
 function escapeXml(value: string): string {
@@ -43,11 +44,12 @@ export function buildGpxFromCourse(
   eventTitle: string,
   course: EventCourse,
 ): string | null {
-  const route = parseRouteGeoJson(course.routeGeojson);
+  const normalized = normalizeEventCourse(course);
+  const route = parseRouteGeoJson(normalized.routeGeojson);
   if (route.length < 2) return null;
 
   const title = escapeXml(eventTitle.trim() || "Event course");
-  const profile = course.elevationProfile ?? [];
+  const profile = normalized.elevationProfile ?? [];
   const hasProfile = profile.length > 0;
 
   let cumulativeKm = 0;
@@ -65,7 +67,7 @@ export function buildGpxFromCourse(
     })
     .join("\n");
 
-  const waypoints = (course.points ?? [])
+  const waypoints = (normalized.points ?? [])
     .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
     .map((p: CoursePoint) => {
       const name = escapeXml(p.name || p.type);

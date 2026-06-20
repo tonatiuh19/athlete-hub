@@ -4,10 +4,13 @@ import {
   computeCheckoutBreakdown,
   DEFAULT_SERVICE_FEE_PERCENT,
   formatMxnFromCents,
+  type FeePresentation,
 } from "@shared/checkoutBreakdown";
+import { Input } from "@/components/ui/input";
 
 export interface StaffFeeCalculatorCardProps {
   serviceFeePercent?: number;
+  feePresentation?: FeePresentation;
   samplePriceMxn?: number;
   samplePriceEditable?: boolean;
   onSamplePriceChange?: (value: number) => void;
@@ -17,10 +20,9 @@ export interface StaffFeeCalculatorCardProps {
   compact?: boolean;
 }
 
-import { Input } from "@/components/ui/input";
-
 export default function StaffFeeCalculatorCard({
   serviceFeePercent = DEFAULT_SERVICE_FEE_PERCENT,
+  feePresentation = "pass_through",
   samplePriceMxn = 1000,
   samplePriceEditable = false,
   onSamplePriceChange,
@@ -30,26 +32,31 @@ export default function StaffFeeCalculatorCard({
   compact = false,
 }: StaffFeeCalculatorCardProps) {
   const { t } = useTranslation();
+  const absorbAll = feePresentation === "absorb_all";
 
   const breakdown = useMemo(() => {
-    const inscriptionCents = Math.max(0, Math.round(samplePriceMxn * 100));
+    const listPriceCents = Math.max(0, Math.round(samplePriceMxn * 100));
     return computeCheckoutBreakdown({
-      inscriptionCents,
+      listPriceCents,
       serviceFeePercent: Math.max(0, serviceFeePercent),
+      feePresentation,
     });
-  }, [samplePriceMxn, serviceFeePercent]);
+  }, [samplePriceMxn, serviceFeePercent, feePresentation]);
 
   const count = Math.max(1, registrationCount);
-  const projectedOrganizer = breakdown.organizerReceivesCents * count;
-  const projectedPlatform = breakdown.platformFeeCents * count;
-  const projectedTotal = breakdown.totalCents * count;
+  const projectedOrganizer = breakdown.organizerFiscalNetCents * count;
+  const projectedStripe = breakdown.stripeOrganizerTransferCents * count;
+  const projectedPlatform = breakdown.stripePlatformFeeCents * count;
+  const projectedTotal = breakdown.athleteTotalCents * count;
 
   return (
     <div className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-4">
       <div>
         <p className="text-sm font-semibold">{t("staffPortal.payouts.feeCalculatorTitle")}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          {t("staffPortal.payouts.feeCalculatorHint")}
+          {absorbAll
+            ? t("staffPortal.payouts.feeCalculatorHintAbsorb")
+            : t("staffPortal.payouts.feeCalculatorHint")}
         </p>
       </div>
 
@@ -74,7 +81,9 @@ export default function StaffFeeCalculatorCard({
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">
-            {t("staffPortal.payouts.samplePriceLabel")}
+            {absorbAll
+              ? t("staffPortal.payouts.sampleStickerLabel")
+              : t("staffPortal.payouts.samplePriceLabel")}
           </label>
           {samplePriceEditable ? (
             <Input
@@ -86,34 +95,63 @@ export default function StaffFeeCalculatorCard({
               className="h-10"
             />
           ) : (
-            <p className="text-sm font-medium">{formatMxnFromCents(breakdown.inscriptionCents)}</p>
+            <p className="text-sm font-medium">{formatMxnFromCents(breakdown.listPriceCents)}</p>
           )}
         </div>
       </div>
 
       <div className="rounded-lg border border-border/50 bg-background/60 p-3 space-y-2 text-sm">
-        <div className="flex justify-between gap-2">
-          <span className="text-muted-foreground">{t("staffPortal.payouts.lineInscription")}</span>
-          <span>{formatMxnFromCents(breakdown.inscriptionCents)}</span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span className="text-muted-foreground">
-            {t("staffPortal.payouts.lineServiceFee", { percent: serviceFeePercent })}
-          </span>
-          <span>{formatMxnFromCents(breakdown.serviceFeeCents)}</span>
-        </div>
-        <div className="flex justify-between gap-2 font-semibold border-t border-border pt-2">
-          <span>{t("staffPortal.payouts.lineAthleteTotal")}</span>
-          <span>{formatMxnFromCents(breakdown.totalCents)}</span>
-        </div>
-        <div className="flex justify-between gap-2 text-accent">
-          <span>{t("staffPortal.payouts.lineOrganizerReceives")}</span>
-          <span>{formatMxnFromCents(breakdown.organizerReceivesCents)}</span>
-        </div>
-        <div className="flex justify-between gap-2 text-muted-foreground text-xs">
-          <span>{t("staffPortal.payouts.linePlatformFee")}</span>
-          <span>{formatMxnFromCents(breakdown.platformFeeCents)}</span>
-        </div>
+        {absorbAll ? (
+          <>
+            <div className="flex justify-between gap-2 font-semibold">
+              <span>{t("staffPortal.payouts.linePublicPrice")}</span>
+              <span>{formatMxnFromCents(breakdown.athleteTotalCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 text-muted-foreground">
+              <span>
+                {t("staffPortal.payouts.lineServiceFee", { percent: serviceFeePercent })}
+              </span>
+              <span>−{formatMxnFromCents(breakdown.serviceFeeCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 text-muted-foreground">
+              <span>{t("staffPortal.payouts.lineDisplayIva")}</span>
+              <span>−{formatMxnFromCents(breakdown.displayIvaCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 text-accent border-t border-border pt-2">
+              <span>{t("staffPortal.payouts.lineOrganizerNet")}</span>
+              <span>{formatMxnFromCents(breakdown.organizerFiscalNetCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 text-muted-foreground text-xs">
+              <span>{t("staffPortal.payouts.lineStripeDeposit")}</span>
+              <span>{formatMxnFromCents(breakdown.stripeOrganizerTransferCents)}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">{t("staffPortal.payouts.lineInscription")}</span>
+              <span>{formatMxnFromCents(breakdown.listPriceCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">
+                {t("staffPortal.payouts.lineServiceFee", { percent: serviceFeePercent })}
+              </span>
+              <span>{formatMxnFromCents(breakdown.serviceFeeCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 font-semibold border-t border-border pt-2">
+              <span>{t("staffPortal.payouts.lineAthleteTotal")}</span>
+              <span>{formatMxnFromCents(breakdown.athleteTotalCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 text-accent">
+              <span>{t("staffPortal.payouts.lineOrganizerReceives")}</span>
+              <span>{formatMxnFromCents(breakdown.stripeOrganizerTransferCents)}</span>
+            </div>
+            <div className="flex justify-between gap-2 text-muted-foreground text-xs">
+              <span>{t("staffPortal.payouts.linePlatformFee")}</span>
+              <span>{formatMxnFromCents(breakdown.stripePlatformFeeCents)}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {!compact ? (
@@ -122,18 +160,30 @@ export default function StaffFeeCalculatorCard({
             {t("staffPortal.payouts.ivaBreakdownToggle")}
           </summary>
           <div className="mt-2 space-y-1 pl-1">
-            <p>
-              {t("staffPortal.payouts.ivaInscription", {
-                base: formatMxnFromCents(breakdown.inscriptionBaseCents),
-                iva: formatMxnFromCents(breakdown.inscriptionIvaCents),
-              })}
-            </p>
-            <p>
-              {t("staffPortal.payouts.ivaServiceFee", {
-                base: formatMxnFromCents(breakdown.serviceFeeBaseCents),
-                iva: formatMxnFromCents(breakdown.serviceFeeIvaCents),
-              })}
-            </p>
+            {absorbAll ? (
+              <p>
+                {t("staffPortal.payouts.ivaAbsorbSummary", {
+                  iva: formatMxnFromCents(breakdown.displayIvaCents),
+                  total: formatMxnFromCents(breakdown.athleteTotalCents),
+                })}
+              </p>
+            ) : (
+              <>
+                <p>
+                  {t("staffPortal.payouts.ivaInscription", {
+                    base: formatMxnFromCents(breakdown.inscriptionBaseCents),
+                    iva: formatMxnFromCents(breakdown.inscriptionIvaCents),
+                  })}
+                </p>
+                <p>
+                  {t("staffPortal.payouts.ivaServiceFee", {
+                    base: formatMxnFromCents(breakdown.serviceFeeBaseCents),
+                    iva: formatMxnFromCents(breakdown.serviceFeeIvaCents),
+                  })}
+                </p>
+              </>
+            )}
+            <p className="text-[11px] pt-1">{t("staffPortal.payouts.ivaDisclaimer")}</p>
           </div>
         </details>
       ) : null}
@@ -144,10 +194,20 @@ export default function StaffFeeCalculatorCard({
             {t("staffPortal.payouts.projectionTitle", { count })}
           </p>
           <p>
-            {t("staffPortal.payouts.projectionOrganizer", {
-              amount: formatMxnFromCents(projectedOrganizer),
-            })}
+            {t(
+              absorbAll
+                ? "staffPortal.payouts.projectionOrganizerNet"
+                : "staffPortal.payouts.projectionOrganizer",
+              { amount: formatMxnFromCents(projectedOrganizer) },
+            )}
           </p>
+          {absorbAll ? (
+            <p>
+              {t("staffPortal.payouts.projectionStripe", {
+                amount: formatMxnFromCents(projectedStripe),
+              })}
+            </p>
+          ) : null}
           <p>
             {t("staffPortal.payouts.projectionVolume", {
               amount: formatMxnFromCents(projectedTotal),
