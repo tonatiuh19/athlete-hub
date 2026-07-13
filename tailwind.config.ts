@@ -132,7 +132,7 @@ export default {
           "featured-skeleton-shimmer 2s ease-in-out infinite",
       },
       backgroundImage: {
-        "gradient-dark": "linear-gradient(180deg, #05070D 0%, #0c1019 100%)",
+        "gradient-dark": "linear-gradient(180deg, hsl(var(--page-gradient-start)) 0%, hsl(var(--page-gradient-end)) 100%)",
         "gradient-cyan": "linear-gradient(135deg, #FF5A1F 0%, #F23C35 100%)",
         "triboo-gradient": "linear-gradient(135deg, #FF5A1F 0%, #F23C35 100%)",
       },

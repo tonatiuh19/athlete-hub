@@ -20,6 +20,16 @@ export interface AppVersionResponse {
   version: string | null;
 }
 
+export type {
+  SitePublicProfile,
+  LegalEntityConfig,
+  ContactPageConfig,
+} from "./siteLegal.js";
+
+export interface SitePublicProfileResponse {
+  profile: import("./siteLegal.js").SitePublicProfile;
+}
+
 export interface SportType {
   id: number;
   slug: string;
@@ -221,6 +231,7 @@ export interface EventDetailEvent {
   featured?: boolean;
   registration_count: number;
   max_registrations?: number;
+  max_registrations_per_order?: number;
   requires_waiver?: boolean;
   sport_slug: string;
   sport_name: string;
@@ -259,6 +270,58 @@ export interface EventSponsorsUpdateRequest {
 
 export interface EventSponsorsResponse {
   sponsors: EventSponsor[];
+}
+
+export type EventExtraType =
+  | "merch"
+  | "addon"
+  | "folio"
+  | "service"
+  | "experience"
+  | "custom";
+
+export type EventExtraScopeType = "all_categories" | "selected_categories";
+
+export type ExtraFieldType =
+  | "text"
+  | "textarea"
+  | "select"
+  | "checkbox"
+  | "number"
+  | "date";
+
+export type ExtraFieldKind = "standard" | "mx_shipping_block";
+
+export interface EventExtraField {
+  id?: number;
+  field_key: string;
+  label: string;
+  field_type: ExtraFieldType;
+  field_kind?: ExtraFieldKind;
+  options_json?: string[] | null;
+  is_required: boolean | number;
+  sort_order: number;
+}
+
+export interface EventExtra {
+  id: number;
+  public_uuid: string;
+  name: string;
+  description?: string | null;
+  price_cents: number;
+  currency: string;
+  image_url?: string | null;
+  extra_type: EventExtraType;
+  max_per_athlete: number;
+  capacity?: number | null;
+  sold_count?: number;
+  sort_order: number;
+  scope_type?: EventExtraScopeType;
+  sales_opens_at?: string | null;
+  sales_closes_at?: string | null;
+  category_ids?: number[];
+  fields?: EventExtraField[];
+  sales_status?: "open" | "scheduled" | "ended";
 }
 
 export interface EventTag {
@@ -307,6 +370,8 @@ export interface EventRegistrationField {
   options_json?: string[] | null;
   is_required: boolean | number;
   sort_order: number;
+  scope_type?: EventExtraScopeType;
+  category_ids?: number[];
 }
 
 export interface EventMyRegistration {
@@ -330,12 +395,16 @@ export interface EventWaiverPublic {
 export interface EventDetailResponse {
   event: EventDetailEvent;
   categories: EventCategory[];
+  extras?: EventExtra[];
   registrationFields: EventRegistrationField[];
   sponsors: EventSponsor[];
   tags: EventTag[];
   scheduleWaves: ScheduleWave[];
   serviceFeePercent: number;
   feePresentation: FeePresentation;
+  /** False when published paid categories exist but organizer Connect payout is not ready. */
+  payments_available?: boolean;
+  has_paid_categories?: boolean;
   course: EventCourse | null;
   media: EventMediaAsset[];
   /** All active waivers, ordered for registration */
@@ -633,7 +702,8 @@ export interface ConfirmRegistrationReject {
 }
 
 export interface RegistrationCheckoutRequest {
-  categoryId: number;
+  categoryId?: number;
+  lineItems?: GroupCheckoutLineItemInput[];
   fieldValues: Record<string, string | boolean>;
   idempotencyKey: string;
   discountCode?: string;
@@ -644,6 +714,46 @@ export interface RegistrationCheckoutRequest {
   /** @deprecated Use waiverSignatures */
   waiverSignature?: string;
   waitlistEntryId?: number;
+  selectedExtras?: Array<{ extraId: number; quantity: number }>;
+  extraFieldAnswers?: Array<{
+    extraId: number;
+    values: Record<string, string | boolean | Record<string, unknown>>;
+  }>;
+}
+
+export type GroupParticipantType = "self" | "account" | "guest";
+
+export interface GroupGuestParticipant {
+  firstName: string;
+  lastName: string;
+  email: string;
+  dateOfBirth: string;
+  gender: "male" | "female" | "other" | "prefer_not_to_say";
+}
+
+export interface GroupCheckoutLineItemInput {
+  lineId: string;
+  participantType: GroupParticipantType;
+  accountEmail?: string;
+  guest?: GroupGuestParticipant;
+  guardianRelationship?: string;
+  categoryId: number;
+  fieldValues: Record<string, string | boolean>;
+  waiverSignatures?: WaiverSignatureInput[];
+  selectedExtras?: Array<{ extraId: number; quantity: number }>;
+  extraFieldAnswers?: Array<{
+    extraId: number;
+    values: Record<string, string | boolean | Record<string, unknown>>;
+  }>;
+  waitlistEntryId?: number;
+}
+
+export interface RegistrationCheckoutExtraLine {
+  extraId: number;
+  name: string;
+  quantity: number;
+  unitPriceCents: number;
+  totalCents: number;
 }
 
 export interface RegistrationCheckoutResponse {
@@ -657,11 +767,17 @@ export interface RegistrationCheckoutResponse {
   eventTitle: string;
   feePresentation?: FeePresentation;
   listPriceCents?: number;
+  extrasSubtotalCents?: number;
+  extras?: RegistrationCheckoutExtraLine[];
   displayIvaCents?: number;
   organizerFiscalNetCents?: number;
   discountAmountCents?: number;
   discountCode?: string;
   fieldValues?: Record<string, string | boolean>;
+  orderMode?: "group";
+  orderPublicUuid?: string;
+  itemCount?: number;
+  lineItems?: GroupCheckoutLineItemInput[];
 }
 
 export interface RegistrationResumeResponse {
@@ -698,6 +814,16 @@ export interface DiscountValidateResponse {
 
 export interface WaitlistJoinRequest {
   categoryId: number;
+}
+
+export interface GroupWaitlistJoinRequest {
+  lineItems: Array<{
+    categoryId: number;
+    participantType: GroupParticipantType;
+    accountEmail?: string;
+    guest?: GroupGuestParticipant;
+    guardianRelationship?: string;
+  }>;
 }
 
 export interface WaitlistEntry {
@@ -850,7 +976,37 @@ export interface RegistrationConfirmResponse {
     event_title: string;
     event_slug: string;
   };
+  order?: {
+    publicUuid: string;
+    itemCount: number;
+    registrations: Array<{
+      public_uuid: string;
+      registration_number: string;
+      qr_code_token: string;
+      status: string;
+      total_cents: number;
+      category_name: string;
+      participant_label?: string;
+      participant_email?: string;
+      guest_claim_token?: string | null;
+    }>;
+  };
   error?: string;
+}
+
+export interface GuestClaimRegistrationRequest {
+  claimToken: string;
+}
+
+export interface GuestClaimRegistrationResponse {
+  success: boolean;
+  registration: {
+    public_uuid: string;
+    registration_number: string;
+    event_slug: string;
+    event_title: string;
+    category_name: string;
+  };
 }
 
 export interface StaffDashboardStats {
@@ -1010,10 +1166,29 @@ export interface StaffRegistrationDetailRow extends OrganizerRegistrationRow {
   payment_id?: number | null;
 }
 
+export interface RegistrationPurchasedExtraFieldAnswer {
+  field_key: string;
+  label: string;
+  value_text?: string | null;
+  value_json?: Record<string, unknown> | null;
+  field_kind?: ExtraFieldKind;
+  field_type?: ExtraFieldType;
+}
+
+export interface RegistrationPurchasedExtra {
+  event_extra_id: number;
+  name: string;
+  quantity: number;
+  unit_price_cents: number;
+  total_cents: number;
+  field_answers?: RegistrationPurchasedExtraFieldAnswer[];
+}
+
 export interface StaffRegistrationDetailResponse {
   registration: StaffRegistrationDetailRow;
   payment: StaffRegistrationPayment | null;
   field_values: StaffRegistrationFieldValue[];
+  purchased_extras: RegistrationPurchasedExtra[];
   /** @deprecated Use waivers */
   waiver: StaffRegistrationWaiver | null;
   waivers: StaffRegistrationWaiver[];
@@ -1027,6 +1202,8 @@ export interface StaffManualRegistrationRequest {
   athlete_id?: number;
   athlete_email?: string;
   comp?: boolean;
+  /** Paid in-person sale — category price, no platform commission */
+  manual_sale?: boolean;
   bib_number?: string;
   field_values?: Record<string, string>;
   /** Staff confirms waiver requirement is waived for this manual entry */
@@ -1056,11 +1233,30 @@ export interface AdminPaymentRow {
   event_slug?: string | null;
   organizer_name?: string | null;
   registration_number?: string | null;
+  recorded_by_member_id?: number | null;
+  seller_first_name?: string | null;
+  seller_last_name?: string | null;
+  seller_email?: string | null;
 }
 
 export interface PaginatedAdminPaymentsResponse {
   payments: AdminPaymentRow[];
   pagination: PaginationInfo;
+}
+
+export interface OrganizerSellerSalesSummaryRow {
+  member_id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  sale_count: number;
+  total_cents: number;
+}
+
+export interface OrganizerSellerSalesSummaryResponse {
+  sellers: OrganizerSellerSalesSummaryRow[];
+  manual_sale_total_cents: number;
+  manual_sale_count: number;
 }
 
 export interface AdminPaymentDetail extends AdminPaymentRow {
@@ -1111,6 +1307,7 @@ export interface StaffEventDetail {
   banner_image_url?: string | null;
   registration_count: number;
   max_registrations?: number | null;
+  max_registrations_per_order?: number;
   requires_waiver?: boolean | number;
   fee_presentation?: FeePresentation | null;
   organizer_fee_presentation?: FeePresentation;
@@ -1148,6 +1345,64 @@ export interface StaffEventCategory {
 export interface StaffEventDetailResponse {
   event: StaffEventDetail;
   categories: StaffEventCategory[];
+  extras?: StaffEventExtra[];
+}
+
+export interface StaffEventExtra {
+  id: number;
+  public_uuid: string;
+  name: string;
+  description?: string | null;
+  price_cents: number;
+  currency: string;
+  image_url?: string | null;
+  extra_type: EventExtraType;
+  max_per_athlete: number;
+  capacity?: number | null;
+  sold_count: number;
+  sort_order: number;
+  is_active: boolean | number;
+  scope_type: EventExtraScopeType;
+  sales_opens_at?: string | null;
+  sales_closes_at?: string | null;
+  category_ids: number[];
+  fields: EventExtraField[];
+  fields_locked: boolean;
+}
+
+export interface StaffEventExtraInput {
+  name: string;
+  description?: string | null;
+  price_cents: number;
+  currency?: string;
+  image_url?: string | null;
+  extra_type?: EventExtraType;
+  max_per_athlete?: number;
+  capacity?: number | null;
+  sort_order?: number;
+  is_free?: boolean;
+  scope_type?: EventExtraScopeType;
+  category_ids?: number[];
+  sales_opens_at?: string | null;
+  sales_closes_at?: string | null;
+  fields?: EventExtraField[];
+}
+
+export interface StaffEventExtraPatch {
+  name?: string;
+  description?: string | null;
+  price_cents?: number;
+  image_url?: string | null;
+  extra_type?: EventExtraType;
+  max_per_athlete?: number;
+  capacity?: number | null;
+  sort_order?: number;
+  is_free?: boolean;
+  scope_type?: EventExtraScopeType;
+  category_ids?: number[];
+  sales_opens_at?: string | null;
+  sales_closes_at?: string | null;
+  fields?: EventExtraField[];
 }
 
 export interface StaffEventCategorySummary {
@@ -1200,6 +1455,7 @@ export interface StaffEventUpsertRequest {
   hero_image_url?: string | null;
   banner_image_url?: string | null;
   max_registrations?: number | null;
+  max_registrations_per_order?: number | null;
   requires_waiver?: boolean;
   /** null = inherit organizer default */
   fee_presentation?: FeePresentation | null;
@@ -1244,6 +1500,7 @@ export interface RegistrationLookupResponse {
     qr_code_token?: string;
     requires_waiver?: boolean | number;
     waiver_outdated?: boolean;
+    purchased_extras?: RegistrationPurchasedExtra[];
   };
 }
 
@@ -1321,6 +1578,8 @@ export interface EventRegistrationFieldRow {
   is_required: number | boolean;
   sort_order: number;
   is_active: number | boolean;
+  scope_type?: EventExtraScopeType;
+  category_ids?: number[];
 }
 
 export interface EventRegistrationFieldInput {
@@ -1331,6 +1590,8 @@ export interface EventRegistrationFieldInput {
   is_required?: boolean;
   sort_order?: number;
   is_active?: boolean;
+  scope_type?: EventExtraScopeType;
+  category_ids?: number[];
 }
 
 export interface EventWaiverRow {
@@ -1449,6 +1710,7 @@ export interface PaginatedAdminOrganizersResponse {
 }
 
 export interface AdminOrganizerDetail extends AdminOrganizerRow {
+  onboarding_intake?: OrganizerOnboardingIntake | null;
   phone?: string | null;
   website_url?: string | null;
   description?: string | null;
@@ -1501,6 +1763,35 @@ export interface AdminOrganizerCreateRequest {
   service_fee_percent?: number;
   legal_name?: string;
   rfc?: string;
+}
+
+export type OrganizerExpectedSizeBand = "<100" | "100-500" | "500+";
+
+export interface OrganizerOnboardingIntake {
+  sport_type_id?: number | null;
+  rough_date?: string | null;
+  expected_size?: OrganizerExpectedSizeBand | null;
+  self_service_registered_at?: string | null;
+  locale?: string | null;
+}
+
+export interface PublicOrganizerRegisterRequest {
+  owner_first_name: string;
+  owner_last_name: string;
+  owner_email: string;
+  owner_phone?: string | null;
+  name: string;
+  email?: string;
+  phone?: string | null;
+  city: string;
+  country?: string;
+  intake?: Partial<OrganizerOnboardingIntake> | null;
+  locale?: string;
+}
+
+export interface PublicOrganizerRegisterResponse {
+  organizer: { id: number; name: string; slug: string; email: string };
+  next: "verify_otp";
 }
 
 export interface AdminOrganizerUpdateRequest {
@@ -1691,6 +1982,51 @@ export interface StaffDiscountCodePatch {
   valid_from?: string | null;
   valid_until?: string | null;
   is_active?: boolean;
+}
+
+export type FolioCouponScope = "any" | "none" | "any_coupon" | "specific_coupon";
+
+export type FolioCounterScope = "segment" | "event" | "category";
+
+export type FolioPatternPart =
+  | { kind: "token"; token: string }
+  | { kind: "literal"; value: string };
+
+export interface StaffFolioSegmentRow {
+  id: number;
+  event_id: number;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  category_scope: EventExtraScopeType;
+  category_ids: number[];
+  coupon_scope: FolioCouponScope;
+  discount_code_id?: number | null;
+  counter_scope: FolioCounterScope;
+  prefix_value: string;
+  category_code: string;
+  pattern_tokens: FolioPatternPart[];
+  seq_padding: number;
+  start_number: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffFolioSegmentInput {
+  id?: number;
+  name: string;
+  sort_order: number;
+  is_active?: boolean;
+  category_scope?: EventExtraScopeType;
+  category_ids?: number[];
+  coupon_scope: FolioCouponScope;
+  discount_code_id?: number | null;
+  counter_scope: FolioCounterScope;
+  prefix_value?: string;
+  category_code?: string;
+  pattern_tokens: FolioPatternPart[];
+  seq_padding?: number;
+  start_number?: number;
 }
 
 // ── Phase 2: Teams & Gamification ───────────────────────────────────────────

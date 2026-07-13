@@ -7,6 +7,8 @@ import {
   HERO_TITLE_SENTINEL_ID,
   HOME_NAV_HEIGHT_PX,
 } from "@/components/home/homeNavConstants";
+import { useIsDarkTheme } from "@/hooks/use-is-dark-theme";
+import { cn } from "@/lib/utils";
 
 const HERO_PT_MOBILE = `calc(${HOME_NAV_HEIGHT_PX}px + 0.75rem)`;
 const HERO_PT_DESKTOP = `calc(${HOME_NAV_HEIGHT_PX}px + clamp(1rem, 3vh, 2rem))`;
@@ -20,20 +22,33 @@ const fadeUp = (delay = 0) => ({
 
 export default function HomeHero() {
   const { t } = useTranslation();
+  const isDark = useIsDarkTheme();
 
   return (
-    <section className="relative flex flex-col overflow-x-clip bg-triboo-black">
-      {/* Desktop: cinematic video; mobile: ambient glow only */}
-      <HeroVideoBackground />
-      <div
-        className="absolute inset-0 md:hidden bg-triboo-black"
-        aria-hidden
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-10%,rgba(255,90,31,0.22),transparent_55%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_30%,rgba(242,60,53,0.12),transparent_45%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-triboo-black" />
-      </div>
-      <HeroGlowLayer />
+    <section
+      className={cn(
+        "relative flex flex-col overflow-x-clip",
+        isDark ? "bg-triboo-black" : "bg-background",
+      )}
+    >
+      {isDark ? (
+        <>
+          <HeroVideoBackground />
+          <div className="absolute inset-0 md:hidden bg-triboo-black" aria-hidden>
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-10%,rgba(255,90,31,0.22),transparent_55%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_30%,rgba(242,60,53,0.12),transparent_45%)]" />
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-triboo-black" />
+          </div>
+          <HeroGlowLayer />
+        </>
+      ) : (
+        <div className="absolute inset-0" aria-hidden>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_-10%,hsl(var(--primary)/0.16),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_85%_25%,hsl(var(--accent)/0.1),transparent_50%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--secondary)/0.5)_100%)]" />
+          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-b from-transparent to-background" />
+        </div>
+      )}
 
       <div
         className="relative z-20 flex flex-col max-w-7xl mx-auto w-full px-4 md:px-6 pb-4 md:pb-10 pt-[var(--hero-pt)] md:pt-[var(--hero-pt-md)]"
@@ -56,10 +71,24 @@ export default function HomeHero() {
             {...fadeUp(0.12)}
             className="font-black uppercase tracking-[-0.02em] leading-[0.9] text-5xl lg:text-[3.75rem] xl:text-[4.25rem]"
           >
-            <span className="block text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.5)]">
+            <span
+              className={cn(
+                "block",
+                isDark
+                  ? "text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.5)]"
+                  : "text-foreground",
+              )}
+            >
               {t("home.hero.title1")}
             </span>
-            <span className="block text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.5)]">
+            <span
+              className={cn(
+                "block",
+                isDark
+                  ? "text-white drop-shadow-[0_2px_24px_rgba(0,0,0,0.5)]"
+                  : "text-foreground",
+              )}
+            >
               {t("home.hero.title2")}
             </span>
             <span className="block triboo-shimmer-text mt-1 pb-1">
@@ -69,7 +98,10 @@ export default function HomeHero() {
 
           <motion.p
             {...fadeUp(0.22)}
-            className="mt-4 md:mt-5 text-sm sm:text-lg text-white/70 max-w-lg leading-relaxed"
+            className={cn(
+              "mt-4 md:mt-5 text-sm sm:text-lg max-w-lg leading-relaxed",
+              isDark ? "text-white/70" : "text-muted-foreground",
+            )}
           >
             {t("home.hero.description")}
           </motion.p>
@@ -91,7 +123,10 @@ export default function HomeHero() {
       </div>
 
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 md:h-16 bg-gradient-to-b from-transparent to-triboo-black"
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 h-10 md:h-16 bg-gradient-to-b from-transparent",
+          isDark ? "to-triboo-black" : "to-background",
+        )}
         aria-hidden
       />
     </section>

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   MapContainer,
-  TileLayer,
   Marker,
   Popup,
   Polyline,
@@ -25,10 +24,10 @@ import { formatEventDate } from "@/utils/eventFormat";
 import { routeToLeafletPositions } from "@/utils/courseMapUtils";
 import { normalizeEventCourse } from "@shared/courseNormalize";
 import { useTranslation } from "react-i18next";
+import { TRIBOO_COLORS } from "@/constants/tribooBrand";
 import { cn } from "@/lib/utils";
+import BasemapTileLayer from "@/components/maps/BasemapTileLayer";
 import {
-  CARTO_DARK_TILE_URL,
-  CARTO_TILE_ATTRIBUTION,
   MapInvalidateSize,
 } from "@/components/maps/LeafletMapHelpers";
 
@@ -119,12 +118,12 @@ function MapPopupContent({ event }: { event: EventListItem }) {
 
   return (
     <div className="event-map-popup">
-      <p className="font-bold text-white text-sm leading-snug mb-1">{event.title}</p>
-      <p className="text-xs text-gray-400 mb-2">{event.location_city}</p>
-      <p className="text-[11px] text-gray-500 mb-3">{formatEventDate(event.start_date, i18n.language)}</p>
+      <p className="font-bold text-foreground text-sm leading-snug mb-1">{event.title}</p>
+      <p className="text-xs text-muted-foreground mb-2">{event.location_city}</p>
+      <p className="text-[11px] text-muted-foreground mb-3">{formatEventDate(event.start_date, i18n.language)}</p>
       <Link
         to={`/events/${event.slug}`}
-        className="inline-flex items-center gap-1 text-xs font-semibold text-cyan hover:text-cyan-light transition-colors"
+        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-light transition-colors"
       >
         View event
         <ArrowRight className="w-3 h-3" />
@@ -172,14 +171,14 @@ export default function EventsMap({
   const fitBoundsSelectionSlug = resolvedFlyToSlug ?? null;
 
   const shellClass = cn(
-    "w-full overflow-hidden rounded-xl border border-gray-700/50",
+    "w-full overflow-hidden rounded-xl border border-border",
     className,
   );
 
   if (!mounted) {
     return (
       <div className={shellClass} style={{ height }} aria-hidden>
-        <div className="h-full w-full animate-pulse bg-gradient-to-br from-surface-dark to-bg-dark" />
+        <div className="h-full w-full animate-pulse bg-gradient-to-br from-muted to-secondary" />
       </div>
     );
   }
@@ -199,12 +198,7 @@ export default function EventsMap({
         className="events-leaflet-map z-0"
         style={{ height, width: "100%" }}
       >
-        <TileLayer
-          attribution={CARTO_TILE_ATTRIBUTION}
-          url={CARTO_DARK_TILE_URL}
-          subdomains="abcd"
-          maxZoom={20}
-        />
+        <BasemapTileLayer traceLabel="events" />
         <MapInvalidateSize />
         <FitBounds
           events={mappableEvents}
@@ -218,11 +212,11 @@ export default function EventsMap({
           <>
             <Polyline
               positions={routePositions}
-              pathOptions={{ color: "#00E5FF", weight: 5, opacity: 0.15 }}
+              pathOptions={{ color: TRIBOO_COLORS.orange, weight: 5, opacity: 0.15 }}
             />
             <Polyline
               positions={routePositions}
-              pathOptions={{ color: "#00E5FF", weight: 2.5, opacity: 0.9, dashArray: undefined }}
+              pathOptions={{ color: TRIBOO_COLORS.orange, weight: 2.5, opacity: 0.9, dashArray: undefined }}
             />
           </>
         )}
@@ -241,9 +235,9 @@ export default function EventsMap({
           >
             <Popup className="event-map-popup-wrap">
               <div className="event-map-popup text-sm">
-                <strong className="text-white">{p.name}</strong>
-                {p.km != null && <div className="text-gray-400 text-xs mt-0.5">Km {p.km}</div>}
-                {p.description && <div className="text-xs text-gray-500 mt-1">{p.description}</div>}
+                <strong className="text-foreground">{p.name}</strong>
+                {p.km != null && <div className="text-muted-foreground text-xs mt-0.5">Km {p.km}</div>}
+                {p.description && <div className="text-xs text-muted-foreground mt-1">{p.description}</div>}
               </div>
             </Popup>
           </CircleMarker>

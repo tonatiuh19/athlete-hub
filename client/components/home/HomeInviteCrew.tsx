@@ -194,7 +194,7 @@ export default function HomeInviteCrew({
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary-foreground/60 mb-2">
                       {card.category}
                     </p>
-                    <h3 className="text-lg sm:text-xl font-black text-primary-foreground leading-tight mb-3 group-hover:text-white transition-colors">
+                    <h3 className="text-lg sm:text-xl font-black text-primary-foreground leading-tight mb-3 group-hover:text-primary transition-colors">
                       {card.title}
                     </h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-primary-foreground/75 mb-4">

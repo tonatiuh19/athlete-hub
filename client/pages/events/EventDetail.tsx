@@ -27,12 +27,14 @@ import EventMediaGallery from "@/components/events/EventMediaGallery";
 import ElevationProfileChart from "@/components/events/ElevationProfileChart";
 import EventBlogSection from "@/components/blog/EventBlogSection";
 import EventRegistrationWizard from "@/components/events/registration/EventRegistrationWizard";
+import GroupRegistrationWizard from "@/components/events/registration/GroupRegistrationWizard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   openRegistrationWizard,
   fetchPendingCheckout,
   resumeRegistrationCheckout,
 } from "@/store/slices/registrationCheckoutSlice";
+import { openGroupRegistrationWizard } from "@/store/slices/groupRegistrationCheckoutSlice";
 import type { EventCategory } from "@shared/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -58,6 +60,11 @@ import { sanitizeHtml } from "@/utils/sanitizeHtml";
 import { optimizeEventMediaUrl, buildEventMediaSrcSet } from "@/lib/cdn-url";
 import type { CoursePoint } from "@shared/api";
 import { normalizeEventCourse } from "@shared/courseNormalize";
+import {
+  eventHasPaidCategories,
+  isCategoryPaidCheckoutBlocked,
+  isPaidCheckoutUnavailable,
+} from "@/utils/eventPaymentAvailability";
 import { pointColor } from "@/lib/leafletSetup";
 import { useMapPanelHeight } from "@/hooks/use-media-query";
 import { isWaiverMisconfigured } from "@/utils/eventRegistrationWaivers";
@@ -116,6 +123,15 @@ export default function EventDetail() {
   const startRegistration = useCallback(
     (category: EventCategory, initialStep?: "auth" | "checkout") => {
       if (!slug || !eventDetail) return;
+      const paymentsOk = eventDetail.payments_available ?? true;
+      if (isCategoryPaidCheckoutBlocked(category, paymentsOk)) {
+        toast({
+          variant: "destructive",
+          title: t("eventDetail.paymentsPausedTitle"),
+          description: t("eventDetail.paymentsPausedBody"),
+        });
+        return;
+      }
       const windowStatus = getRegistrationWindowStatus(eventDetail.event);
       if (!isRegistrationOpen(eventDetail.event)) {
         toast({
@@ -149,6 +165,15 @@ export default function EventDetail() {
   const handleJoinWaitlist = useCallback(
     (category: EventCategory) => {
       if (!slug || !eventDetail) return;
+      const paymentsOk = eventDetail.payments_available ?? true;
+      if (isCategoryPaidCheckoutBlocked(category, paymentsOk)) {
+        toast({
+          variant: "destructive",
+          title: t("eventDetail.paymentsPausedTitle"),
+          description: t("eventDetail.paymentsPausedBody"),
+        });
+        return;
+      }
       const windowStatus = getRegistrationWindowStatus(eventDetail.event);
       if (!isRegistrationOpen(eventDetail.event)) {
         toast({
@@ -179,6 +204,42 @@ export default function EventDetail() {
     },
     [dispatch, slug, eventDetail, t],
   );
+
+  const startGroupRegistration = useCallback(() => {
+    if (!slug || !eventDetail) return;
+    const paymentsOk = eventDetail.payments_available ?? true;
+    const purchasable = eventDetail.categories.some(
+      (c) => !isCategoryPaidCheckoutBlocked(c, paymentsOk),
+    );
+    if (isPaidCheckoutUnavailable(eventDetail.categories, paymentsOk) && !purchasable) {
+      toast({
+        variant: "destructive",
+        title: t("eventDetail.paymentsPausedTitle"),
+        description: t("eventDetail.paymentsPausedBody"),
+      });
+      return;
+    }
+    const windowStatus = getRegistrationWindowStatus(eventDetail.event);
+    if (!isRegistrationOpen(eventDetail.event)) {
+      toast({
+        variant: "destructive",
+        title:
+          windowStatus === "closed"
+            ? t("eventDetail.registrationClosed")
+            : t("eventDetail.registrationNotOpen"),
+      });
+      return;
+    }
+    if (isWaiverMisconfigured(eventDetail)) {
+      toast({
+        variant: "destructive",
+        title: t("eventDetail.waiverNotConfigured"),
+        description: t("eventDetail.waiverNotConfiguredHint"),
+      });
+      return;
+    }
+    dispatch(openGroupRegistrationWizard({ slug }));
+  }, [dispatch, slug, eventDetail, t]);
 
   const scrollToPricing = useCallback(() => {
     setActiveTab("pricing");
@@ -262,8 +323,8 @@ export default function EventDetail() {
 
   if (loadingDetail) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center min-h-below-nav gap-3 text-gray-400">
-        <Loader2 className="w-8 h-8 animate-spin text-cyan" />
+      <div className="flex flex-1 flex-col items-center justify-center min-h-below-nav gap-3 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
         {t("eventDetail.loading")}
       </div>
     );
@@ -272,7 +333,7 @@ export default function EventDetail() {
   if (detailError || !eventDetail) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center min-h-below-nav max-w-lg mx-auto py-20 px-4 text-center">
-        <p className="text-gray-400 mb-6">{t("eventDetail.notFound")}</p>
+        <p className="text-muted-foreground mb-6">{t("eventDetail.notFound")}</p>
         <Link to="/events">
           <Button variant="outline">{t("eventDetail.backToEvents")}</Button>
         </Link>
@@ -289,14 +350,25 @@ export default function EventDetail() {
     myRegistration,
     media,
     feePresentation = "pass_through",
+    payments_available: paymentsAvailable = true,
   } = eventDetail;
   const absorbAllPricing = feePresentation === "absorb_all";
+  const hasPaidCategories = eventHasPaidCategories(categories);
+  const paidCheckoutUnavailable = isPaidCheckoutUnavailable(categories, paymentsAvailable);
+  const hasPurchasableCategory = categories.some(
+    (c) => !isCategoryPaidCheckoutBlocked(c, paymentsAvailable),
+  );
 
   const isRegisteredConfirmed = Boolean(myRegistration);
   const registrationWindowStatus = getRegistrationWindowStatus(event);
   const registrationOpen = isRegistrationOpen(event);
   const canRegister =
     !isRegisteredConfirmed && !pendingCheckout && registrationOpen;
+  const canGroupRegister =
+    registrationOpen &&
+    categories.length > 0 &&
+    hasPurchasableCategory &&
+    !waiverMisconfigured;
   const hasDescription = eventDescriptionHasContent(event.description);
   const descriptionIsHtml = eventDescriptionIsHtml(event.description);
   const descriptionParagraphs = descriptionIsHtml
@@ -406,48 +478,48 @@ export default function EventDetail() {
             decoding="async"
           />
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-cyan/20 via-bg-dark to-purple-accent/20" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-background to-accent/15" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-bg-dark via-bg-dark/70 to-bg-dark/30" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/25" />
         <div className="relative max-w-7xl mx-auto px-4 md:px-6 py-8 flex flex-col justify-end min-h-[280px] md:min-h-[360px]">
           <Link
             to="/events"
-            className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-cyan mb-6 w-fit"
+            className="inline-flex items-center gap-2 text-sm text-white/75 hover:text-white mb-6 w-fit"
           >
             <ArrowLeft className="w-4 h-4" />
             {t("eventDetail.backToEvents")}
           </Link>
-          <span className="text-cyan text-xs font-bold uppercase tracking-widest mb-2">
+          <span className="text-primary text-xs font-bold uppercase tracking-widest mb-2">
             {event.sport_name}
           </span>
           {event.requires_waiver ? (
-            <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+            <p className="inline-flex items-center gap-1.5 text-xs text-white/80 mb-2">
               <ShieldCheck className="w-3.5 h-3.5 text-primary" />
               {t("eventDetail.waiverRequired")}
             </p>
           ) : null}
-          <h1 className="text-3xl md:text-5xl font-bold text-white max-w-4xl leading-tight">
+          <h1 className="text-3xl md:text-5xl font-bold text-white max-w-4xl leading-tight drop-shadow-sm">
             {event.title}
           </h1>
           {event.short_description && (
-            <p className="text-gray-300 mt-3 max-w-2xl text-base md:text-lg">
+            <p className="text-white/85 mt-3 max-w-2xl text-base md:text-lg">
               {event.short_description}
             </p>
           )}
-          <div className="flex flex-wrap gap-4 mt-6 text-sm text-gray-300">
+          <div className="flex flex-wrap gap-4 mt-6 text-sm text-white/80">
             <span className="inline-flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-cyan" />
+              <Calendar className="w-4 h-4 text-primary" />
               {formatEventDate(event.start_date, i18n.language)}
             </span>
             <span className="inline-flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-cyan" />
+              <MapPin className="w-4 h-4 text-primary" />
               {[event.location_name, event.location_city]
                 .filter(Boolean)
                 .join(" · ")}
             </span>
             {/* Registration capacity counter hidden — re-enable when public counts are ready
             <span className="inline-flex items-center gap-2">
-              <Users className="w-4 h-4 text-cyan" />
+              <Users className="w-4 h-4 text-primary" />
               {event.registration_count}
               {event.max_registrations
                 ? ` / ${event.max_registrations}`
@@ -460,18 +532,18 @@ export default function EventDetail() {
       </section>
 
       {/* Sticky CTA bar — price · sponsors · register */}
-      <div className="sticky top-[4.5rem] z-40 border-b border-gray-800/80 bg-bg-dark/90 backdrop-blur-xl">
+      <div className="sticky top-[4.5rem] z-40 border-b border-border/80 bg-background/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto w-full min-w-0 px-4 md:px-6 py-2.5 md:py-3">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-5 min-w-0">
             {isRegisteredConfirmed ? (
               <div className="flex items-center gap-2 min-w-0">
                 <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-white leading-tight">
+                  <p className="text-sm font-semibold text-foreground leading-tight">
                     {t("eventDetail.alreadyRegisteredTitle")}
                   </p>
                   {myRegistration && (
-                    <p className="text-xs text-gray-400 truncate">
+                    <p className="text-xs text-muted-foreground truncate">
                       {t("eventDetail.alreadyRegisteredDesc", {
                         category: myRegistration.categoryName,
                         number: myRegistration.registrationNumber,
@@ -483,11 +555,11 @@ export default function EventDetail() {
             ) : (
               <div className="shrink-0">
                 {Number.isFinite(minPrice) && minPrice !== Infinity && (
-                  <p className="text-[10px] text-gray-500 leading-none mb-0.5">
+                  <p className="text-[10px] text-muted-foreground leading-none mb-0.5">
                     {t("eventDetail.from")}
                   </p>
                 )}
-                <p className="text-base md:text-lg font-bold text-cyan leading-tight">
+                <p className="text-base md:text-lg font-bold text-primary leading-tight">
                   {Number.isFinite(minPrice) && minPrice !== Infinity
                     ? formatPriceMxn(minPrice, i18n.language)
                     : t("eventDetail.freeOrTbd")}
@@ -500,29 +572,60 @@ export default function EventDetail() {
                 sponsors={sponsors}
                 eventSlug={event.slug}
                 variant="inline"
-                className="flex-1 min-w-0 hidden sm:flex border-l border-gray-800/80 pl-3 md:pl-5"
+                className="flex-1 min-w-0 hidden sm:flex border-l border-border/80 pl-3 md:pl-5"
               />
             )}
 
             {isRegisteredConfirmed ? (
-              <Button
-                asChild
-                size="sm"
-                className="shrink-0 ml-auto h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap bg-success/15 text-success border border-success/40 hover:bg-success/25"
-              >
-                <Link to="/portal/registrations">
-                  {t("eventDetail.viewMyRegistration")}
-                </Link>
-              </Button>
+              <div className="shrink-0 ml-auto flex flex-col sm:flex-row gap-2">
+                {canGroupRegister && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={startGroupRegistration}
+                    className="h-9 px-3 sm:h-10 sm:px-4 text-xs sm:text-sm whitespace-nowrap"
+                  >
+                    {t("eventDetail.registerGroupCta")}
+                  </Button>
+                )}
+                <Button
+                  asChild
+                  size="sm"
+                  className="h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap bg-success/15 text-success border border-success/40 hover:bg-success/25"
+                >
+                  <Link to="/portal/registrations">
+                    {t("eventDetail.viewMyRegistration")}
+                  </Link>
+                </Button>
+              </div>
             ) : (
-              <Button
-                size="sm"
-                disabled={categories.length === 0}
-                onClick={scrollToPricing}
-                className="shrink-0 ml-auto h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold hover:opacity-90"
-              >
-                {t("eventDetail.registerCta")}
-              </Button>
+              <div className="shrink-0 ml-auto flex flex-col sm:flex-row gap-2">
+                {canGroupRegister && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={startGroupRegistration}
+                    className="h-9 px-3 sm:h-10 sm:px-4 text-xs sm:text-sm whitespace-nowrap"
+                  >
+                    {t("eventDetail.registerGroupCta")}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  disabled={categories.length === 0 || !hasPurchasableCategory}
+                  onClick={scrollToPricing}
+                  title={
+                    paidCheckoutUnavailable && !hasPurchasableCategory
+                      ? t("eventDetail.paymentsPausedTitle")
+                      : undefined
+                  }
+                  className="h-9 px-3 sm:h-10 sm:px-5 text-xs sm:text-sm whitespace-nowrap btn-primary font-bold disabled:opacity-50"
+                >
+                  {paidCheckoutUnavailable && !hasPurchasableCategory
+                    ? t("eventDetail.registerUnavailable")
+                    : t("eventDetail.registerCta")}
+                </Button>
+              </div>
             )}
           </div>
 
@@ -531,7 +634,7 @@ export default function EventDetail() {
               sponsors={sponsors}
               eventSlug={event.slug}
               variant="inline"
-              className="sm:hidden mt-2.5 pt-2.5 border-t border-gray-800/60"
+              className="sm:hidden mt-2.5 pt-2.5 border-t border-border/60"
             />
           )}
         </div>
@@ -543,14 +646,14 @@ export default function EventDetail() {
           onValueChange={setActiveTab}
           className="flex flex-1 flex-col gap-8"
         >
-          <TabsList className="bg-surface-dark/80 border border-gray-700/50 p-1 h-auto w-full flex flex-nowrap justify-start gap-1 overflow-x-auto scrollbar-hide">
+          <TabsList className="bg-card/80 border border-border p-1 h-auto w-full flex flex-nowrap justify-start gap-1 overflow-x-auto scrollbar-hide">
             <TabsTrigger value="overview">
               {t("eventDetail.tabOverview")}
             </TabsTrigger>
             <TabsTrigger value="course">
               {t("eventDetail.tabCourse")}
             </TabsTrigger>
-            {canRegister && (
+            {(canRegister || canGroupRegister) && (
               <TabsTrigger value="pricing">
                 {t("eventDetail.tabPricing")}
               </TabsTrigger>
@@ -568,15 +671,33 @@ export default function EventDetail() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-8">
+            {paidCheckoutUnavailable ? (
+              <div className="p-5 rounded-xl border border-primary/30 bg-primary/5 flex gap-3">
+                <AlertTriangle className="w-6 h-6 text-primary shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-bold text-foreground">
+                    {t("eventDetail.paymentsPausedTitle")}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {t("eventDetail.paymentsPausedBody")}
+                  </p>
+                  {hasPaidCategories && hasPurchasableCategory ? (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {t("eventDetail.paymentsPausedFreeCategoriesHint")}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {pendingCheckout && !isRegisteredConfirmed ? (
               <div className="p-5 rounded-xl border border-amber-500/30 bg-amber-500/5 flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
                   <div className="min-w-0">
-                    <p className="font-bold text-white">
+                    <p className="font-bold text-foreground">
                       {t("eventDetail.pendingPaymentTitle")}
                     </p>
-                    <p className="text-sm text-gray-400 mt-1">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {t("eventDetail.pendingPaymentDescWithAmount", {
                         category:
                           pendingCheckout.category_name ??
@@ -603,10 +724,10 @@ export default function EventDetail() {
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <CheckCircle2 className="w-6 h-6 text-success shrink-0 mt-0.5" />
                   <div className="min-w-0">
-                    <p className="font-bold text-white">
+                    <p className="font-bold text-foreground">
                       {t("eventDetail.alreadyRegisteredTitle")}
                     </p>
-                    <p className="text-sm text-gray-400 mt-1">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {t("eventDetail.alreadyRegisteredDesc", {
                         category: myRegistration.categoryName,
                         number: myRegistration.registrationNumber,
@@ -627,27 +748,27 @@ export default function EventDetail() {
             )}
             <div className="grid md:grid-cols-3 gap-6">
               <div className="md:col-span-2 space-y-6">
-                <div className="p-6 rounded-xl border border-gray-700/50 bg-surface-dark/50">
-                  <h2 className="text-lg font-bold text-white mb-4">
+                <div className="p-6 rounded-xl border border-border bg-card/60">
+                  <h2 className="text-lg font-bold text-foreground mb-4">
                     {t("eventDetail.convocatoriaTitle")}
                   </h2>
                   {hasDescription ? (
                     descriptionIsHtml ? (
                       <div
-                        className="blog-prose text-gray-300 leading-relaxed [&_a]:text-cyan [&_a]:underline [&_h2]:text-white [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-6 [&_h2]:mb-3 [&_h3]:text-white [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2 [&_p]:mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ul]:mb-4 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_ol]:mb-4 [&_li]:text-gray-300 [&_strong]:text-white [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full [&_table]:w-full [&_table]:text-sm [&_table]:mb-4 [&_th]:text-left [&_th]:text-white [&_th]:border-b [&_th]:border-gray-600 [&_th]:py-2 [&_th]:pr-3 [&_td]:py-2 [&_td]:pr-3 [&_td]:border-b [&_td]:border-gray-700/50 [&_img]:rounded-xl [&_img]:my-4 [&_blockquote]:border-l-cyan [&_blockquote]:border-l-4 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-400 [&_blockquote]:my-4"
+                        className="blog-prose"
                         dangerouslySetInnerHTML={{
                           __html: sanitizeHtml(event.description!),
                         }}
                       />
                     ) : (
-                      <div className="space-y-4 text-gray-300 leading-relaxed">
+                      <div className="space-y-4 text-muted-foreground leading-relaxed">
                         {descriptionParagraphs.map((para) => (
                           <p key={para.slice(0, 24)}>{para}</p>
                         ))}
                       </div>
                     )
                   ) : (
-                    <p className="text-gray-500">
+                    <p className="text-muted-foreground">
                       {t("eventDetail.noConvocatoria")}
                     </p>
                   )}
@@ -658,7 +779,7 @@ export default function EventDetail() {
                     {tags.map((tag) => (
                       <span
                         key={tag.slug}
-                        className="px-3 py-1 rounded-full text-xs border border-cyan/30 text-cyan bg-cyan/5"
+                        className="px-3 py-1 rounded-full text-xs border border-cyan/30 text-primary bg-cyan/5"
                       >
                         {tag.name}
                       </span>
@@ -674,14 +795,14 @@ export default function EventDetail() {
                 ) : null}
               </div>
               <div className="space-y-4">
-                <div className="p-5 rounded-xl border border-gray-700/50 bg-surface-dark/50 space-y-3 text-sm">
-                  <h3 className="font-bold text-white">
+                <div className="p-5 rounded-xl border border-border bg-card/60 space-y-3 text-sm">
+                  <h3 className="font-bold text-foreground">
                     {t("eventDetail.info")}
                   </h3>
-                  <div className="flex gap-2 text-gray-400">
-                    <Clock className="w-4 h-4 text-cyan shrink-0 mt-0.5" />
+                  <div className="flex gap-2 text-muted-foreground">
+                    <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-gray-500 text-xs">
+                      <p className="text-muted-foreground text-xs">
                         {t("eventDetail.registrationCloses")}
                       </p>
                       {event.registration_closes_at
@@ -692,8 +813,8 @@ export default function EventDetail() {
                         : "—"}
                     </div>
                   </div>
-                  <div className="flex gap-2 text-gray-400">
-                    <MapPin className="w-4 h-4 text-cyan shrink-0 mt-0.5" />
+                  <div className="flex gap-2 text-muted-foreground">
+                    <MapPin className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     <div>
                       <p>
                         {event.location_address ||
@@ -702,9 +823,9 @@ export default function EventDetail() {
                       </p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 pt-2 border-t border-gray-700/50">
+                  <p className="text-xs text-muted-foreground pt-2 border-t border-border">
                     {t("eventDetail.organizer")}:{" "}
-                    <span className="text-gray-300">
+                    <span className="text-muted-foreground">
                       {event.organizer_name}
                     </span>
                   </p>
@@ -718,30 +839,30 @@ export default function EventDetail() {
               <>
                 <div className="grid sm:grid-cols-3 gap-4">
                   {displayCourse.distanceKm != null && (
-                    <div className="p-4 rounded-xl border border-gray-700/50 bg-surface-dark/50">
-                      <p className="text-xs text-gray-500 uppercase">
+                    <div className="p-4 rounded-xl border border-border bg-card/60">
+                      <p className="text-xs text-muted-foreground uppercase">
                         {t("eventDetail.distance")}
                       </p>
-                      <p className="text-xl font-bold text-white">
+                      <p className="text-xl font-bold text-foreground">
                         {displayCourse.distanceKm} km
                       </p>
                     </div>
                   )}
                   {displayCourse.elevationGainM != null && (
-                    <div className="p-4 rounded-xl border border-gray-700/50 bg-surface-dark/50">
-                      <p className="text-xs text-gray-500 uppercase">
+                    <div className="p-4 rounded-xl border border-border bg-card/60">
+                      <p className="text-xs text-muted-foreground uppercase">
                         {t("eventDetail.elevation")}
                       </p>
-                      <p className="text-xl font-bold text-white">
+                      <p className="text-xl font-bold text-foreground">
                         {displayCourse.elevationGainM} m
                       </p>
                     </div>
                   )}
-                  <div className="p-4 rounded-xl border border-gray-700/50 bg-surface-dark/50">
-                    <p className="text-xs text-gray-500 uppercase">
+                  <div className="p-4 rounded-xl border border-border bg-card/60">
+                    <p className="text-xs text-muted-foreground uppercase">
                       {t("eventDetail.aidStations")}
                     </p>
-                    <p className="text-xl font-bold text-white">
+                    <p className="text-xl font-bold text-foreground">
                       {
                         displayCourse.points.filter(
                           (p) => p.type === "hydration" || p.type === "aid",
@@ -778,7 +899,7 @@ export default function EventDetail() {
                     return (
                       <div
                         key={`${p.type}-${p.name}-${p.km}`}
-                        className="flex gap-3 p-4 rounded-xl border border-gray-700/50 bg-surface-dark/40"
+                        className="flex gap-3 p-4 rounded-xl border border-border bg-card/40"
                       >
                         <div
                           className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
@@ -793,14 +914,14 @@ export default function EventDetail() {
                           />
                         </div>
                         <div>
-                          <p className="font-semibold text-white text-sm">
+                          <p className="font-semibold text-foreground text-sm">
                             {p.name}
                           </p>
                           {p.km != null && (
-                            <p className="text-xs text-cyan">Km {p.km}</p>
+                            <p className="text-xs text-primary">Km {p.km}</p>
                           )}
                           {p.description && (
-                            <p className="text-xs text-gray-500 mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">
                               {p.description}
                             </p>
                           )}
@@ -811,7 +932,7 @@ export default function EventDetail() {
                 </div>
               </>
             ) : (
-              <p className="text-gray-500 py-12 text-center">
+              <p className="text-muted-foreground py-12 text-center">
                 {t("eventDetail.noCourse")}
               </p>
             )}
@@ -823,7 +944,7 @@ export default function EventDetail() {
             </TabsContent>
           ) : null}
 
-          {canRegister && (
+          {(canRegister || canGroupRegister) && (
             <TabsContent
               value="pricing"
               id="event-pricing"
@@ -846,15 +967,28 @@ export default function EventDetail() {
                     <p className="text-sm font-semibold text-destructive">
                       {t("eventDetail.waiverNotConfigured")}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {t("eventDetail.waiverNotConfiguredHint")}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+              {paidCheckoutUnavailable ? (
+                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 flex gap-3">
+                  <AlertTriangle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {t("eventDetail.paymentsPausedTitle")}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t("eventDetail.paymentsPausedBody")}
                     </p>
                   </div>
                 </div>
               ) : null}
               {profileIncompleteForCategories ? (
                 <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 flex flex-col sm:flex-row sm:items-center gap-3">
-                  <p className="text-sm text-gray-300 flex-1">
+                  <p className="text-sm text-muted-foreground flex-1">
                     {t("eventDetail.completeProfileForCategories")}
                   </p>
                   <Button
@@ -898,21 +1032,25 @@ export default function EventDetail() {
                           t,
                         )
                       : null;
+                  const categoryPaidBlocked = isCategoryPaidCheckoutBlocked(
+                    cat,
+                    paymentsAvailable,
+                  );
                   return (
                     <div
                       key={cat.id}
-                      className={`p-5 rounded-xl border bg-surface-dark/50 transition-colors ${
+                      className={`p-5 rounded-xl border bg-card/60 transition-colors ${
                         isRecommended
                           ? "border-accent/50 ring-1 ring-accent/30"
                           : !eligibility.eligible && token
-                            ? "border-gray-800/80 opacity-75"
-                            : "border-gray-700/50 hover:border-cyan/40"
+                            ? "border-border/80 opacity-75"
+                            : "border-border hover:border-cyan/40"
                       }`}
                     >
                       <div className="flex justify-between items-start gap-3 mb-3">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-bold text-white">{cat.name}</h3>
+                            <h3 className="font-bold text-foreground">{cat.name}</h3>
                             {isRecommended ? (
                               <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">
                                 <Sparkles className="w-3 h-3" />
@@ -921,7 +1059,7 @@ export default function EventDetail() {
                             ) : null}
                           </div>
                           {cat.distance_km != null && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                               {cat.distance_km} km
                             </p>
                           )}
@@ -932,24 +1070,24 @@ export default function EventDetail() {
                           ) : null}
                         </div>
                         {cat.difficulty && (
-                          <span className="text-[10px] uppercase px-2 py-0.5 rounded border border-gray-600 text-gray-400">
+                          <span className="text-[10px] uppercase px-2 py-0.5 rounded border border-border text-muted-foreground">
                             {cat.difficulty}
                           </span>
                         )}
                       </div>
                       {cat.description && (
-                        <p className="text-sm text-gray-400 mb-4 line-clamp-2">
+                        <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
                           {cat.description}
                         </p>
                       )}
-                      <div className="flex justify-between items-center text-sm border-t border-gray-700/50 pt-3">
-                        <span className="text-gray-400">
+                      <div className="flex justify-between items-center text-sm border-t border-border pt-3">
+                        <span className="text-muted-foreground">
                           {absorbAllPricing
                             ? t("eventDetail.finalPrice")
                             : t("eventDetail.inscription")}
                         </span>
                         <div className="text-right">
-                          <span className="font-bold text-cyan text-base">
+                          <span className="font-bold text-primary text-base">
                             {(absorbAllPricing
                               ? cat.total_formatted
                               : cat.price_formatted) ||
@@ -968,7 +1106,7 @@ export default function EventDetail() {
                         </div>
                       </div>
                       {spotsLeft != null && !isSoldOut && (
-                        <p className="text-xs text-gray-500 mt-3">
+                        <p className="text-xs text-muted-foreground mt-3">
                           {t("eventDetail.spotsLeft", { count: spotsLeft })}
                         </p>
                       )}
@@ -985,7 +1123,8 @@ export default function EventDetail() {
                             !registrationOpen ||
                             waiverMisconfigured ||
                             joiningWaitlist ||
-                            !eligibility.eligible
+                            !eligibility.eligible ||
+                            categoryPaidBlocked
                           }
                           className="w-full mt-4 bg-amber-500/10 text-amber-400 border border-amber-500/40 hover:bg-amber-500/20"
                         >
@@ -1003,6 +1142,12 @@ export default function EventDetail() {
                         >
                           {t("eventDetail.soldOut")}
                         </Button>
+                      ) : categoryPaidBlocked ? (
+                        <div className="w-full mt-4 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-center">
+                          <p className="text-xs text-muted-foreground">
+                            {t("eventDetail.categoryPaymentsPaused")}
+                          </p>
+                        </div>
                       ) : (
                         <Button
                           type="button"
@@ -1012,7 +1157,7 @@ export default function EventDetail() {
                             waiverMisconfigured ||
                             !eligibility.eligible
                           }
-                          className="w-full mt-4 bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep disabled:opacity-50"
+                          className="w-full mt-4 bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep disabled:opacity-50"
                         >
                           {isRecommended
                             ? t("eventDetail.categoryRecommended")
@@ -1031,17 +1176,17 @@ export default function EventDetail() {
               {scheduleWaves.map((wave) => (
                 <div
                   key={wave.id}
-                  className="flex items-center justify-between gap-3 p-4 rounded-xl border border-gray-700/50 bg-surface-dark/40"
+                  className="flex items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card/40"
                 >
                   <div className="min-w-0">
-                    <p className="font-semibold text-white break-words">
+                    <p className="font-semibold text-foreground break-words">
                       {wave.name}
                     </p>
-                    <p className="text-sm text-gray-400">
+                    <p className="text-sm text-muted-foreground">
                       {formatEventDate(wave.starts_at, i18n.language)}
                     </p>
                   </div>
-                  <p className="text-sm text-gray-500 shrink-0 whitespace-nowrap">
+                  <p className="text-sm text-muted-foreground shrink-0 whitespace-nowrap">
                     {wave.registered_count}
                     {wave.capacity ? ` / ${wave.capacity}` : ""}
                   </p>
@@ -1053,6 +1198,7 @@ export default function EventDetail() {
       </div>
 
       <EventRegistrationWizard />
+      <GroupRegistrationWizard />
     </div>
   );
 }

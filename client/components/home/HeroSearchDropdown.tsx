@@ -76,18 +76,33 @@ function flatIndexFor(
   return -1;
 }
 
+function searchRowClass(active: boolean, isLight: boolean) {
+  return cn(
+    "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors",
+    isLight
+      ? active
+        ? "bg-primary/10 text-foreground"
+        : "text-foreground/90 hover:bg-muted"
+      : active
+        ? "bg-primary/15 text-white"
+        : "text-white/90 hover:bg-white/[0.06]",
+  );
+}
+
 function EventRow({
   event,
   locale,
   active,
   onMouseEnter,
   onClick,
+  isLight,
 }: {
   event: SearchSuggestEvent;
   locale: string;
   active: boolean;
   onMouseEnter: () => void;
   onClick: () => void;
+  isLight: boolean;
 }) {
   const location = [event.location_city, event.location_state]
     .filter(Boolean)
@@ -101,14 +116,14 @@ function EventRow({
       aria-selected={active}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors",
-        active
-          ? "bg-primary/15 text-white"
-          : "text-white/90 hover:bg-white/[0.06]",
-      )}
+      className={searchRowClass(active, isLight)}
     >
-      <div className="h-11 w-11 shrink-0 rounded-lg overflow-hidden bg-white/10 border border-white/10">
+      <div
+        className={cn(
+          "h-11 w-11 shrink-0 rounded-lg overflow-hidden border",
+          isLight ? "bg-muted border-border" : "bg-white/10 border-white/10",
+        )}
+      >
         {heroImage ? (
           <img
             src={heroImage}
@@ -123,7 +138,12 @@ function EventRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="font-semibold text-sm truncate">{event.title}</p>
-        <p className="text-xs text-white/50 truncate flex items-center gap-2 mt-0.5">
+        <p
+          className={cn(
+            "text-xs truncate flex items-center gap-2 mt-0.5",
+            isLight ? "text-muted-foreground" : "text-white/50",
+          )}
+        >
           <span className="inline-flex items-center gap-1">
             <Calendar className="w-3 h-3 shrink-0" />
             {formatEventDate(event.start_date, locale)}
@@ -152,12 +172,14 @@ function CityRow({
   onMouseEnter,
   onClick,
   countLabel,
+  isLight,
 }: {
   city: SearchSuggestCity;
   active: boolean;
   onMouseEnter: () => void;
   onClick: () => void;
   countLabel: string;
+  isLight: boolean;
 }) {
   return (
     <button
@@ -166,12 +188,7 @@ function CityRow({
       aria-selected={active}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors",
-        active
-          ? "bg-primary/15 text-white"
-          : "text-white/90 hover:bg-white/[0.06]",
-      )}
+      className={searchRowClass(active, isLight)}
     >
       <div className="h-9 w-9 shrink-0 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center">
         <MapPin className="w-4 h-4 text-primary" />
@@ -181,9 +198,13 @@ function CityRow({
           {city.city}
           {city.state ? `, ${city.state}` : ""}
         </p>
-        <p className="text-xs text-white/45">{countLabel}</p>
+        <p className={cn("text-xs", isLight ? "text-muted-foreground" : "text-white/45")}>
+          {countLabel}
+        </p>
       </div>
-      <ArrowRight className="w-4 h-4 text-white/30 shrink-0" />
+      <ArrowRight
+        className={cn("w-4 h-4 shrink-0", isLight ? "text-muted-foreground/50" : "text-white/30")}
+      />
     </button>
   );
 }
@@ -193,11 +214,13 @@ function SportRow({
   active,
   onMouseEnter,
   onClick,
+  isLight,
 }: {
   sport: SearchSuggestSport;
   active: boolean;
   onMouseEnter: () => void;
   onClick: () => void;
+  isLight: boolean;
 }) {
   return (
     <button
@@ -206,18 +229,20 @@ function SportRow({
       aria-selected={active}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors",
-        active
-          ? "bg-primary/15 text-white"
-          : "text-white/90 hover:bg-white/[0.06]",
-      )}
+      className={searchRowClass(active, isLight)}
     >
-      <div className="h-9 w-9 shrink-0 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-lg">
+      <div
+        className={cn(
+          "h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-lg border",
+          isLight ? "bg-muted border-border" : "bg-white/10 border-white/10",
+        )}
+      >
         {sport.icon || "🏅"}
       </div>
       <p className="font-semibold text-sm flex-1">{sport.name}</p>
-      <ArrowRight className="w-4 h-4 text-white/30 shrink-0" />
+      <ArrowRight
+        className={cn("w-4 h-4 shrink-0", isLight ? "text-muted-foreground/50" : "text-white/30")}
+      />
     </button>
   );
 }
@@ -262,18 +287,33 @@ export default function HeroSearchDropdown({
           aria-label={t("home.hero.searchDropdownLabel")}
         >
           {loading && !data ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-white/50 text-sm">
+            <div
+              className={cn(
+                "flex items-center justify-center gap-2 py-10 text-sm",
+                isLight ? "text-muted-foreground" : "text-white/50",
+              )}
+            >
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
               {t("home.hero.searchLoading")}
             </div>
           ) : !hasResults && !loading ? (
             <div className="px-4 py-8 text-center">
-              <Search className="w-8 h-8 text-white/20 mx-auto mb-2" />
-              <p className="text-sm text-white/60">{t("home.hero.searchNoResults")}</p>
+              <Search
+                className={cn(
+                  "w-8 h-8 mx-auto mb-2",
+                  isLight ? "text-muted-foreground/40" : "text-white/20",
+                )}
+              />
+              <p className={cn("text-sm", isLight ? "text-muted-foreground" : "text-white/60")}>
+                {t("home.hero.searchNoResults")}
+              </p>
               <button
                 type="button"
                 onClick={() => onSelect({ kind: "view-all" })}
-                className="mt-3 text-sm font-semibold text-primary hover:text-white transition-colors"
+                className={cn(
+                  "mt-3 text-sm font-semibold text-primary transition-colors",
+                  !isLight && "hover:text-white",
+                )}
               >
                 {t("home.hero.searchViewAllFor", { query })}
               </button>
@@ -282,7 +322,12 @@ export default function HeroSearchDropdown({
             <div className="max-h-[min(420px,60vh)] overflow-y-auto overscroll-contain p-2">
               {data!.events.length > 0 ? (
                 <section className="mb-1">
-                  <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                  <p
+                    className={cn(
+                      "px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em]",
+                      isLight ? "text-muted-foreground" : "text-white/35",
+                    )}
+                  >
                     {t("home.hero.searchSectionEvents")}
                   </p>
                   <div className="space-y-0.5">
@@ -296,6 +341,7 @@ export default function HeroSearchDropdown({
                           active={highlightIndex === flatIdx}
                           onMouseEnter={() => onHighlight(flatIdx)}
                           onClick={() => onSelect({ kind: "event", slug: event.slug })}
+                          isLight={isLight}
                         />
                       );
                     })}
@@ -305,7 +351,12 @@ export default function HeroSearchDropdown({
 
               {data!.cities.length > 0 ? (
                 <section className="mb-1">
-                  <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                  <p
+                    className={cn(
+                      "px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em]",
+                      isLight ? "text-muted-foreground" : "text-white/35",
+                    )}
+                  >
                     {t("home.hero.searchSectionCities")}
                   </p>
                   <div className="space-y-0.5">
@@ -327,6 +378,7 @@ export default function HeroSearchDropdown({
                           countLabel={t("home.hero.searchCityCount", {
                             count: city.event_count,
                           })}
+                          isLight={isLight}
                         />
                       );
                     })}
@@ -336,7 +388,12 @@ export default function HeroSearchDropdown({
 
               {data!.sports.length > 0 ? (
                 <section className="mb-1">
-                  <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">
+                  <p
+                    className={cn(
+                      "px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em]",
+                      isLight ? "text-muted-foreground" : "text-white/35",
+                    )}
+                  >
                     {t("home.hero.searchSectionSports")}
                   </p>
                   <div className="space-y-0.5">
@@ -349,6 +406,7 @@ export default function HeroSearchDropdown({
                           active={highlightIndex === flatIdx}
                           onMouseEnter={() => onHighlight(flatIdx)}
                           onClick={() => onSelect({ kind: "sport", slug: sport.slug })}
+                          isLight={isLight}
                         />
                       );
                     })}
@@ -364,10 +422,13 @@ export default function HeroSearchDropdown({
                   onMouseEnter={() => onHighlight(viewAllIndex)}
                   onClick={() => onSelect({ kind: "view-all" })}
                   className={cn(
-                    "w-full mt-1 flex items-center justify-between gap-2 px-3 py-3 rounded-xl border-t border-white/8 text-sm font-semibold transition-colors",
+                    "w-full mt-1 flex items-center justify-between gap-2 px-3 py-3 rounded-xl border-t text-sm font-semibold transition-colors",
+                    isLight ? "border-border" : "border-white/8",
                     highlightIndex === viewAllIndex
                       ? "bg-primary/15 text-primary"
-                      : "text-white/70 hover:bg-white/[0.05] hover:text-white",
+                      : isLight
+                        ? "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        : "text-white/70 hover:bg-white/[0.05] hover:text-white",
                   )}
                 >
                   <span className="inline-flex items-center gap-2">

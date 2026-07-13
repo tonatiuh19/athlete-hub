@@ -12,32 +12,32 @@
    * #05070D · #FF5A1F · #F23C35
    */
   :root {
-    --background: 228 46% 4%;
-    --foreground: 0 0% 98%;
+    --background: 228 33% 97%;
+    --foreground: 228 40% 8%;
 
-    --card: 228 32% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 228 40% 8%;
 
-    --popover: 228 32% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 228 40% 8%;
 
     --primary: 17 100% 56%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 228 22% 14%;
-    --secondary-foreground: 0 0% 95%;
+    --secondary: 228 24% 93%;
+    --secondary-foreground: 228 35% 12%;
 
-    --muted: 228 18% 22%;
-    --muted-foreground: 228 10% 62%;
+    --muted: 228 20% 92%;
+    --muted-foreground: 228 12% 42%;
 
     --accent: 3 87% 58%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 228 22% 16%;
-    --input: 228 22% 16%;
+    --border: 228 18% 86%;
+    --input: 228 18% 86%;
     --ring: 17 100% 56%;
 
     --radius: 0.75rem;
@@ -46,14 +46,22 @@
     --triboo-orange: #ff5a1f;
     --triboo-red: #f23c35;
 
-    --sidebar-background: 228 46% 4%;
-    --sidebar-foreground: 0 0% 98%;
+  /* Sidebar tokens — light in :root, dark in .dark */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 228 40% 8%;
     --sidebar-primary: 17 100% 56%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 3 87% 58%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 228 22% 16%;
+    --sidebar-accent: 228 24% 93%;
+    --sidebar-accent-foreground: 228 35% 12%;
+    --sidebar-border: 228 18% 86%;
     --sidebar-ring: 17 100% 56%;
+
+    --page-gradient-start: 228 33% 97%;
+    --page-gradient-end: 228 28% 94%;
+    --nav-solid-bg: 0 0% 100%;
+    --nav-solid-border: 17 100% 56%;
+    --hero-vignette-mid: 228 40% 8%;
+    --hero-vignette-end: 228 46% 4%;
   }
 
   .dark {
@@ -80,10 +88,16 @@
     --sidebar-foreground: 0 0% 98%;
     --sidebar-primary: 17 100% 56%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 3 87% 58%;
-    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-accent: 228 22% 14%;
+    --sidebar-accent-foreground: 0 0% 95%;
     --sidebar-border: 228 22% 16%;
     --sidebar-ring: 17 100% 56%;
+    --page-gradient-start: 228 46% 4%;
+    --page-gradient-end: 228 32% 8%;
+    --nav-solid-bg: 228 46% 4%;
+    --nav-solid-border: 17 100% 56%;
+    --hero-vignette-mid: 228 46% 4%;
+    --hero-vignette-end: 228 46% 4%;
   }
 }
 
@@ -127,10 +141,10 @@
   }
 
   html {
-    @apply dark;
     overflow-x: clip;
     max-width: 100%;
     overscroll-behavior-x: none;
+    color-scheme: light dark;
   }
 
   body {
@@ -193,7 +207,7 @@
   }
 
   .section-subtitle {
-    @apply text-lg text-gray-300 mt-4 max-w-2xl;
+    @apply text-lg text-muted-foreground mt-4 max-w-2xl;
   }
 
   .stat-number {
@@ -205,7 +219,71 @@
   }
 
   .stat-label {
-    @apply text-[10px] sm:text-xs text-gray-400 uppercase tracking-wide leading-snug min-h-[2.25rem] flex items-end justify-center;
+    @apply text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide leading-snug min-h-[2.25rem] flex items-end justify-center;
+  }
+
+  .bg-page-gradient {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--page-gradient-start)) 0%,
+      hsl(var(--page-gradient-end)) 100%
+    );
+  }
+
+  .blog-prose {
+    @apply text-muted-foreground leading-relaxed;
+  }
+
+  .blog-prose h2 {
+    @apply text-xl font-bold text-foreground mt-6 mb-3;
+  }
+
+  .blog-prose h3 {
+    @apply text-lg font-semibold text-foreground mt-4 mb-2;
+  }
+
+  .blog-prose p {
+    @apply mb-3;
+  }
+
+  .blog-prose ul {
+    @apply list-disc pl-5 space-y-1 mb-4;
+  }
+
+  .blog-prose ol {
+    @apply list-decimal pl-5 space-y-1 mb-4;
+  }
+
+  .blog-prose li {
+    @apply text-muted-foreground;
+  }
+
+  .blog-prose strong {
+    @apply text-foreground font-semibold;
+  }
+
+  .blog-prose a {
+    @apply text-primary underline;
+  }
+
+  .blog-prose table {
+    @apply block overflow-x-auto max-w-full w-full text-sm mb-4;
+  }
+
+  .blog-prose th {
+    @apply text-left text-foreground border-b border-border py-2 pr-3;
+  }
+
+  .blog-prose td {
+    @apply py-2 pr-3 border-b border-border/60;
+  }
+
+  .blog-prose img {
+    @apply rounded-xl my-4;
+  }
+
+  .blog-prose blockquote {
+    @apply border-l-4 border-l-primary pl-4 italic text-muted-foreground my-4;
   }
 }
 
@@ -339,13 +417,21 @@
   background: radial-gradient(
     ellipse 120% 90% at 50% 40%,
     transparent 0%,
-    rgba(5, 7, 13, 0.45) 55%,
-    rgba(5, 7, 13, 0.92) 100%
+    hsl(var(--hero-vignette-mid) / 0.45) 55%,
+    hsl(var(--hero-vignette-end) / 0.92) 100%
   );
 }
 
 .hero-badge-glow {
   animation: hero-badge-glow 3s ease-in-out infinite;
+}
+
+.home-nav-glass-light {
+  background: hsl(var(--nav-solid-bg) / 0.82);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-bottom: 1px solid hsl(var(--border) / 0.65);
+  box-shadow: 0 4px 24px hsl(var(--foreground) / 0.06);
 }
 
 /* Home navbar — glass over hero video, solid after headline scroll */
@@ -362,9 +448,17 @@
 }
 
 .home-nav-solid {
-  background: rgba(5, 7, 13, 0.94);
+  background: hsl(var(--nav-solid-bg) / 0.94);
   backdrop-filter: blur(16px) saturate(1.2);
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom: 1px solid hsl(var(--nav-solid-border) / 0.12);
+  box-shadow:
+    0 1px 0 hsl(var(--nav-solid-border) / 0.08),
+    0 8px 32px hsl(var(--foreground) / 0.08);
+}
+
+.dark .home-nav-solid {
+  background: rgba(5, 7, 13, 0.94);
   border-bottom: 1px solid rgba(255, 90, 31, 0.12);
   box-shadow:
     0 1px 0 rgba(255, 90, 31, 0.08),
@@ -439,12 +533,42 @@
   animation: none !important;
 }
 
+.events-leaflet-map .leaflet-popup-content,
+.event-map-popup-wrap .leaflet-popup-content {
+  margin: 10px 12px !important;
+  line-height: 1.4;
+}
+
+.events-leaflet-map .leaflet-control-attribution {
+  background: hsl(var(--card) / 0.75) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-size: 10px;
+  backdrop-filter: blur(4px);
+}
+
+.dark .events-leaflet-map .leaflet-control-attribution {
+  background: rgba(10, 15, 31, 0.75) !important;
+  color: #64748b !important;
+}
+
+.events-leaflet-map .leaflet-control-attribution a {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.dark .events-leaflet-map .leaflet-control-attribution a {
+  color: #94a3b8 !important;
+}
+
 .events-leaflet-map {
   overflow: hidden;
   max-width: 100%;
   height: 100% !important;
   width: 100% !important;
   min-height: inherit;
+  background: hsl(var(--muted));
+}
+
+.dark .events-leaflet-map {
   background: #0a0f1f;
 }
 
@@ -462,59 +586,117 @@
 
 /* Do not force width/height on Leaflet panes — it breaks tile positioning. */
 
-.events-leaflet-map .leaflet-control-zoom a {
-  background: rgba(10, 15, 31, 0.92) !important;
-  color: #94a3b8 !important;
-  border-color: rgba(55, 65, 81, 0.8) !important;
-  backdrop-filter: blur(8px);
-}
-
-.events-leaflet-map .leaflet-control-zoom a:hover {
-  background: rgba(0, 229, 255, 0.12) !important;
-  color: #00e5ff !important;
-  border-color: rgba(0, 229, 255, 0.35) !important;
-}
-
 .events-leaflet-map .leaflet-popup-content-wrapper,
 .event-map-popup-wrap .leaflet-popup-content-wrapper {
-  background: rgba(10, 15, 31, 0.96) !important;
-  border: 1px solid rgba(0, 229, 255, 0.25);
+  background: hsl(var(--card) / 0.96) !important;
+  border: 1px solid hsl(var(--primary) / 0.25);
   border-radius: 12px !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 8px 32px hsl(var(--foreground) / 0.12) !important;
   backdrop-filter: blur(12px);
+  color: hsl(var(--foreground));
+}
+
+.dark .events-leaflet-map .leaflet-popup-content-wrapper,
+.dark .event-map-popup-wrap .leaflet-popup-content-wrapper {
+  background: rgba(10, 15, 31, 0.96) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
   color: #e2e8f0;
 }
 
 .events-leaflet-map .leaflet-popup-tip,
 .event-map-popup-wrap .leaflet-popup-tip {
+  background: hsl(var(--card) / 0.96) !important;
+  border: 1px solid hsl(var(--primary) / 0.15);
+}
+
+.dark .events-leaflet-map .leaflet-popup-tip,
+.dark .event-map-popup-wrap .leaflet-popup-tip {
   background: rgba(10, 15, 31, 0.96) !important;
   border: 1px solid rgba(0, 229, 255, 0.15);
 }
 
-.events-leaflet-map .leaflet-popup-content,
-.event-map-popup-wrap .leaflet-popup-content {
-  margin: 10px 12px !important;
-  line-height: 1.4;
+.events-leaflet-map .leaflet-control-zoom a {
+  background: hsl(var(--card) / 0.92) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+  backdrop-filter: blur(8px);
 }
 
-.events-leaflet-map .leaflet-control-attribution {
-  background: rgba(10, 15, 31, 0.75) !important;
-  color: #64748b !important;
-  font-size: 10px;
-  backdrop-filter: blur(4px);
-}
-
-.events-leaflet-map .leaflet-control-attribution a {
+.dark .events-leaflet-map .leaflet-control-zoom a {
+  background: rgba(10, 15, 31, 0.92) !important;
   color: #94a3b8 !important;
+  border-color: rgba(55, 65, 81, 0.8) !important;
+}
+
+.events-leaflet-map .leaflet-control-zoom a:hover {
+  background: hsl(var(--primary) / 0.12) !important;
+  color: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary) / 0.35) !important;
+}
+
+.dark .events-leaflet-map .leaflet-control-zoom a:hover {
+  background: rgba(255, 90, 31, 0.12) !important;
+  color: #ff8a5c !important;
+  border-color: rgba(255, 90, 31, 0.35) !important;
 }
 
 .event-map-popup a {
-  color: #00e5ff;
+  color: hsl(var(--primary));
+}
+
+.dark .event-map-popup a {
+  color: #ff8a5c;
 }
 
 @layer utilities {
   /** Main content fills at least one viewport below the fixed navbar; footer follows immediately after */
   .min-h-below-nav {
     min-height: calc(100dvh - 4.5rem);
+  }
+}
+
+@layer components {
+  .legal-prose {
+    @apply text-sm md:text-base text-foreground/90 leading-relaxed;
+  }
+
+  .legal-prose h1 {
+    @apply text-2xl md:text-3xl font-bold text-foreground mb-6;
+  }
+
+  .legal-prose h2 {
+    @apply text-lg md:text-xl font-semibold text-foreground mt-8 mb-3;
+  }
+
+  .legal-prose p {
+    @apply mb-4 text-muted-foreground;
+  }
+
+  .legal-prose ul {
+    @apply list-disc pl-5 mb-4 space-y-2 text-muted-foreground;
+  }
+
+  .legal-prose ol {
+    @apply list-decimal pl-5 mb-4 space-y-2 text-muted-foreground;
+  }
+
+  .legal-prose li {
+    @apply leading-relaxed;
+  }
+
+  .legal-prose strong {
+    @apply font-semibold text-foreground;
+  }
+
+  .legal-prose a {
+    @apply text-primary hover:underline;
+  }
+
+  .legal-prose hr {
+    @apply my-8 border-border;
+  }
+
+  .legal-prose em {
+    @apply text-muted-foreground text-sm not-italic;
   }
 }

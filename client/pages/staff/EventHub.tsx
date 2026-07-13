@@ -208,7 +208,7 @@ export default function StaffEventHub() {
                     {
                       label: t("staffPortal.eventHub.statConfirmed"),
                       value: summary.confirmed_count,
-                      accent: "text-cyan",
+                      accent: "text-primary",
                     },
                     {
                       label: t("staffPortal.eventHub.statPending"),
@@ -223,7 +223,7 @@ export default function StaffEventHub() {
                     {
                       label: t("staffPortal.eventHub.statRevenue"),
                       value: `$${(summary.revenue_cents / 100).toLocaleString(numLocale)}`,
-                      accent: "text-cyan",
+                      accent: "text-primary",
                     },
                   ].map(({ label, value, accent }) => (
                     <div key={label} className="card-sport p-4">

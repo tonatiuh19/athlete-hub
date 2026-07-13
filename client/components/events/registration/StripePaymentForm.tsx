@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { useTheme } from "next-themes";
 import { Loader2, Lock, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import PaymentMethodCard from "@/components/payments/PaymentMethodCard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchPaymentMethods } from "@/store/slices/paymentMethodsSlice";
 import { stripePaymentElementOptions } from "@/lib/stripePaymentElementOptions";
+import { buildStripeAppearance } from "@/lib/stripeAppearance";
 
 interface StripePaymentFormProps {
   amountLabel: string;
@@ -177,7 +179,7 @@ function PaymentFormInner({
           <button
             type="button"
             onClick={() => setUseNewCard(true)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-gray-600 text-xs text-gray-400 hover:text-cyan hover:border-cyan/40 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-primary hover:border-cyan/40 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             {t("registrationWizard.payment.useNewCard")}
@@ -191,12 +193,12 @@ function PaymentFormInner({
             <button
               type="button"
               onClick={() => setUseNewCard(false)}
-              className="text-xs text-cyan hover:underline"
+              className="text-xs text-primary hover:underline"
             >
               {t("registrationWizard.payment.useSavedCard")}
             </button>
           ) : null}
-          <div className="rounded-xl border border-gray-700/50 bg-surface-dark/30 p-4">
+          <div className="rounded-xl border border-border bg-card/60 p-4">
             <PaymentElement options={stripePaymentElementOptions} />
           </div>
         </>
@@ -220,7 +222,7 @@ function PaymentFormInner({
           </>
         )}
       </Button>
-      <p className="text-[10px] text-center text-gray-600 flex items-center justify-center gap-1">
+      <p className="text-[10px] text-center text-muted-foreground flex items-center justify-center gap-1">
         <Lock className="w-3 h-3" />
         {t("registrationWizard.payment.secure")}
       </p>
@@ -236,6 +238,8 @@ interface StripeCheckoutProps extends StripePaymentFormProps {
 export default function StripeCheckout(props: StripeCheckoutProps) {
   const { clientSecret, publishableKey, ...rest } = props;
   const [stripePromise] = useState(() => loadStripe(publishableKey));
+  const { resolvedTheme } = useTheme();
+  const isDark = (resolvedTheme ?? "dark") !== "light";
 
   if (!stripePromise || !clientSecret) return null;
 
@@ -244,29 +248,7 @@ export default function StripeCheckout(props: StripeCheckoutProps) {
       stripe={stripePromise}
       options={{
         clientSecret,
-        appearance: {
-          theme: "night",
-          variables: {
-            colorPrimary: "#00E5FF",
-            colorBackground: "#0A0F1F",
-            colorText: "#E2E8F0",
-            colorDanger: "#FF5252",
-            borderRadius: "10px",
-            fontFamily: "Inter, system-ui, sans-serif",
-          },
-          rules: {
-            ".Input": {
-              border: "1px solid rgba(55, 65, 81, 0.8)",
-              backgroundColor: "rgba(15, 23, 42, 0.6)",
-            },
-            ".Tab": {
-              border: "1px solid rgba(55, 65, 81, 0.5)",
-            },
-            ".Tab--selected": {
-              borderColor: "rgba(0, 229, 255, 0.5)",
-            },
-          },
-        },
+        appearance: buildStripeAppearance(isDark),
       }}
     >
       <PaymentFormInner {...rest} publishableKey={publishableKey} />

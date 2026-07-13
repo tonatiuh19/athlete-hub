@@ -142,14 +142,14 @@ export default function AdminCreateEventPage() {
         <div className="max-w-6xl mx-auto px-4 py-8 relative">
           <Link
             to="/staff/events"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-cyan mb-4"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-4"
           >
             <ArrowLeft className="w-4 h-4" />
             {t("staffPortal.eventEdit.back")}
           </Link>
           <div className="flex items-start gap-3">
             <div className="w-12 h-12 rounded-2xl bg-cyan/15 border border-cyan/30 flex items-center justify-center shrink-0">
-              <Sparkles className="w-6 h-6 text-cyan" />
+              <Sparkles className="w-6 h-6 text-primary" />
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
@@ -171,7 +171,7 @@ export default function AdminCreateEventPage() {
         >
           <section className="card-sport p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-cyan" />
+              <Building2 className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t("staffPortal.adminCreate.organizerStep")}</h2>
             </div>
             <div className="relative">
@@ -221,7 +221,7 @@ export default function AdminCreateEventPage() {
                         ) : null}
                       </div>
                       {selectedOrg?.id === org.id ? (
-                        <Check className="w-4 h-4 text-cyan shrink-0" />
+                        <Check className="w-4 h-4 text-primary shrink-0" />
                       ) : null}
                     </div>
                   </button>
@@ -232,7 +232,7 @@ export default function AdminCreateEventPage() {
 
           <section className="card-sport p-6 space-y-5">
             <div className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-cyan" />
+              <Trophy className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t("staffPortal.adminCreate.eventStep")}</h2>
             </div>
 
@@ -348,10 +348,10 @@ export default function AdminCreateEventPage() {
               <div className="h-28 bg-gradient-to-br from-cyan/20 via-purple-accent/10 to-transparent" />
               <div className="p-5 -mt-8 space-y-4">
                 <div className="w-14 h-14 rounded-xl bg-cyan/15 border border-cyan/30 flex items-center justify-center">
-                  <Calendar className="w-7 h-7 text-cyan" />
+                  <Calendar className="w-7 h-7 text-primary" />
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest text-cyan font-semibold">
+                  <p className="text-[10px] uppercase tracking-widest text-primary font-semibold">
                     {sportName || t("staffPortal.eventEdit.fieldSport")}
                   </p>
                   <h3 className="text-xl font-bold mt-1 leading-tight">

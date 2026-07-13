@@ -51,7 +51,6 @@ export default function HeroMobileSearchPanel() {
         }
         placeholder={t("home.hero.searchEvents")}
         listboxId="hero-mobile-search-listbox"
-        tone="hero"
         showFilters
         filtersOpen={filtersOpen}
         onFiltersClick={() => setFiltersOpen(true)}

@@ -60,6 +60,11 @@ export async function mountStaffPortalScenario(
   return { app, db, authHeader: "Bearer staff-smoke-token", auth };
 }
 
+export async function setStaffPortalAuthBypass(auth: TestAuthPayload) {
+  const { hooksModule: hooks } = await loadApiModules();
+  hooks.setTestAuthBypass(auth);
+}
+
 export async function teardownStaffPortalScenario() {
   const { hooksModule: hooks } = await loadApiModules();
   hooks.resetTestEnvironment();

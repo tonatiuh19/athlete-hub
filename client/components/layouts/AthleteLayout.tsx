@@ -22,8 +22,10 @@ import {
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import TribooLogo from "@/components/brand/TribooLogo";
 import EventRegistrationWizard from "@/components/events/registration/EventRegistrationWizard";
+import GroupRegistrationWizard from "@/components/events/registration/GroupRegistrationWizard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
+import { claimGuestRegistration } from "@/store/slices/athletePortalSlice";
 import { useAthleteLogout } from "@/hooks/useAthleteLogout";
 import { dismissRegistrationWizard } from "@/utils/dismissRegistrationWizard";
 import { athleteNeedsProfileCompletion } from "@/utils/athleteProfileCompletion";
@@ -63,6 +65,22 @@ export default function AthleteLayout() {
       dismissRegistrationWizard(dispatch);
     }
   }, [dispatch, location.pathname, wizardOpen, wizardStep]);
+
+  useEffect(() => {
+    if (!token) return;
+    const params = new URLSearchParams(location.search);
+    const claimToken = params.get("claimToken")?.trim();
+    if (!claimToken) return;
+    void dispatch(claimGuestRegistration({ claimToken })).finally(() => {
+      params.delete("claimToken");
+      const next = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        `${location.pathname}${next ? `?${next}` : ""}`,
+      );
+    });
+  }, [dispatch, token, location.pathname, location.search]);
 
   const NAV = [
     {
@@ -154,7 +172,7 @@ export default function AthleteLayout() {
           className={({ isActive }) =>
             `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
               isActive
-                ? "bg-cyan/15 text-cyan border border-cyan/25"
+                ? "bg-cyan/15 text-primary border border-cyan/25"
                 : "text-muted-foreground hover:text-foreground hover:bg-card"
             }`
           }
@@ -171,7 +189,7 @@ export default function AthleteLayout() {
       <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-card/30 backdrop-blur-sm fixed inset-y-0 left-0 z-30">
         <div className="p-6 border-b border-border space-y-2">
           <TribooLogo
-            surface="dark"
+            surface="auto"
             href="/portal"
             className="h-10 w-full max-w-[200px]"
           />
@@ -215,7 +233,7 @@ export default function AthleteLayout() {
       <div className="flex-1 lg:ml-64 flex flex-col min-h-screen min-w-0 w-full max-w-full">
         <header className="lg:hidden sticky top-0 z-40 bg-background/90 backdrop-blur-md border-b border-border px-4 h-14 flex items-center justify-between gap-2 min-w-0">
           <TribooLogo
-            surface="dark"
+            surface="auto"
             href="/portal"
             className="h-8 max-w-[150px]"
           />
@@ -257,6 +275,7 @@ export default function AthleteLayout() {
         </main>
       </div>
       <EventRegistrationWizard />
+      <GroupRegistrationWizard />
     </div>
   );
 }

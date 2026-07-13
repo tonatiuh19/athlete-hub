@@ -8,6 +8,7 @@ import HomeSportTypesSection from "@/components/home/HomeSportTypesSection";
 import HomeEventsMapSection from "@/components/home/HomeEventsMapSection";
 import HomeInviteCrew from "@/components/home/HomeInviteCrew";
 import HomeBlogSection from "@/components/home/HomeBlogSection";
+import HomeFaqSection from "@/components/home/HomeFaqSection";
 import HomeFeaturedEventsMobile from "@/components/home/HomeFeaturedEventsMobile";
 import FeaturedEventsSkeleton from "@/components/home/FeaturedEventsSkeleton";
 import EventCardImage from "@/components/events/EventCardImage";
@@ -60,7 +61,7 @@ const EventCard = ({
       className="absolute inset-0 z-20"
       aria-label={title}
     />
-    <div className="relative h-52 md:h-56 bg-gray-800 overflow-hidden shrink-0">
+    <div className="relative h-52 md:h-56 bg-muted overflow-hidden shrink-0">
       <EventCardImage
         src={imageUrl}
         sportSlug={sportSlug}
@@ -76,11 +77,11 @@ const EventCard = ({
     </div>
 
     <div className="p-5 md:p-6 relative z-10 flex flex-col flex-1">
-      <h3 className="text-lg font-bold text-white mb-3 group-hover:text-primary transition-colors line-clamp-2">
+      <h3 className="text-lg font-bold text-foreground mb-3 group-hover:text-primary transition-colors line-clamp-2">
         {title}
       </h3>
 
-      <div className="space-y-2.5 mb-5 text-gray-400 text-sm">
+      <div className="space-y-2.5 mb-5 text-muted-foreground text-sm">
         <div className="flex items-center gap-2.5">
           <Calendar className="w-4 h-4 text-primary shrink-0" />
           <span>{date}</span>
@@ -99,10 +100,10 @@ const EventCard = ({
         </div>
       </div>
 
-      <div className="flex items-center justify-end pt-4 border-t border-gray-700/50 mt-auto">
+      <div className="flex items-center justify-end pt-4 border-t border-border mt-auto">
         <Link
           to={slug ? `/events/${slug}` : "/events"}
-          className="relative z-30 text-primary hover:text-white transition-colors flex items-center gap-1 font-semibold text-sm group/link"
+          className="relative z-30 text-primary hover:text-primary transition-colors flex items-center gap-1 font-semibold text-sm group/link"
         >
           {joinLabel}
           <ArrowRight className="w-4 h-4 group-hover/link:translate-x-1 transition-transform" />
@@ -314,10 +315,10 @@ export default function Index() {
               >
                 <div className="flex items-center justify-between gap-3 mb-6 min-w-0">
                   <div className="min-w-0">
-                    <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-white">
+                    <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground">
                       {t("home.leaderboards.topAthletes")}
                     </h3>
-                    <p className="text-gray-400 text-sm mt-1">
+                    <p className="text-muted-foreground text-sm mt-1">
                       {t("home.leaderboards.topAthletesDesc")}
                     </p>
                   </div>
@@ -344,11 +345,11 @@ export default function Index() {
                       >
                         <motion.div
                           whileHover={{ scale: 1.1 }}
-                          className={`flex-shrink-0 w-10 h-10 font-bold rounded-full flex items-center justify-center text-white text-sm ${
+                          className={`flex-shrink-0 w-10 h-10 font-bold rounded-full flex items-center justify-center text-foreground text-sm ${
                             athlete.rank === 1
                               ? "bg-gradient-to-br from-yellow-500 to-orange-500"
                               : athlete.rank === 2
-                                ? "bg-gradient-to-br from-gray-400 to-gray-500"
+                                ? "bg-gradient-to-br from-muted to-muted-foreground"
                                 : athlete.rank === 3
                                   ? "bg-gradient-to-br from-orange-500 to-amber-500"
                                   : "bg-primary/30 border border-primary/50"
@@ -357,10 +358,10 @@ export default function Index() {
                           #{athlete.rank}
                         </motion.div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-white group-hover:text-primary transition-colors">
+                          <div className="font-semibold text-foreground group-hover:text-primary transition-colors">
                             {athlete.first_name} {athlete.last_name}
                           </div>
-                          <div className="text-sm text-gray-400">
+                          <div className="text-sm text-muted-foreground">
                             {athlete.xp_total.toLocaleString()} XP ·{" "}
                             {t("home.leaderboards.level", {
                               level: athlete.level,
@@ -390,10 +391,10 @@ export default function Index() {
               >
                 <div className="flex items-center justify-between gap-3 mb-6 min-w-0">
                   <div className="min-w-0">
-                    <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-white">
+                    <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground">
                       {t("home.leaderboards.topCommunities")}
                     </h3>
-                    <p className="text-gray-400 text-sm mt-1">
+                    <p className="text-muted-foreground text-sm mt-1">
                       {t("home.leaderboards.topCommunitiesDesc")}
                     </p>
                   </div>
@@ -420,11 +421,11 @@ export default function Index() {
                       >
                         <motion.div
                           whileHover={{ scale: 1.1 }}
-                          className={`flex-shrink-0 w-10 h-10 font-bold rounded-full flex items-center justify-center text-white text-sm ${
+                          className={`flex-shrink-0 w-10 h-10 font-bold rounded-full flex items-center justify-center text-foreground text-sm ${
                             idx === 0
                               ? "bg-gradient-to-br from-yellow-500 to-orange-500"
                               : idx === 1
-                                ? "bg-gradient-to-br from-gray-400 to-gray-500"
+                                ? "bg-gradient-to-br from-muted to-muted-foreground"
                                 : idx === 2
                                   ? "bg-gradient-to-br from-orange-500 to-amber-500"
                                   : "bg-accent/30 border border-accent/50"
@@ -433,10 +434,10 @@ export default function Index() {
                           #{idx + 1}
                         </motion.div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-white group-hover:text-primary transition-colors">
+                          <div className="font-semibold text-foreground group-hover:text-primary transition-colors">
                             {team.name}
                           </div>
-                          <div className="text-sm text-gray-400">
+                          <div className="text-sm text-muted-foreground">
                             {team.member_count.toLocaleString()}{" "}
                             {t("home.leaderboards.members")}
                           </div>
@@ -460,6 +461,8 @@ export default function Index() {
           </div>
         </section>
       ) : null}
+
+      <HomeFaqSection />
 
       {/* Premium CTA Section */}
       <section className="py-24 md:py-32 px-4 md:px-6 relative overflow-hidden">
@@ -512,14 +515,14 @@ export default function Index() {
                 </div>
               </motion.div> */}
 
-              <h2 className="text-3xl md:text-5xl font-bold text-white mb-5 leading-tight">
+              <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-5 leading-tight">
                 {t("home.cta.title")}{" "}
                 <span className="text-gradient">
                   {t("home.cta.titleHighlight")}
                 </span>
               </h2>
 
-              <p className="text-base md:text-lg text-gray-300 mb-8 max-w-2xl mx-auto leading-relaxed">
+              <p className="text-base md:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto leading-relaxed">
                 {t("home.cta.description")}
               </p>
 
@@ -534,7 +537,7 @@ export default function Index() {
 
                 <Link
                   to="/events"
-                  className="px-8 py-4 text-white font-bold text-base md:text-lg border-2 border-primary/50 hover:border-primary hover:bg-primary/10 rounded-lg transition-all duration-300 flex items-center justify-center gap-2"
+                  className="px-8 py-4 text-foreground font-bold text-base md:text-lg border-2 border-primary/50 hover:border-primary hover:bg-primary/10 rounded-lg transition-all duration-300 flex items-center justify-center gap-2"
                 >
                   {t("home.cta.watchDemo")}
                   <Sparkles className="w-5 h-5" />
@@ -546,7 +549,7 @@ export default function Index() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.6, delay: 0.3 }}
-                className="mt-10 pt-6 border-t border-gray-800/50 flex flex-col sm:flex-row justify-center gap-6 text-sm text-gray-400"
+                className="mt-10 pt-6 border-t border-border/50 flex flex-col sm:flex-row justify-center gap-6 text-sm text-muted-foreground"
               >
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-success rounded-full" />

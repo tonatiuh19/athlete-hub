@@ -49,7 +49,7 @@ export default function StaffAnalyticsCharts({ data }: StaffAnalyticsChartsProps
   return (
     <div className="grid lg:grid-cols-2 gap-4">
       <div className="card-sport p-6">
-        <h2 className="text-sm font-semibold text-cyan uppercase tracking-wider mb-4">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider mb-4">
           {t("staffPortal.analytics.registrationsChart")}
         </h2>
         {regChartData.length === 0 ? (
@@ -68,7 +68,7 @@ export default function StaffAnalyticsCharts({ data }: StaffAnalyticsChartsProps
       </div>
 
       <div className="card-sport p-6">
-        <h2 className="text-sm font-semibold text-cyan uppercase tracking-wider mb-4">
+        <h2 className="text-sm font-semibold text-primary uppercase tracking-wider mb-4">
           {t("staffPortal.analytics.revenueChart")}
         </h2>
         {revChartData.length === 0 ? (

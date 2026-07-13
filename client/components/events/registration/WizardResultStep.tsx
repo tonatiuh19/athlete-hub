@@ -60,13 +60,13 @@ export default function WizardResultStep({
           <XCircle className="w-8 h-8 text-red-400" />
         </div>
         <div>
-          <h3 className="text-lg font-bold text-white">{t("registrationWizard.result.failedTitle")}</h3>
-          <p className="text-sm text-gray-400 mt-2 max-w-sm mx-auto">
+          <h3 className="text-lg font-bold text-foreground">{t("registrationWizard.result.failedTitle")}</h3>
+          <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
             {failureMessage || t("registrationWizard.result.failedHint")}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Button variant="outline" onClick={onClose} className="border-gray-700">
+          <Button variant="outline" onClick={onClose} className="border-border">
             {t("registrationWizard.result.close")}
           </Button>
           <Button
@@ -85,44 +85,44 @@ export default function WizardResultStep({
     return (
       <div className="text-center py-4 space-y-6">
         <div className="w-16 h-16 mx-auto rounded-full bg-cyan/10 border border-cyan/30 flex items-center justify-center animate-in zoom-in duration-300">
-          <Clock className="w-8 h-8 text-cyan" />
+          <Clock className="w-8 h-8 text-primary" />
         </div>
 
         <div>
-          <h3 className="text-xl font-bold text-white">
+          <h3 className="text-xl font-bold text-foreground">
             {t("registrationWizard.result.waitlistTitle")}
           </h3>
-          <p className="text-sm text-gray-400 mt-2 max-w-sm mx-auto">
+          <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
             {t("registrationWizard.result.waitlistHint")}
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-700/50 bg-surface-dark/50 p-5 text-left space-y-3">
+        <div className="rounded-xl border border-border bg-card/60 p-5 text-left space-y-3">
           {waitlistJoined.event_title ? (
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-500">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 {t("registrationWizard.result.waitlistEvent")}
               </p>
-              <p className="text-sm font-bold text-white">{waitlistJoined.event_title}</p>
+              <p className="text-sm font-bold text-foreground">{waitlistJoined.event_title}</p>
             </div>
           ) : null}
           {waitlistJoined.category_name ? (
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-gray-500">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 {t("registrationWizard.result.category")}
               </p>
-              <p className="text-sm font-medium text-white">{waitlistJoined.category_name}</p>
+              <p className="text-sm font-medium text-foreground">{waitlistJoined.category_name}</p>
             </div>
           ) : null}
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-gray-500">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
               {t("registrationWizard.result.waitlistPosition")}
             </p>
-            <p className="text-2xl font-bold text-cyan">#{waitlistJoined.position}</p>
+            <p className="text-2xl font-bold text-primary">#{waitlistJoined.position}</p>
           </div>
         </div>
 
-        <Button variant="outline" onClick={onClose} className="border-gray-700">
+        <Button variant="outline" onClick={onClose} className="border-border">
           {t("registrationWizard.result.close")}
         </Button>
       </div>
@@ -136,8 +136,8 @@ export default function WizardResultStep({
       </div>
 
       <div>
-        <h3 className="text-xl font-bold text-white">{t("registrationWizard.result.successTitle")}</h3>
-        <p className="text-sm text-gray-400 mt-2">{t("registrationWizard.result.successHint")}</p>
+        <h3 className="text-xl font-bold text-foreground">{t("registrationWizard.result.successTitle")}</h3>
+        <p className="text-sm text-muted-foreground mt-2">{t("registrationWizard.result.successHint")}</p>
         {confirmationEmail ? (
           <p className="text-sm text-accent mt-3 font-medium">
             {t("registrationWizard.result.confirmationEmailSent", { email: confirmationEmail })}
@@ -146,34 +146,34 @@ export default function WizardResultStep({
       </div>
 
       {registration && (
-        <div className="rounded-xl border border-gray-700/50 bg-surface-dark/50 p-5 text-left space-y-4">
+        <div className="rounded-xl border border-border bg-card/60 p-5 text-left space-y-4">
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-gray-500">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
               {t("registrationWizard.result.folio")}
             </p>
-            <p className="text-lg font-bold text-cyan font-mono">{registration.registration_number}</p>
+            <p className="text-lg font-bold text-primary font-mono">{registration.registration_number}</p>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-xs text-gray-500">{t("registrationWizard.result.category")}</p>
-              <p className="text-white font-medium">{registration.category_name}</p>
+              <p className="text-xs text-muted-foreground">{t("registrationWizard.result.category")}</p>
+              <p className="text-foreground font-medium">{registration.category_name}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">{t("eventDetail.total")}</p>
-              <p className="text-white font-medium">
+              <p className="text-xs text-muted-foreground">{t("eventDetail.total")}</p>
+              <p className="text-foreground font-medium">
                 {formatPriceMxn(registration.total_cents, i18n.language)}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-bg-dark/60 border border-gray-700/40">
-            <QrCode className="w-8 h-8 text-cyan shrink-0" />
-            <p className="text-xs text-gray-500">{t("registrationWizard.result.qrHint")}</p>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-background/60 border border-border/60">
+            <QrCode className="w-8 h-8 text-primary shrink-0" />
+            <p className="text-xs text-muted-foreground">{t("registrationWizard.result.qrHint")}</p>
           </div>
         </div>
       )}
 
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
-        <Button variant="outline" onClick={onClose} className="border-gray-700">
+        <Button variant="outline" onClick={onClose} className="border-border">
           {t("registrationWizard.result.close")}
         </Button>
         <Button
@@ -182,7 +182,7 @@ export default function WizardResultStep({
             onViewRegistrations();
             navigate("/portal/registrations", { replace: true });
           }}
-          className="w-full sm:w-auto bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+          className="w-full sm:w-auto bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
         >
           {t("registrationWizard.result.viewRegistrations")}
           <ArrowRight className="w-4 h-4 ml-2" />

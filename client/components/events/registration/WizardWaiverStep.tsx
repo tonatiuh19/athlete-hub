@@ -43,7 +43,7 @@ export default function WizardWaiverStep({ waivers, onAccepted }: WizardWaiverSt
 
   return (
     <form onSubmit={formik.handleSubmit} className="space-y-4">
-      <div className="flex items-center gap-2 text-cyan">
+      <div className="flex items-center gap-2 text-primary">
         <ShieldCheck className="w-5 h-5 shrink-0" />
         <h3 className="font-semibold text-sm">
           {multiple
@@ -53,28 +53,28 @@ export default function WizardWaiverStep({ waivers, onAccepted }: WizardWaiverSt
       </div>
 
       {multiple ? (
-        <p className="text-xs text-gray-500">{t("registrationWizard.waiver.allRequiredHint")}</p>
+        <p className="text-xs text-muted-foreground">{t("registrationWizard.waiver.allRequiredHint")}</p>
       ) : null}
 
       <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
         {waivers.map((waiver, index) => (
           <div
             key={waiver.id}
-            className="rounded-xl border border-gray-700/60 bg-black/20 p-4 space-y-3"
+            className="rounded-xl border border-border bg-black/20 p-4 space-y-3"
           >
             {multiple ? (
-              <p className="text-xs font-bold uppercase tracking-wider text-gray-500">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {t("registrationWizard.waiver.itemLabel", { index: index + 1 })}
               </p>
             ) : null}
             {multiple ? (
-              <h4 className="font-medium text-sm text-gray-200">{waiver.title}</h4>
+              <h4 className="font-medium text-sm text-muted-foreground">{waiver.title}</h4>
             ) : null}
 
             {(waiver.content_type === "html" || waiver.content_type === "both") &&
             waiver.content_html?.trim() ? (
               <div
-                className="max-h-40 overflow-y-auto overflow-x-auto text-sm text-gray-300 prose prose-invert prose-sm max-w-none [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full [&_img]:max-w-full [&_img]:h-auto"
+                className="max-h-40 overflow-y-auto overflow-x-auto text-sm text-muted-foreground prose prose-invert prose-sm max-w-none [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full [&_img]:max-w-full [&_img]:h-auto"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(waiver.content_html) }}
               />
             ) : null}
@@ -85,7 +85,7 @@ export default function WizardWaiverStep({ waivers, onAccepted }: WizardWaiverSt
                 href={waiver.pdf_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-cyan hover:underline"
+                className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
               >
                 <FileText className="w-4 h-4" />
                 {t("registrationWizard.waiver.viewPdf")}
@@ -93,7 +93,7 @@ export default function WizardWaiverStep({ waivers, onAccepted }: WizardWaiverSt
               </a>
             ) : null}
 
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               {t("registrationWizard.waiver.version", { version: waiver.version })}
             </p>
           </div>

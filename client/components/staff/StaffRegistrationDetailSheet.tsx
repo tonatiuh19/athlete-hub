@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { CreditCard, Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import StaffRegistrationPurchasedExtras from "@/components/staff/StaffRegistrationPurchasedExtras";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -78,7 +79,7 @@ export default function StaffRegistrationDetailSheet({
 
         {loadingStaffRegistrationDetail ? (
           <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-cyan" />
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
         ) : staffRegistrationDetailError ? (
           <p className="text-sm text-destructive mt-6">{staffRegistrationDetailError}</p>
@@ -104,7 +105,7 @@ export default function StaffRegistrationDetailSheet({
               </div>
               <div>
                 <p className="text-muted-foreground">{t("staffPortal.people.colTotal")}</p>
-                <p className="font-semibold text-cyan">
+                <p className="font-semibold text-primary">
                   ${(reg.total_cents / 100).toLocaleString(numLocale)}
                 </p>
               </div>
@@ -121,7 +122,7 @@ export default function StaffRegistrationDetailSheet({
             {payment ? (
               <div className="card-sport p-4 space-y-2">
                 <h4 className="font-semibold flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-cyan" />
+                  <CreditCard className="w-4 h-4 text-primary" />
                   {t("staffPortal.finance.paymentSection")}
                 </h4>
                 <div className="text-sm space-y-1">
@@ -211,6 +212,10 @@ export default function StaffRegistrationDetailSheet({
                   })}
                 </p>
               </div>
+            ) : null}
+
+            {staffRegistrationDetail?.purchased_extras?.length ? (
+              <StaffRegistrationPurchasedExtras extras={staffRegistrationDetail.purchased_extras} />
             ) : null}
 
             {staffRegistrationDetail?.field_values?.length ? (

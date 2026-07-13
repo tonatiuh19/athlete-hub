@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { getDateFnsLocale } from "@/utils/dateLocale";
 
 const STATUS_CHIP: Record<string, string> = {
-  published: "bg-cyan/20 text-cyan border-cyan/30 hover:bg-cyan/30",
+  published: "bg-cyan/20 text-primary border-cyan/30 hover:bg-cyan/30",
   completed: "bg-blue-electric/20 text-blue-electric border-blue-electric/30 hover:bg-blue-electric/30",
   draft: "bg-muted/80 text-muted-foreground border-border hover:bg-muted",
   cancelled: "bg-destructive/15 text-destructive border-destructive/30 hover:bg-destructive/25",
@@ -138,7 +138,7 @@ export default function StaffEventsCalendarView({
                   className={cn(
                     "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium mb-1",
                     today && "bg-cyan text-navy-deep",
-                    !today && isSelected && "text-cyan",
+                    !today && isSelected && "text-primary",
                     !today && !isSelected && "text-foreground/80",
                   )}
                 >
@@ -205,7 +205,7 @@ export default function StaffEventsCalendarView({
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
                   <div className="text-right">
-                    <div className="text-lg font-bold text-cyan">{ev.registration_count}</div>
+                    <div className="text-lg font-bold text-primary">{ev.registration_count}</div>
                     <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
                       {t("staffPortal.dashboard.registered")}
                     </div>
@@ -216,7 +216,7 @@ export default function StaffEventsCalendarView({
                         to={`/events/${ev.slug}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-cyan hover:underline"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                       >
                         {t("staffPortal.events.viewPublic")}
                         <ExternalLink className="w-3.5 h-3.5" />
@@ -224,14 +224,14 @@ export default function StaffEventsCalendarView({
                     ) : null}
                     <Link
                       to={`/staff/events/${ev.id}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-cyan hover:underline"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     >
                       <LayoutDashboard className="w-3.5 h-3.5" />
                       {t("staffPortal.events.manage")}
                     </Link>
                     <Link
                       to={`/staff/events/${ev.id}/edit`}
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-cyan"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       {t("staffPortal.events.edit")}

@@ -28,7 +28,7 @@ function sportGradient(sportSlug?: string, sportName?: string): string {
 
 function SportIcon({ sportSlug, sportName }: { sportSlug?: string; sportName?: string }) {
   return (
-    <SportKindIcon sportSlug={sportSlug} sportName={sportName} className="w-8 h-8 text-cyan/40" />
+    <SportKindIcon sportSlug={sportSlug} sportName={sportName} className="w-8 h-8 text-primary/40" />
   );
 }
 
@@ -61,7 +61,7 @@ export default function EventCardImage({
     fetchPriority === "high" || fetchPriority === "low" ? fetchPriority : undefined;
 
   return (
-    <div className={cn("relative overflow-hidden bg-surface-dark", className)}>
+    <div className={cn("relative overflow-hidden bg-card", className)}>
       {!showFallback ? (
         <img
           src={resolvedSrc}

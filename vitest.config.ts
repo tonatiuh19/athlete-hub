@@ -8,6 +8,8 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["tests/setup.ts"],
     testTimeout: 10_000,
+    // HTTP smoke tests share global test pool/auth hooks — isolate per file to avoid teardown races.
+    pool: "forks",
   },
   resolve: {
     alias: {

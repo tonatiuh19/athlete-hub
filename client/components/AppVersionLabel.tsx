@@ -23,7 +23,7 @@ export default function AppVersionLabel({ className }: AppVersionLabelProps) {
   return (
     <span
       className={cn(
-        "text-[10px] tabular-nums text-gray-600/70 select-none",
+        "text-[10px] tabular-nums text-muted-foreground/70 select-none",
         className,
       )}
       aria-label={`Application version ${version}`}

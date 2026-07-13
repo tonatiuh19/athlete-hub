@@ -96,7 +96,7 @@ function LogoShell({
 
 export default function TribooLogo({
   variant = "horizontal-white",
-  surface,
+  surface = "auto",
   mark = "horizontal",
   className,
   imgClassName,

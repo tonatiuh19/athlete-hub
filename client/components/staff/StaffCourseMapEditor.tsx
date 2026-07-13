@@ -622,7 +622,7 @@ export default function StaffCourseMapEditor({
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="card-sport p-4 text-center">
             <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.careerStart")}</p>
-            <p className="text-sm font-mono font-semibold text-cyan mt-1">
+            <p className="text-sm font-mono font-semibold text-primary mt-1">
               {hasCareerStart
                 ? `${careerStartLat!.toFixed(5)}, ${careerStartLng!.toFixed(5)}`
                 : "—"}
@@ -630,15 +630,15 @@ export default function StaffCourseMapEditor({
           </div>
           <div className="card-sport p-4 text-center">
             <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
-            <p className="text-2xl font-bold text-cyan mt-1">{distanceKm || "—"} km</p>
+            <p className="text-2xl font-bold text-primary mt-1">{distanceKm || "—"} km</p>
           </div>
           <div className="card-sport p-4 text-center">
             <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.elevation")}</p>
-            <p className="text-2xl font-bold text-cyan mt-1">{elevationM ? `${elevationM} m` : "—"}</p>
+            <p className="text-2xl font-bold text-primary mt-1">{elevationM ? `${elevationM} m` : "—"}</p>
           </div>
           <div className="card-sport p-4 text-center">
             <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.poiList")}</p>
-            <p className="text-2xl font-bold text-cyan mt-1">{points.length}</p>
+            <p className="text-2xl font-bold text-primary mt-1">{points.length}</p>
           </div>
         </div>
         <div className="space-y-2">
@@ -658,14 +658,14 @@ export default function StaffCourseMapEditor({
   const mapBlock = (
     <div
       className={cn(
-        "relative rounded-xl overflow-hidden border border-gray-700/50",
+        "relative rounded-xl overflow-hidden border border-border",
         mapOnlyTools ? "flex-1 min-w-0" : "w-full",
         mapClassName,
       )}
       style={mapClassName ? undefined : { height: resolvedMapHeight }}
     >
         {!active || !mounted ? (
-          <div className="h-full animate-pulse bg-surface-dark flex items-center justify-center">
+          <div className="h-full animate-pulse bg-card flex items-center justify-center">
             <p className="text-xs text-muted-foreground px-4 text-center">
               {t("staffPortal.courseEditor.mapLoading")}
             </p>
@@ -778,7 +778,7 @@ export default function StaffCourseMapEditor({
         )}
 
         <div className="absolute top-3 left-3 right-3 z-[1000] flex flex-col gap-1.5 pointer-events-none">
-          <div className="px-3 py-1.5 rounded-full bg-bg-dark/90 border border-gray-700/60 text-[10px] text-gray-300 backdrop-blur-sm w-fit max-w-full">
+          <div className="px-3 py-1.5 rounded-full bg-background/90 border border-border text-[10px] text-muted-foreground backdrop-blur-sm w-fit max-w-full">
             {mode === "start"
               ? t("staffPortal.courseEditor.hintStart")
               : mode === "route"
@@ -794,8 +794,8 @@ export default function StaffCourseMapEditor({
               className={cn(
                 "px-3 py-2 rounded-lg border text-[10px] backdrop-blur-sm w-fit max-w-full",
                 routeLineReady
-                  ? "bg-cyan/10 border-cyan/30 text-cyan"
-                  : "bg-bg-dark/90 border-gray-700/60 text-gray-300",
+                  ? "bg-cyan/10 border-cyan/30 text-primary"
+                  : "bg-background/90 border-border text-muted-foreground",
               )}
             >
               {routeStepHint}
@@ -825,7 +825,7 @@ export default function StaffCourseMapEditor({
       {showGuide ? (
         <div className="card-sport p-4 space-y-3 border-cyan/15 bg-cyan/[0.03]">
           <div className="flex items-start gap-2">
-            <HelpCircle className="w-4 h-4 text-cyan shrink-0 mt-0.5" />
+            <HelpCircle className="w-4 h-4 text-primary shrink-0 mt-0.5" />
             <div className="space-y-2">
               <p className="text-sm font-semibold">{t("staffPortal.courseEditor.guideTitle")}</p>
               <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
@@ -855,7 +855,7 @@ export default function StaffCourseMapEditor({
                   <span className="shrink-0 w-4 text-center">✓</span>
                   <span>{t("staffPortal.courseEditor.flowStepGpxStart")}</span>
                 </li>
-                <li className={cn("flex items-start gap-2", routeLineReady && "text-cyan")}>
+                <li className={cn("flex items-start gap-2", routeLineReady && "text-primary")}>
                   <span className="shrink-0 w-4 text-center">{routeLineReady ? "✓" : "2"}</span>
                   <span>{t("staffPortal.courseEditor.flowStepGpxRoute")}</span>
                 </li>
@@ -866,7 +866,7 @@ export default function StaffCourseMapEditor({
                   <span className="shrink-0 w-4 text-center">{hasCareerStart ? "✓" : "1"}</span>
                   <span>{t("staffPortal.courseEditor.flowStepStart")}</span>
                 </li>
-                <li className={cn("flex items-start gap-2", routeLineReady && "text-cyan")}>
+                <li className={cn("flex items-start gap-2", routeLineReady && "text-primary")}>
                   <span className="shrink-0 w-4 text-center">{routeLineReady ? "✓" : "2"}</span>
                   <span>{t("staffPortal.courseEditor.flowStepDraw")}</span>
                 </li>
@@ -891,7 +891,7 @@ export default function StaffCourseMapEditor({
           onDrop={handleGpxDrop}
         >
           <div className="flex items-center gap-2">
-            <Upload className="h-4 w-4 shrink-0 text-cyan" />
+            <Upload className="h-4 w-4 shrink-0 text-primary" />
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {t("staffPortal.courseEditor.gpxImportTitle")}
             </p>
@@ -1054,8 +1054,8 @@ export default function StaffCourseMapEditor({
                 className={cn(
                   "flex flex-col items-center gap-1 p-2 rounded-lg border text-[10px] font-medium transition-colors",
                   mode === key
-                    ? "border-cyan/50 bg-cyan/10 text-cyan"
-                    : "border-gray-700/50 text-muted-foreground hover:border-gray-600",
+                    ? "border-cyan/50 bg-cyan/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40",
                 )}
               >
                 <Icon className="w-4 h-4" />
@@ -1101,7 +1101,7 @@ export default function StaffCourseMapEditor({
                 className={cn(
                   "text-[10px] rounded-md px-2 py-1.5 border",
                   routeLineReady
-                    ? "border-cyan/30 bg-cyan/5 text-cyan"
+                    ? "border-cyan/30 bg-cyan/5 text-primary"
                     : "border-border bg-muted/30 text-muted-foreground",
                 )}
               >
@@ -1130,7 +1130,7 @@ export default function StaffCourseMapEditor({
           <div className="card-sport p-4 grid grid-cols-2 gap-3">
             <div>
               <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
-              <p className="text-lg font-bold text-cyan">{distanceKm || "—"} km</p>
+              <p className="text-lg font-bold text-primary">{distanceKm || "—"} km</p>
             </div>
             <div>
               <Label className="text-[10px] uppercase text-muted-foreground">
@@ -1165,7 +1165,7 @@ export default function StaffCourseMapEditor({
                       "flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-colors",
                       selectedPoiIndex === i
                         ? "border-cyan/40 bg-cyan/5"
-                        : "border-gray-700/40 hover:border-gray-600",
+                        : "border-border/60 hover:border-primary/40",
                     )}
                     onClick={() => setSelectedPoiIndex(i)}
                   >
@@ -1206,7 +1206,7 @@ export default function StaffCourseMapEditor({
         <div className="card-sport p-4 space-y-3">
           <div>
             <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
-            <p className="text-2xl font-bold text-cyan">
+            <p className="text-2xl font-bold text-primary">
               {routeLineReady ? `${distanceKm} km` : "—"}
             </p>
             {!routeLineReady && hasCareerStart ? (

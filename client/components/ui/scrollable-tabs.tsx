@@ -31,7 +31,7 @@ const ScrollableTabsTrigger = React.forwardRef<
     className={cn(
       "shrink-0 snap-start rounded-lg px-3 py-2 text-xs sm:text-sm font-medium",
       "text-muted-foreground hover:text-foreground transition-colors",
-      "data-[state=active]:bg-cyan/15 data-[state=active]:text-cyan",
+      "data-[state=active]:bg-cyan/15 data-[state=active]:text-primary",
       "data-[state=active]:shadow-none data-[state=active]:ring-1 data-[state=active]:ring-cyan/30",
       className,
     )}
@@ -48,9 +48,10 @@ const VerticalTabsList = React.forwardRef<
     ref={ref}
     className={cn(
       "flex flex-col h-auto w-full shrink-0 min-h-0",
-      "p-2 gap-0.5 rounded-xl",
+      "py-3 px-2 gap-0.5 rounded-xl",
       "bg-card/70 border border-border/80 shadow-sm",
       "overflow-y-auto overflow-x-hidden scrollbar-hide",
+      "scroll-pt-3 scroll-pb-2 overscroll-y-contain",
       className,
     )}
     {...props}
@@ -68,7 +69,7 @@ const VerticalTabsTrigger = React.forwardRef<
       "w-full justify-start rounded-lg px-3 py-2.5 text-left text-sm font-medium",
       "text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-colors",
       "border-l-2 border-transparent",
-      "data-[state=active]:bg-cyan/10 data-[state=active]:text-cyan data-[state=active]:border-l-cyan",
+      "data-[state=active]:bg-cyan/10 data-[state=active]:text-primary data-[state=active]:border-l-cyan",
       "data-[state=active]:shadow-none data-[state=active]:ring-0",
       className,
     )}

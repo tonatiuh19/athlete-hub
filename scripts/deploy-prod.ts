@@ -87,10 +87,13 @@ async function main() {
   const dbName = requireEnv("DB_NAME");
 
   const cliArgs = process.argv.slice(2);
-  const explicitVersion = cliArgs.find((arg) => !arg.startsWith("-")) ?? "";
+  const skipTests = cliArgs.includes("--skip-tests");
+  const filteredArgs = cliArgs.filter((arg) => arg !== "--skip-tests");
+  const explicitVersion =
+    filteredArgs.find((arg) => !arg.startsWith("-")) ?? "";
   const vercelArgs = explicitVersion
-    ? cliArgs.filter((arg, index) => index !== cliArgs.indexOf(explicitVersion))
-    : cliArgs;
+    ? filteredArgs.filter((arg, index) => index !== filteredArgs.indexOf(explicitVersion))
+    : filteredArgs;
 
   const conn = await mysql.createConnection({
     host: dbHost,
@@ -117,6 +120,17 @@ async function main() {
 
     if (!deployVersion) {
       throw new Error("Deploy version cannot be empty.");
+    }
+
+    if (!skipTests) {
+      console.log("\n🧪 Running pre-deploy checks (typecheck + tests)...\n");
+      await runCommand("npm", ["run", "typecheck"]);
+      await runCommand("npm", ["run", "test"]);
+      console.log("\n✅ Pre-deploy checks passed.\n");
+    } else {
+      console.log(
+        "\n⚠️  Skipping pre-deploy checks (--skip-tests). Use only for emergencies.\n",
+      );
     }
 
     console.log(

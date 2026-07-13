@@ -67,16 +67,35 @@ function countActiveFilters(
   return n;
 }
 
+function inferDatePreset(dateFrom: string, dateTo: string): DatePreset {
+  if (!dateFrom && !dateTo) return "all";
+  const thisMonth = datePresetRange("thisMonth");
+  const nextThree = datePresetRange("nextThreeMonths");
+  if (dateFrom === thisMonth.dateFrom && dateTo === thisMonth.dateTo) return "thisMonth";
+  if (dateFrom === nextThree.dateFrom && dateTo === nextThree.dateTo) return "nextThreeMonths";
+  return "all";
+}
+
+export type MobileFiltersDraft = Pick<
+  MarketplaceFilters,
+  "sport" | "geoCityId" | "city" | "dateFrom" | "dateTo"
+>;
+
 interface HeroMobileFiltersSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   searchQuery?: string;
+  /** When set, applies filters in place instead of navigating to /events */
+  onApplyFilters?: (patch: MobileFiltersDraft) => void;
+  initialFilters?: MobileFiltersDraft;
 }
 
 export default function HeroMobileFiltersSheet({
   open,
   onOpenChange,
   searchQuery = "",
+  onApplyFilters,
+  initialFilters,
 }: HeroMobileFiltersSheetProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -91,10 +110,25 @@ export default function HeroMobileFiltersSheet({
     if (!open) return;
     dispatch(fetchSportTypes());
     dispatch(fetchFilterCities());
-    setDraft(emptyDraft);
+    const nextDraft: MobileFiltersDraft = {
+      sport: initialFilters?.sport ?? "",
+      geoCityId: initialFilters?.geoCityId ?? "",
+      city: initialFilters?.city ?? "",
+      dateFrom: initialFilters?.dateFrom ?? "",
+      dateTo: initialFilters?.dateTo ?? "",
+    };
+    setDraft(nextDraft);
+    setDatePreset(inferDatePreset(nextDraft.dateFrom, nextDraft.dateTo));
     setCitySearch("");
-    setDatePreset("all");
-  }, [dispatch, open]);
+  }, [
+    dispatch,
+    open,
+    initialFilters?.sport,
+    initialFilters?.geoCityId,
+    initialFilters?.city,
+    initialFilters?.dateFrom,
+    initialFilters?.dateTo,
+  ]);
 
   const filteredCities = useMemo(() => {
     const q = citySearch.trim().toLowerCase();
@@ -110,14 +144,26 @@ export default function HeroMobileFiltersSheet({
 
   const applyFilters = () => {
     const range = datePresetRange(datePreset);
-    const params = marketplaceFiltersToSearchParams({
-      q: searchQuery.trim(),
+    const patch: MobileFiltersDraft = {
       sport: draft.sport,
       city: draft.geoCityId ? "" : draft.city,
       geoCityId: draft.geoCityId,
-      featured: false,
       dateFrom: range.dateFrom,
       dateTo: range.dateTo,
+    };
+    if (onApplyFilters) {
+      onApplyFilters(patch);
+      onOpenChange(false);
+      return;
+    }
+    const params = marketplaceFiltersToSearchParams({
+      q: searchQuery.trim(),
+      sport: patch.sport,
+      city: patch.city,
+      geoCityId: patch.geoCityId,
+      featured: false,
+      dateFrom: patch.dateFrom,
+      dateTo: patch.dateTo,
       minPrice: "",
       maxPrice: "",
       sort: "date_asc",

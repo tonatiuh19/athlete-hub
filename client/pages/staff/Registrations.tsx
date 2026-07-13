@@ -26,7 +26,7 @@ export default function StaffRegistrations() {
       />
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ClipboardList className="w-7 h-7 text-cyan" />
+          <ClipboardList className="w-7 h-7 text-primary" />
           {t("staffPortal.registrations.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">

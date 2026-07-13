@@ -63,7 +63,7 @@ export default function StaffAthleteDetailSheet({
 
         {loadingAthleteDetail ? (
           <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-cyan" />
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
         ) : athleteDetailError ? (
           <div className="mt-6 space-y-3">
@@ -99,7 +99,7 @@ export default function StaffAthleteDetailSheet({
               </div>
               <div>
                 <dt className="text-muted-foreground">{t("staffPortal.athletes.colRegs")}</dt>
-                <dd className="font-semibold text-cyan">{athlete.registration_count}</dd>
+                <dd className="font-semibold text-primary">{athlete.registration_count}</dd>
               </div>
             </dl>
 
@@ -123,7 +123,7 @@ export default function StaffAthleteDetailSheet({
 
             {(athleteDetail?.registrations?.length ?? 0) > 0 ? (
               <div>
-                <h4 className="text-sm font-semibold text-cyan uppercase tracking-wider mb-3">
+                <h4 className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">
                   {t("staffPortal.athletes.recentRegs")}
                 </h4>
                 <div className="space-y-2">
@@ -138,7 +138,7 @@ export default function StaffAthleteDetailSheet({
                       </div>
                       <div className="text-right shrink-0">
                         <StaffStatusBadge status={r.status} />
-                        <p className="text-xs text-cyan font-semibold mt-1">
+                        <p className="text-xs text-primary font-semibold mt-1">
                           ${(r.total_cents / 100).toLocaleString(numLocale)}
                         </p>
                       </div>

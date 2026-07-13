@@ -13,6 +13,7 @@ export interface HomeNavScrollState {
 
 export function useHomeNavScroll(
   sentinelId = HERO_TITLE_SENTINEL_ID,
+  isHome = true,
 ): HomeNavScrollState {
   const [state, setState] = useState<HomeNavScrollState>({
     solid: false,
@@ -28,8 +29,8 @@ export function useHomeNavScroll(
       const scrollProgress =
         docHeight > 0 ? Math.min(1, window.scrollY / docHeight) : 0;
 
-      let solid = window.scrollY > 24;
-      if (sentinel) {
+      let solid = !isHome || window.scrollY > 24;
+      if (isHome && sentinel) {
         solid = sentinel.getBoundingClientRect().top <= HOME_NAV_HEIGHT_PX;
       }
 
@@ -43,7 +44,7 @@ export function useHomeNavScroll(
       window.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
-  }, [sentinelId]);
+  }, [sentinelId, isHome]);
 
   return state;
 }

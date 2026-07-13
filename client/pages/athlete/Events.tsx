@@ -53,7 +53,7 @@ export default function AthleteEvents() {
               to={`/events/${ev.slug}`}
               className="card-sport group overflow-hidden hover:shadow-glow-cyan transition-shadow"
             >
-              <div className="aspect-[16/10] bg-surface-dark overflow-hidden relative">
+              <div className="aspect-[16/10] bg-card overflow-hidden relative">
                 <EventCardImage
                   src={ev.hero_image_url}
                   sportSlug={ev.sport_slug}
@@ -69,7 +69,7 @@ export default function AthleteEvents() {
                 ) : null}
               </div>
               <div className="p-4">
-                <span className="text-xs text-cyan font-medium">{ev.sport_name}</span>
+                <span className="text-xs text-primary font-medium">{ev.sport_name}</span>
                 <h3 className="font-bold mt-1 line-clamp-2">{ev.title}</h3>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
                   <MapPin className="w-3.5 h-3.5" />
@@ -81,7 +81,7 @@ export default function AthleteEvents() {
                     {ev.registration_count} {t("athletePortal.events.registered")}
                   </span>
                   {ev.from_price_cents != null && (
-                    <span className="text-sm font-bold text-cyan">
+                    <span className="text-sm font-bold text-primary">
                       {t("athletePortal.events.fromPrice", {
                         price: (ev.from_price_cents / 100).toLocaleString(numLocale),
                       })}

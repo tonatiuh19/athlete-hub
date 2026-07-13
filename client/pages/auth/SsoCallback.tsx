@@ -221,16 +221,16 @@ function SsoCallbackInner() {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center gap-4 bg-background px-6 text-center">
         <MetaHelmet title={t("auth.sso.failed")} noindex />
-        <TribooLogo surface="dark" className="h-10 mb-2" />
+        <TribooLogo surface="auto" className="h-10 mb-2" />
         <p className="text-destructive text-sm max-w-sm">{extractApiErrorMessage(error)}</p>
         {import.meta.env.DEV ? (
           <p className="text-xs text-muted-foreground max-w-sm">
-            Dev: filter Console by <code className="text-cyan">[sso]</code>. Clerk Dashboard → Paths →
+            Dev: filter Console by <code className="text-primary">[sso]</code>. Clerk Dashboard → Paths →
             Sign-in URL must be{" "}
-            <code className="text-cyan">{clerkSignInUrl()}</code>
+            <code className="text-primary">{clerkSignInUrl()}</code>
           </p>
         ) : null}
-        <Link to="/login" className="text-sm text-cyan hover:underline">
+        <Link to="/login" className="text-sm text-primary hover:underline">
           {t("auth.sso.backToLogin")}
         </Link>
       </div>

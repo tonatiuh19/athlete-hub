@@ -11,7 +11,7 @@ export default function AuthPageHeader() {
     <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border/60 shrink-0">
       <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
         <TribooLogo
-          surface="dark"
+          surface="auto"
           className="h-9 sm:h-10 min-w-0 max-w-[min(220px,58vw)]"
         />
         <Link

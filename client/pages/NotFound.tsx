@@ -37,7 +37,7 @@ const NotFound = () => {
           <h1 className="text-7xl md:text-8xl font-bold text-gradient mb-4">
             {t("notFound.title")}
           </h1>
-          <p className="text-2xl md:text-3xl text-white font-semibold mb-3">
+          <p className="text-2xl md:text-3xl text-foreground font-semibold mb-3">
             {t("notFound.message")}
           </p>
         </motion.div>

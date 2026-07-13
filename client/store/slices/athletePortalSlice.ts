@@ -6,6 +6,7 @@ import type {
   AthleteWaitlistResponse,
   EventListItem,
   EventWaiverPublic,
+  GuestClaimRegistrationResponse,
   RegistrationItem,
   RegistrationTransferRequest,
   RegistrationTransferResponse,
@@ -122,6 +123,23 @@ export const fetchAthleteWaitlist = createAsyncThunk<
     return data.entries;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "Could not load waitlist"));
+  }
+});
+
+export const claimGuestRegistration = createAsyncThunk<
+  GuestClaimRegistrationResponse,
+  { claimToken: string },
+  { rejectValue: string }
+>("athletePortal/claimGuest", async ({ claimToken }, { rejectWithValue, dispatch }) => {
+  try {
+    const { data } = await api.post<GuestClaimRegistrationResponse>(
+      "/athlete/registrations/claim-guest",
+      { claimToken },
+    );
+    void dispatch(fetchAthleteRegistrations());
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not claim registration"));
   }
 });
 

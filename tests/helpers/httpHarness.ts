@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { Pool } from "mysql2/promise";
 import type Stripe from "stripe";
+import type { TestAuthPayload } from "../../api/testHooks";
 import {
   RegistrationScenarioDb,
   SCENARIO,
@@ -14,10 +15,18 @@ const TEST_AUTH = {
   jti: "smoke-test-jti",
 };
 
+export const ORGANIZER_TEST_AUTH = {
+  actor: "organizer" as const,
+  id: 2001,
+  email: "organizer@test.local",
+  organizerId: SCENARIO.organizerId,
+  jti: "smoke-organizer-jti",
+};
+
 let appModule: { createServer: () => Express } | null = null;
 let hooksModule: {
   setTestPool: (pool: Pool | null) => void;
-  setTestAuthBypass: (payload: typeof TEST_AUTH | null) => void;
+  setTestAuthBypass: (payload: TestAuthPayload | null) => void;
   resetTestEnvironment: () => void;
   setTestStripeClient: (client: Stripe | null | undefined) => void;
 } | null = null;
@@ -48,6 +57,11 @@ export async function mountRegistrationScenario(
 
   const app = appMod.createServer();
   return { app, db, authHeader: "Bearer smoke-test-token" };
+}
+
+export async function setRegistrationScenarioAuth(auth: TestAuthPayload) {
+  const { hooksModule: hooks } = await loadApiModules();
+  hooks.setTestAuthBypass(auth);
 }
 
 export async function teardownHttpScenario() {

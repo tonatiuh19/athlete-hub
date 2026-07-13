@@ -1,4 +1,4 @@
-import type { Express, RequestHandler } from "express";
+import type { Express, RequestHandler, Response } from "express";
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type Stripe from "stripe";
 import type { FeePresentation } from "../shared/checkoutBreakdown.js";
@@ -13,6 +13,22 @@ import {
   type StripeConnectStatus,
 } from "../shared/stripeConnect.js";
 import type { AuthedRequest } from "./staffPortal.js";
+
+function respondStripeConnectRouteError(res: Response, err: unknown): void {
+  const raw = err instanceof Error ? err.message : String(err);
+  console.error("[stripeConnect]", raw);
+  if (raw.includes("signed up for Connect")) {
+    res.status(503).json({
+      error: "Payout verification is not available on this platform account yet.",
+      code: "connect_not_enabled",
+    });
+    return;
+  }
+  res.status(502).json({
+    error: "Could not start payout verification.",
+    code: "connect_onboard_failed",
+  });
+}
 
 const ORGANIZER_CONNECT_SELECT = `
   o.id AS organizer_id,
@@ -244,12 +260,10 @@ async function ensureStripeConnectAccount(
   const billingEmail = row.billing_email?.trim().toLowerCase();
   const rfc = row.rfc?.trim().toUpperCase();
 
-  const account = await stripe.accounts.create({
+  const accountParams: Stripe.AccountCreateParams = {
     type: "express",
     country: "MX",
     email: billingEmail || row.email,
-    ...(legalName ? { business_profile: { name: legalName } } : {}),
-    ...(rfc ? { company: { tax_id: rfc } } : {}),
     capabilities: {
       card_payments: { requested: true },
       transfers: { requested: true },
@@ -258,7 +272,18 @@ async function ensureStripeConnectAccount(
       organizer_id: String(row.organizer_id),
       triboo_platform: "athlete-hub",
     },
-  });
+  };
+
+  if (legalName) {
+    accountParams.business_profile = { name: legalName };
+  }
+
+  if (rfc) {
+    accountParams.business_type = "company";
+    accountParams.company = { tax_id: rfc };
+  }
+
+  const account = await stripe.accounts.create(accountParams);
 
   await pool.query<ResultSetHeader>(
     `UPDATE organizers SET
@@ -682,11 +707,15 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
       });
     }
 
-    const accountId = await ensureStripeConnectAccount(pool, stripe, row, "self");
-    const account = await stripe.accounts.retrieve(accountId);
-    const url = await createAccountManagementLink(stripe, account, accountId, appUrl);
-    const payload = await buildStatusResponse(organizerId);
-    res.json({ url, ...payload });
+    try {
+      const accountId = await ensureStripeConnectAccount(pool, stripe, row, "self");
+      const account = await stripe.accounts.retrieve(accountId);
+      const url = await createAccountManagementLink(stripe, account, accountId, appUrl);
+      const payload = await buildStatusResponse(organizerId);
+      res.json({ url, ...payload });
+    } catch (err) {
+      respondStripeConnectRouteError(res, err);
+    }
   });
 
   app.post("/api/organizer/payouts/login", requireOrganizer, async (req: AuthedRequest, res) => {
@@ -769,11 +798,15 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
       const row = await loadOrganizerConnectRow(pool, organizerId);
       if (!row) return res.status(404).json({ error: "Organizer not found" });
 
-      const accountId = await ensureStripeConnectAccount(pool, stripe, row, "admin");
-      const account = await stripe.accounts.retrieve(accountId);
-      const url = await createAccountManagementLink(stripe, account, accountId, appUrl);
-      const payload = await buildStatusResponse(organizerId);
-      res.json({ url, ...payload });
+      try {
+        const accountId = await ensureStripeConnectAccount(pool, stripe, row, "admin");
+        const account = await stripe.accounts.retrieve(accountId);
+        const url = await createAccountManagementLink(stripe, account, accountId, appUrl);
+        const payload = await buildStatusResponse(organizerId);
+        res.json({ url, ...payload });
+      } catch (err) {
+        respondStripeConnectRouteError(res, err);
+      }
     },
   );
 

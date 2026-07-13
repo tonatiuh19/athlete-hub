@@ -116,7 +116,7 @@ export default function StaffDashboard() {
             },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="card-sport p-5">
-              <Icon className="w-5 h-5 text-cyan mb-3" />
+              <Icon className="w-5 h-5 text-primary mb-3" />
               <div className="text-2xl font-bold">{value}</div>
               <div className="text-sm text-muted-foreground">{label}</div>
             </div>
@@ -127,7 +127,7 @@ export default function StaffDashboard() {
       {isAdmin && dashboardStats ? (
         <div className="card-sport p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-wider text-cyan font-semibold">
+            <p className="text-xs uppercase tracking-wider text-primary font-semibold">
               {t("staffPortal.analytics.confirmedRegs")}
             </p>
             <p className="text-3xl font-bold mt-1">
@@ -136,7 +136,7 @@ export default function StaffDashboard() {
           </div>
           <Link
             to="/staff/analytics"
-            className="text-sm text-cyan hover:underline inline-flex items-center gap-1"
+            className="text-sm text-primary hover:underline inline-flex items-center gap-1"
           >
             {t("staffPortal.dashboard.viewAnalytics")}
             <ChevronRight className="w-4 h-4" />
@@ -169,7 +169,7 @@ export default function StaffDashboard() {
             },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="card-sport p-5">
-              <Icon className="w-5 h-5 text-cyan mb-3" />
+              <Icon className="w-5 h-5 text-primary mb-3" />
               <div className="text-2xl font-bold">{value}</div>
               <div className="text-sm text-muted-foreground">{label}</div>
             </div>
@@ -182,11 +182,11 @@ export default function StaffDashboard() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">{t("staffPortal.dashboard.yourEvents")}</h2>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <Link to="/staff/analytics" className="text-sm text-cyan hover:underline inline-flex items-center gap-1">
+              <Link to="/staff/analytics" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
                 {t("staffPortal.dashboard.viewAnalytics")}
                 <ChevronRight className="w-4 h-4" />
               </Link>
-              <Link to="/staff/registrations" className="text-sm text-cyan hover:underline inline-flex items-center gap-1">
+              <Link to="/staff/registrations" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
                 {t("staffPortal.dashboard.viewRegistrations")}
                 <QrCode className="w-4 h-4" />
               </Link>
@@ -210,7 +210,7 @@ export default function StaffDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center justify-between sm:block sm:text-right shrink-0">
-                    <div className="text-lg font-bold text-cyan">{ev.registration_count}</div>
+                    <div className="text-lg font-bold text-primary">{ev.registration_count}</div>
                     <div className="text-[10px] text-muted-foreground">
                       {t("staffPortal.dashboard.registered")}
                     </div>
@@ -220,7 +220,7 @@ export default function StaffDashboard() {
             </div>
           )}
           {events.length > 5 ? (
-            <Link to="/staff/events" className="text-sm text-cyan hover:underline inline-flex items-center gap-1">
+            <Link to="/staff/events" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
               {t("staffPortal.dashboard.viewAllEvents")}
               <ChevronRight className="w-4 h-4" />
             </Link>

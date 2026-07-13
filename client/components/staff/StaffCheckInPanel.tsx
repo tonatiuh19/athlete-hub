@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import StaffRegistrationPurchasedExtras from "@/components/staff/StaffRegistrationPurchasedExtras";
 import StaffQrScanner from "@/components/staff/StaffQrScanner";
 import {
   AlertDialog,
@@ -222,7 +223,7 @@ export default function StaffCheckInPanel({ eventId, role = "organizer" }: Staff
   return (
     <div className="card-sport p-5 space-y-4">
       <div className="flex items-center gap-2">
-        <QrCode className="w-5 h-5 text-cyan" />
+        <QrCode className="w-5 h-5 text-primary" />
         <h2 className="font-semibold">{t("staffPortal.checkIn.title")}</h2>
       </div>
       <p className="text-sm text-muted-foreground">
@@ -316,6 +317,14 @@ export default function StaffCheckInPanel({ eventId, role = "organizer" }: Staff
             </div>
             <StaffStatusBadge status={found.status} />
           </div>
+
+          {found.purchased_extras?.length ? (
+            <StaffRegistrationPurchasedExtras
+              extras={found.purchased_extras}
+              titleKey="staffPortal.checkIn.purchasedExtras"
+              className="border-0 bg-background/60 p-3"
+            />
+          ) : null}
 
           {found.checked_in_at ? (
             <div className="flex items-center gap-2 text-sm text-accent">

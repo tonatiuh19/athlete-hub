@@ -71,7 +71,7 @@ export default function StaffMessaging() {
 
       <div className="flex items-start gap-4">
         <div className="p-3 rounded-xl bg-cyan/10 border border-cyan/25">
-          <Mail className="w-6 h-6 text-cyan" />
+          <Mail className="w-6 h-6 text-primary" />
         </div>
         <div>
           <h1 className="text-2xl font-bold">{t("staffPortal.messaging.title")}</h1>

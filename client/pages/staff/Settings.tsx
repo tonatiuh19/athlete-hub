@@ -39,9 +39,9 @@ export default function StaffSettings() {
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-cyan/10 border border-cyan/25 flex items-center justify-center">
             {isAdmin ? (
-              <ShieldCheck className="w-7 h-7 text-cyan" />
+              <ShieldCheck className="w-7 h-7 text-primary" />
             ) : (
-              <Building2 className="w-7 h-7 text-cyan" />
+              <Building2 className="w-7 h-7 text-primary" />
             )}
           </div>
           <div>
@@ -56,7 +56,7 @@ export default function StaffSettings() {
         </div>
         {user?.email ? (
           <div className="flex items-center gap-3 text-sm pt-2 border-t border-border">
-            <Mail className="w-4 h-4 text-cyan shrink-0" />
+            <Mail className="w-4 h-4 text-primary shrink-0" />
             <span>{user.email}</span>
           </div>
         ) : null}
@@ -83,7 +83,7 @@ export default function StaffSettings() {
           ))}
         </div>
         {saved ? (
-          <p className="text-xs text-cyan mt-2">{t("staffPortal.settings.languageSaved")}</p>
+          <p className="text-xs text-primary mt-2">{t("staffPortal.settings.languageSaved")}</p>
         ) : null}
       </div>
 

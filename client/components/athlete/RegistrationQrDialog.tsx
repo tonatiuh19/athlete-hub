@@ -45,7 +45,7 @@ export default function RegistrationQrDialog({
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
               {t("athletePortal.registrations.folio")}
             </p>
-            <p className="font-mono font-bold text-cyan text-lg">
+            <p className="font-mono font-bold text-primary text-lg">
               {registration.registration_number}
             </p>
             {registration.bib_number ? (

@@ -45,7 +45,7 @@ export default function StaffFeeCalculatorCard({
 
   const count = Math.max(1, registrationCount);
   const projectedOrganizer = breakdown.organizerFiscalNetCents * count;
-  const projectedStripe = breakdown.stripeOrganizerTransferCents * count;
+  const projectedBankDeposit = breakdown.stripeOrganizerTransferCents * count;
   const projectedPlatform = breakdown.stripePlatformFeeCents * count;
   const projectedTotal = breakdown.athleteTotalCents * count;
 
@@ -122,7 +122,7 @@ export default function StaffFeeCalculatorCard({
               <span>{formatMxnFromCents(breakdown.organizerFiscalNetCents)}</span>
             </div>
             <div className="flex justify-between gap-2 text-muted-foreground text-xs">
-              <span>{t("staffPortal.payouts.lineStripeDeposit")}</span>
+              <span>{t("staffPortal.payouts.lineBankDeposit")}</span>
               <span>{formatMxnFromCents(breakdown.stripeOrganizerTransferCents)}</span>
             </div>
           </>
@@ -203,8 +203,8 @@ export default function StaffFeeCalculatorCard({
           </p>
           {absorbAll ? (
             <p>
-              {t("staffPortal.payouts.projectionStripe", {
-                amount: formatMxnFromCents(projectedStripe),
+              {t("staffPortal.payouts.projectionBankDeposit", {
+                amount: formatMxnFromCents(projectedBankDeposit),
               })}
             </p>
           ) : null}

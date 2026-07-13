@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import StaffEventCategoryFormFields from "@/components/staff/StaffEventCategoryFormFields";
+import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -20,6 +21,7 @@ import {
 } from "@/utils/staffFeePresentation";
 import type { FeePresentation } from "@shared/checkoutBreakdown";
 import { fromDatetimeLocal, toDatetimeLocal } from "@/utils/datetimeLocal";
+import { getCategoryFormMissing } from "@/utils/staffFormMissing";
 import type {
   StaffEventCategory,
   StaffEventCategoryInput,
@@ -116,7 +118,7 @@ export default function StaffEventCategoriesSection({
   };
 
   const handleAddCategory = async () => {
-    if (!newCategory.name.trim() || !newPriceMxn) return;
+    if (!newCategory.name.trim() || newPriceMxn === "") return;
     const price_cents = Math.round(Number(newPriceMxn) * 100);
     if (!Number.isFinite(price_cents) || price_cents < 0) return;
 
@@ -166,8 +168,21 @@ export default function StaffEventCategoriesSection({
   };
   const canAdd =
     Boolean(newCategory.name.trim()) &&
-    Boolean(newPriceMxn) &&
-    Number.isFinite(Number(newPriceMxn));
+    newPriceMxn !== "" &&
+    Number.isFinite(Number(newPriceMxn)) &&
+    Number(newPriceMxn) >= 0;
+
+  const newCategoryMissing = getCategoryFormMissing(newCategory, newPriceMxn, {
+    idPrefix: "cat-new",
+  });
+  const editCategoryMissing =
+    editingCategoryId != null
+      ? getCategoryFormMissing(
+          { ...categoryDraft, price_cents: categoryDraft.price_cents },
+          categoryDraft.price_cents != null ? categoryDraft.price_cents / 100 : undefined,
+          { idPrefix: `cat-edit-${editingCategoryId}` },
+        )
+      : [];
 
   return (
     <div className="card-sport p-6 space-y-5">
@@ -201,6 +216,7 @@ export default function StaffEventCategoriesSection({
                         setCategoryDraft((d) => ({ ...d, ...patch }))
                       }
                     />
+                    <StaffFormMissingChips items={editCategoryMissing} />
                     <div className="flex gap-2 pt-1">
                       <Button size="sm" onClick={handleSaveCategoryEdit}>
                         {t("staffPortal.eventEdit.save")}
@@ -320,6 +336,10 @@ export default function StaffEventCategoriesSection({
                 }
                 priceDisplay={newPriceMxn ? Number(newPriceMxn) : undefined}
                 onPriceChange={(mxn) => setNewPriceMxn(String(mxn))}
+              />
+              <StaffFormMissingChips
+                items={newCategoryMissing}
+                showCompleteState={canAdd}
               />
               <Button
                 type="button"

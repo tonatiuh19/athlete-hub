@@ -4,7 +4,7 @@
 
 Paid registrations use **Stripe Connect Express (Mexico)** with **destination charges** when the organizer is payout-ready.
 
-If Connect onboarding is incomplete, checkout **falls back to a Triboo platform charge** (legacy path) so athletes on already-published paid events are not blocked. Staff still see payout alerts until Connect is complete.
+If Connect onboarding is incomplete, **paid checkout is blocked** (`503 organizer_payouts_not_ready`). Athletes see a clear message on the event page; free ($0) categories are unaffected. Staff see payout alerts until Connect is complete.
 
 When Connect is active (destination charges):
 
@@ -30,6 +30,11 @@ Admins can start/resend Stripe links, sync status, link existing `acct_` IDs, or
 **Stripe KYC/bank steps cannot be skipped** — admin assists, does not bypass.
 
 ## Testing (Stripe test mode)
+
+**Prerequisite:** Enable **Stripe Connect** on your platform Stripe account (test mode):
+[https://dashboard.stripe.com/test/connect](https://dashboard.stripe.com/test/connect) → Get started → Express accounts → Mexico.
+
+Without this, `/api/organizer/payouts/onboard` returns `503` with code `connect_not_enabled`.
 
 ```bash
 STRIPE_SECRET_KEY=sk_test_...

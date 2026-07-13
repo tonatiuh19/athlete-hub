@@ -96,7 +96,7 @@ export default function StaffOrganizersPanel({ active = true }: StaffOrganizersP
         label: t("staffPortal.staffManagement.colEvents"),
         sortable: true,
         shrink: true,
-        render: (o) => <span className="font-semibold text-cyan">{o.event_count ?? 0}</span>,
+        render: (o) => <span className="font-semibold text-primary">{o.event_count ?? 0}</span>,
       },
       {
         key: "member_count",

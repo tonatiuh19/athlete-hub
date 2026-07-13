@@ -28,8 +28,8 @@ export default function CheckoutDiscountField({
 
   return (
     <div className="space-y-2">
-      <Label className="text-gray-300 flex items-center gap-2">
-        <Tag className="w-4 h-4 text-cyan" />
+      <Label className="text-muted-foreground flex items-center gap-2">
+        <Tag className="w-4 h-4 text-primary" />
         {t("registrationWizard.checkout.discountLabel")}
       </Label>
       <div className="flex gap-2">
@@ -37,7 +37,7 @@ export default function CheckoutDiscountField({
           value={value}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
           placeholder={t("registrationWizard.checkout.discountPlaceholder")}
-          className="bg-surface-dark border-gray-700 font-mono uppercase flex-1"
+          className="bg-card border-border font-mono uppercase flex-1"
           disabled={disabled}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

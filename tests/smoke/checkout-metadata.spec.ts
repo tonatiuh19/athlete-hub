@@ -37,6 +37,38 @@ describe("smoke: checkout payment metadata round-trip", () => {
     const meta = parseCheckoutPaymentMetadata(raw);
     expect(meta!.waiverSignatures![1].waiverId).toBe(2);
   });
+
+  it("parses selected extras and extrasSubtotalCents from checkout metadata", () => {
+    const meta = parseCheckoutPaymentMetadata({
+      categoryId: 10,
+      categoryName: "10K Elite",
+      fieldValues: {},
+      extrasSubtotalCents: 4500,
+      selectedExtras: [
+        {
+          extraId: 201,
+          name: "Official Tee",
+          quantity: 2,
+          unitPriceCents: 4500,
+          totalCents: 9000,
+        },
+      ],
+    });
+    expect(meta?.extrasSubtotalCents).toBe(4500);
+    expect(meta?.selectedExtras).toHaveLength(1);
+    expect(meta?.selectedExtras![0].name).toBe("Official Tee");
+    expect(meta?.selectedExtras![0].totalCents).toBe(9000);
+  });
+
+  it("drops malformed extra lines from metadata", () => {
+    const meta = parseCheckoutPaymentMetadata({
+      categoryId: 10,
+      categoryName: "10K",
+      fieldValues: {},
+      selectedExtras: [{ extraId: "bad", name: "", quantity: 1 }],
+    });
+    expect(meta?.selectedExtras).toEqual([]);
+  });
 });
 
 describe("smoke: API response fixtures (client contract)", () => {

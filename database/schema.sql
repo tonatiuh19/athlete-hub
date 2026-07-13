@@ -332,6 +332,81 @@ CREATE TABLE `event_categories` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `event_extras`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_extras` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `public_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `event_id` int unsigned NOT NULL,
+  `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `price_cents` int unsigned NOT NULL DEFAULT '0' COMMENT 'IVA included MXN cents',
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MXN',
+  `image_url` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `extra_type` enum('merch','addon','folio','service','experience','custom') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'custom',
+  `max_per_athlete` tinyint unsigned NOT NULL DEFAULT '1',
+  `capacity` int unsigned DEFAULT NULL,
+  `sold_count` int unsigned NOT NULL DEFAULT '0',
+  `is_required` tinyint(1) NOT NULL DEFAULT '0',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `scope_type` enum('all_categories','selected_categories') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'all_categories',
+  `sales_opens_at` datetime DEFAULT NULL,
+  `sales_closes_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_event_extras_public_uuid` (`public_uuid`),
+  KEY `idx_event_extras_event` (`event_id`),
+  KEY `idx_event_extras_active` (`event_id`,`is_active`,`sort_order`),
+  CONSTRAINT `fk_event_extras_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `event_extra_categories`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_extra_categories` (
+  `event_extra_id` int unsigned NOT NULL,
+  `event_category_id` int unsigned NOT NULL,
+  PRIMARY KEY (`event_extra_id`,`event_category_id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_event_extra_categories_category` (`event_category_id`),
+  CONSTRAINT `fk_event_extra_categories_extra` FOREIGN KEY (`event_extra_id`) REFERENCES `event_extras` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_event_extra_categories_category` FOREIGN KEY (`event_category_id`) REFERENCES `event_categories` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `event_extra_fields`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_extra_fields` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `event_extra_id` int unsigned NOT NULL,
+  `field_key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `field_type` enum('text','textarea','select','checkbox','number','date') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'text',
+  `field_kind` enum('standard','mx_shipping_block') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'standard',
+  `options_json` json DEFAULT NULL,
+  `is_required` tinyint(1) NOT NULL DEFAULT '0',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_event_extra_field_key` (`event_extra_id`,`field_key`),
+  KEY `idx_event_extra_fields_extra` (`event_extra_id`,`sort_order`),
+  CONSTRAINT `fk_event_extra_fields_extra` FOREIGN KEY (`event_extra_id`) REFERENCES `event_extras` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `event_registration_fields`
 --
 
@@ -348,11 +423,28 @@ CREATE TABLE `event_registration_fields` (
   `validation_rules_json` json DEFAULT NULL,
   `sort_order` int NOT NULL DEFAULT '0',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `scope_type` enum('all_categories','selected_categories') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'all_categories',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   UNIQUE KEY `uk_event_field_key` (`event_id`,`field_key`),
   CONSTRAINT `fk_event_reg_fields_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `event_registration_field_categories`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_registration_field_categories` (
+  `event_registration_field_id` int unsigned NOT NULL,
+  `event_category_id` int unsigned NOT NULL,
+  PRIMARY KEY (`event_registration_field_id`,`event_category_id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_event_reg_field_categories_category` (`event_category_id`),
+  CONSTRAINT `fk_event_reg_field_categories_field` FOREIGN KEY (`event_registration_field_id`) REFERENCES `event_registration_fields` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_event_reg_field_categories_category` FOREIGN KEY (`event_category_id`) REFERENCES `event_categories` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -582,6 +674,7 @@ CREATE TABLE `events` (
   `transfer_fee_cents` int unsigned NOT NULL DEFAULT '0',
   `requires_waiver` tinyint(1) NOT NULL DEFAULT '1',
   `max_registrations` int unsigned DEFAULT NULL,
+  `max_registrations_per_order` int unsigned NOT NULL DEFAULT '10' COMMENT 'Max tickets per single checkout (organizer configurable)',
   `registration_count` int unsigned NOT NULL DEFAULT '0',
   `version` int unsigned NOT NULL DEFAULT '1' COMMENT 'Optimistic locking',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -730,7 +823,7 @@ CREATE TABLE `organizer_members` (
   `first_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `role` enum('owner','organizer','marketing','finance','timing','operations','sponsor') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'organizer',
+  `role` enum('owner','organizer','marketing','finance','timing','operations','sponsor','seller') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'organizer',
   `event_access_scope` enum('organization','events') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'organization',
   `status` enum('invited','active','inactive','suspended') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'invited',
   `invited_at` datetime DEFAULT NULL,
@@ -931,7 +1024,8 @@ CREATE TABLE `payments` (
   `status` enum('pending','processing','succeeded','failed','refunded','partially_refunded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `failure_code` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `failure_message` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `provider` enum('stripe','mock') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'stripe',
+  `provider` enum('stripe','mock','manual') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'stripe',
+  `recorded_by_member_id` int unsigned DEFAULT NULL,
   `stripe_payment_intent_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `stripe_charge_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `stripe_transfer_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Transfer to organizer Connect account',
@@ -952,10 +1046,46 @@ CREATE TABLE `payments` (
   UNIQUE KEY `uk_payments_stripe_pi` (`stripe_payment_intent_id`),
   KEY `idx_payments_created` (`created_at`),
   KEY `idx_payments_event_status` (`event_id`,`status`),
+  KEY `fk_payments_recorded_by_member` (`recorded_by_member_id`),
   CONSTRAINT `fk_payments_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`),
   CONSTRAINT `fk_payments_organizer` FOREIGN KEY (`organizer_id`) REFERENCES `organizers` (`id`),
-  CONSTRAINT `fk_payments_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_payments_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_payments_recorded_by_member` FOREIGN KEY (`recorded_by_member_id`) REFERENCES `organizer_members` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `registration_orders`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `registration_orders` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `public_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `event_id` int unsigned NOT NULL,
+  `purchaser_athlete_id` int unsigned NOT NULL,
+  `payment_id` int unsigned DEFAULT NULL,
+  `status` enum('pending','confirmed','cancelled','refunded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `item_count` tinyint unsigned NOT NULL,
+  `subtotal_cents` int unsigned NOT NULL DEFAULT '0',
+  `service_fee_cents` int unsigned NOT NULL DEFAULT '0',
+  `discount_code_id` int unsigned DEFAULT NULL,
+  `discount_amount_cents` int unsigned NOT NULL DEFAULT '0',
+  `total_cents` int unsigned NOT NULL DEFAULT '0',
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MXN',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_registration_orders_public_uuid` (`public_uuid`),
+  KEY `idx_registration_orders_event` (`event_id`),
+  KEY `idx_registration_orders_purchaser` (`purchaser_athlete_id`),
+  KEY `idx_registration_orders_payment` (`payment_id`),
+  CONSTRAINT `fk_registration_orders_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_registration_orders_purchaser` FOREIGN KEY (`purchaser_athlete_id`) REFERENCES `athletes` (`id`),
+  CONSTRAINT `fk_registration_orders_payment` FOREIGN KEY (`payment_id`) REFERENCES `payments` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_registration_orders_discount` FOREIGN KEY (`discount_code_id`) REFERENCES `discount_codes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1055,6 +1185,72 @@ CREATE TABLE `registration_waiver_signatures` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `event_folio_segments`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_folio_segments` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `event_id` int unsigned NOT NULL,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT 0,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `category_scope` enum('all_categories','selected_categories') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'all_categories',
+  `coupon_scope` enum('any','none','any_coupon','specific_coupon') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'any',
+  `discount_code_id` int unsigned DEFAULT NULL,
+  `counter_scope` enum('segment','event','category') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `prefix_value` varchar(24) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `category_code` varchar(24) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `pattern_tokens` json NOT NULL,
+  `seq_padding` tinyint unsigned NOT NULL DEFAULT 5,
+  `start_number` int unsigned NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_folio_segments_event` (`event_id`,`sort_order`),
+  KEY `fk_folio_segments_discount` (`discount_code_id`),
+  CONSTRAINT `fk_folio_segments_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_folio_segments_discount` FOREIGN KEY (`discount_code_id`) REFERENCES `discount_codes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `event_folio_segment_categories`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_folio_segment_categories` (
+  `folio_segment_id` int unsigned NOT NULL,
+  `event_category_id` int unsigned NOT NULL,
+  PRIMARY KEY (`folio_segment_id`,`event_category_id`) /*T![clustered_index] CLUSTERED */,
+  KEY `fk_folio_seg_cat_category` (`event_category_id`),
+  CONSTRAINT `fk_folio_seg_cat_segment` FOREIGN KEY (`folio_segment_id`) REFERENCES `event_folio_segments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_folio_seg_cat_category` FOREIGN KEY (`event_category_id`) REFERENCES `event_categories` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `event_folio_counters`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `event_folio_counters` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `event_id` int unsigned NOT NULL,
+  `counter_scope` enum('segment','event','category') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `scope_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_issued_number` int unsigned NOT NULL DEFAULT 0,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_folio_counter` (`event_id`,`counter_scope`,`scope_key`),
+  CONSTRAINT `fk_folio_counters_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `registrations`
 --
 
@@ -1067,6 +1263,7 @@ CREATE TABLE `registrations` (
   `event_category_id` int unsigned NOT NULL,
   `athlete_id` int unsigned NOT NULL,
   `registration_number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `folio_segment_id` int unsigned DEFAULT NULL,
   `qr_code_token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
   `bib_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` enum('pending_payment','confirmed','cancelled','transferred','refunded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_payment',
@@ -1078,6 +1275,9 @@ CREATE TABLE `registrations` (
   `source` enum('web','mobile','admin','api','transfer') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'web',
   `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MXN',
   `payment_id` int unsigned DEFAULT NULL,
+  `order_id` int unsigned DEFAULT NULL COMMENT 'Group order when purchased with others',
+  `purchaser_athlete_id` int unsigned DEFAULT NULL COMMENT 'Who paid (may differ from athlete_id)',
+  `guest_claim_token` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Guest invite to claim account',
   `waiver_signed_at` datetime DEFAULT NULL,
   `checked_in_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1091,6 +1291,9 @@ CREATE TABLE `registrations` (
   UNIQUE KEY `qr_code_token` (`qr_code_token`),
   KEY `fk_registrations_category` (`event_category_id`),
   KEY `fk_registrations_payment` (`payment_id`),
+  KEY `idx_registrations_order` (`order_id`),
+  KEY `idx_registrations_purchaser` (`purchaser_athlete_id`),
+  UNIQUE KEY `uk_registrations_guest_claim` (`guest_claim_token`),
   UNIQUE KEY `uk_registrations_public_uuid` (`public_uuid`),
   KEY `idx_registrations_event_status` (`event_id`,`status`),
   KEY `idx_registrations_category_status` (`event_category_id`,`status`),
@@ -1098,13 +1301,60 @@ CREATE TABLE `registrations` (
   KEY `idx_registrations_deleted` (`deleted_at`),
   KEY `fk_registrations_discount` (`discount_code_id`),
   KEY `fk_registrations_wave` (`schedule_wave_id`),
+  KEY `fk_registrations_folio_segment` (`folio_segment_id`),
   CONSTRAINT `fk_registrations_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_registrations_category` FOREIGN KEY (`event_category_id`) REFERENCES `event_categories` (`id`),
   CONSTRAINT `fk_registrations_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`),
   CONSTRAINT `fk_registrations_payment` FOREIGN KEY (`payment_id`) REFERENCES `payments` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_registrations_order` FOREIGN KEY (`order_id`) REFERENCES `registration_orders` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_registrations_purchaser` FOREIGN KEY (`purchaser_athlete_id`) REFERENCES `athletes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_registrations_discount` FOREIGN KEY (`discount_code_id`) REFERENCES `discount_codes` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_registrations_wave` FOREIGN KEY (`schedule_wave_id`) REFERENCES `event_schedule_waves` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_registrations_wave` FOREIGN KEY (`schedule_wave_id`) REFERENCES `event_schedule_waves` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_registrations_folio_segment` FOREIGN KEY (`folio_segment_id`) REFERENCES `event_folio_segments` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=30001;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `registration_extras`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `registration_extras` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `registration_id` int unsigned NOT NULL,
+  `event_extra_id` int unsigned NOT NULL,
+  `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `quantity` tinyint unsigned NOT NULL DEFAULT '1',
+  `unit_price_cents` int unsigned NOT NULL,
+  `total_cents` int unsigned NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_registration_extras_registration` (`registration_id`),
+  KEY `idx_registration_extras_extra` (`event_extra_id`),
+  CONSTRAINT `fk_registration_extras_registration` FOREIGN KEY (`registration_id`) REFERENCES `registrations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_registration_extras_extra` FOREIGN KEY (`event_extra_id`) REFERENCES `event_extras` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `registration_extra_field_values`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `registration_extra_field_values` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `registration_extra_id` int unsigned NOT NULL,
+  `field_key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `value_text` text COLLATE utf8mb4_unicode_ci,
+  `value_json` json DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  KEY `idx_reg_extra_field_values_line` (`registration_extra_id`),
+  CONSTRAINT `fk_reg_extra_field_values_line` FOREIGN KEY (`registration_extra_id`) REFERENCES `registration_extras` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1224,6 +1474,29 @@ CREATE TABLE `venues` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `waitlist_batches`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `waitlist_batches` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `public_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `event_id` int unsigned NOT NULL,
+  `purchaser_athlete_id` int unsigned NOT NULL,
+  `status` enum('pending','partial','complete','cancelled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_waitlist_batches_public_uuid` (`public_uuid`),
+  KEY `idx_waitlist_batches_event` (`event_id`),
+  KEY `idx_waitlist_batches_purchaser` (`purchaser_athlete_id`),
+  CONSTRAINT `fk_waitlist_batches_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_waitlist_batches_purchaser` FOREIGN KEY (`purchaser_athlete_id`) REFERENCES `athletes` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `waitlist_entries`
 --
 
@@ -1239,6 +1512,8 @@ CREATE TABLE `waitlist_entries` (
   `offered_at` datetime DEFAULT NULL,
   `offer_expires_at` datetime DEFAULT NULL,
   `converted_registration_id` int unsigned DEFAULT NULL,
+  `batch_id` int unsigned DEFAULT NULL,
+  `participant_email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Guest email when not athlete account',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
@@ -1246,10 +1521,12 @@ CREATE TABLE `waitlist_entries` (
   KEY `idx_waitlist_event_status` (`event_id`,`status`,`position`),
   KEY `fk_waitlist_athlete` (`athlete_id`),
   KEY `fk_waitlist_registration` (`converted_registration_id`),
+  KEY `idx_waitlist_batch` (`batch_id`),
   CONSTRAINT `fk_waitlist_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_waitlist_category` FOREIGN KEY (`event_category_id`) REFERENCES `event_categories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_waitlist_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_waitlist_registration` FOREIGN KEY (`converted_registration_id`) REFERENCES `registrations` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_waitlist_registration` FOREIGN KEY (`converted_registration_id`) REFERENCES `registrations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_waitlist_batch` FOREIGN KEY (`batch_id`) REFERENCES `waitlist_batches` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1421,6 +1698,22 @@ CREATE TABLE `blog_posts` (
   CONSTRAINT `fk_blog_posts_event` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_blog_posts_author_admin` FOREIGN KEY (`author_admin_id`) REFERENCES `admins` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_blog_posts_author_member` FOREIGN KEY (`author_member_id`) REFERENCES `organizer_members` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Table structure for table `platform_settings`
+--
+
+DROP TABLE IF EXISTS `platform_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `platform_settings` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `setting_value` json NOT NULL,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
+  UNIQUE KEY `uk_platform_setting_key` (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

@@ -7,12 +7,16 @@ import gamificationReducer from "./slices/gamificationSlice";
 import staffPortalReducer from "./slices/staffPortalSlice";
 import marketplaceReducer from "./slices/marketplaceSlice";
 import registrationCheckoutReducer from "./slices/registrationCheckoutSlice";
+import groupRegistrationReducer from "./slices/groupRegistrationCheckoutSlice";
 import paymentMethodsReducer from "./slices/paymentMethodsSlice";
 import appConfigReducer from "./slices/appConfigSlice";
 import publicHomeReducer from "./slices/publicHomeSlice";
 import publicTeamsReducer from "./slices/publicTeamsSlice";
 import blogsReducer from "./slices/blogsSlice";
 import geoReducer from "./slices/geoSlice";
+import organizerSignupReducer from "./slices/organizerSignupSlice";
+import publicSiteReducer from "./slices/publicSiteSlice";
+import siteAdminReducer from "./slices/siteAdminSlice";
 
 export const store = configureStore({
   reducer: {
@@ -24,12 +28,16 @@ export const store = configureStore({
     staffPortal: staffPortalReducer,
     marketplace: marketplaceReducer,
     registrationCheckout: registrationCheckoutReducer,
+    groupRegistration: groupRegistrationReducer,
     paymentMethods: paymentMethodsReducer,
     appConfig: appConfigReducer,
     publicHome: publicHomeReducer,
     publicTeams: publicTeamsReducer,
     blogs: blogsReducer,
     geo: geoReducer,
+    organizerSignup: organizerSignupReducer,
+    publicSite: publicSiteReducer,
+    siteAdmin: siteAdminReducer,
   },
 });
 

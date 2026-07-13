@@ -31,6 +31,7 @@ import {
   applyDiscountToCheckout,
   breakdownToSnapshot,
   computeCheckoutBreakdown,
+  computeCheckoutWithExtras,
   resolveFeePresentation,
   resolveServiceFeePercent,
   validateCheckoutBreakdown,
@@ -39,6 +40,7 @@ import {
 import {
   applyConnectToPaymentIntent,
   assertOrganizerPayoutReadyForPaidEvent,
+  attachEventPaymentAvailability,
   handleStripeAccountUpdatedWebhook,
   handleStripeConnectDeauthorized,
   enrichStaffEventsWithPaymentAvailability,
@@ -52,6 +54,11 @@ import {
 } from "../server/stripeWebhook.js";
 import { registerPhase2Routes } from "../server/phase2.js";
 import { registerPublicTeamRoutes } from "../server/publicTeams.js";
+import {
+  fetchSitePublicProfile,
+  normalizeSitePublicProfile,
+  saveSitePublicProfile,
+} from "../server/platformSettings.js";
 import { registerBlogRoutes } from "../server/blog.js";
 import { cdnAwareJsonBodyParser } from "../server/cdnUploadJsonBody.js";
 import {
@@ -79,7 +86,33 @@ import {
   validateWaiverSignaturesForEvent,
   type WaiverSignatureInput,
 } from "../server/eventWaivers.js";
-import { parseCheckoutPaymentMetadata, type CheckoutPaymentMetadata } from "../server/checkoutMetadata.js";
+import { parseCheckoutPaymentMetadata, isGroupCheckoutMetadata, type CheckoutPaymentMetadata } from "../server/checkoutMetadata.js";
+import {
+  claimGuestRegistration,
+  finalizeGroupRegistrationOrder,
+  newPublicUuid as newGroupPublicUuid,
+  validateAndPriceGroupCheckout,
+  type GroupCheckoutApiResponse,
+} from "../server/groupRegistration.js";
+import {
+  fetchEventExtras,
+  fetchRegistrationPurchasedExtras,
+  incrementExtrasSoldCount,
+  insertRegistrationExtras,
+  resolveSelectedExtras,
+  sumExtrasSubtotalCents,
+  validateExtraFieldAnswersForCheckout,
+  type ExtraFieldAnswersInput,
+} from "../server/eventExtras.js";
+import {
+  fetchActiveRegistrationFieldsForEvent,
+  fetchRegistrationFieldsForCategory,
+  mapPublicRegistrationField,
+} from "../server/registrationFields.js";
+import {
+  allocateRegistrationNumber,
+  type RegistrationFolioContext,
+} from "../server/folioSegments.js";
 import {
   clerkAuthorizedParties,
   clerkRequestOriginsFromHeaders,
@@ -108,7 +141,7 @@ import {
 } from "../server/password.js";
 import { validateAthletePassword } from "../shared/passwordPolicy.js";
 import { evaluateCategoryEligibility } from "../shared/categoryEligibility.js";
-import { normalizeApiDateOnly } from "../shared/api.js";
+import { normalizeApiDateOnly, type RegistrationCheckoutResponse } from "../shared/api.js";
 // Shared modules imported transitively by server/* — referenced here for Vercel bundle.
 import { validateCoursePayload } from "../shared/courseValidation.js";
 import {
@@ -124,6 +157,7 @@ import {
   parseIncomingEventDateTime,
 } from "../shared/checkInWindow.js";
 import { WAIVER_ACCEPTANCE_SIGNATURE } from "../shared/waiverConstants.js";
+import { formatExtraFieldAnswerDisplay } from "../shared/extraFields.js";
 import { normalizeBlogSlug, resolveBlogSlug } from "../shared/slugify.js";
 import {
   buildStripePayoutChecklist,
@@ -248,9 +282,11 @@ type EmailTemplateKind =
   | "welcomeAthlete"
   | "welcomeStaff"
   | "registrationConfirmed"
+  | "groupOrderSummary"
   | "eventSubmittedForApproval"
   | "eventApproved"
-  | "eventRejected";
+  | "eventRejected"
+  | "organizerPayoutSetup";
 
 type EmailAudience = "athlete" | "admin" | "organizer";
 
@@ -297,6 +333,19 @@ type EmailStrings = {
     eventLabel: string;
     categoryLabel: string;
     folioLabel: string;
+    extrasHeading: string;
+    cta: string;
+    guestClaimIntro: string;
+    guestClaimCta: string;
+  };
+  groupOrderSummary: {
+    preheader: string;
+    title: string;
+    greeting: string;
+    intro: string;
+    eventLabel: string;
+    totalLabel: string;
+    participantsHeading: string;
     cta: string;
   };
   footer: {
@@ -342,6 +391,17 @@ type EmailStrings = {
     noReason: string;
     cta: string;
   };
+  organizerPayoutSetup: {
+    preheader: string;
+    title: string;
+    greeting: string;
+    intro: string;
+    eventLabel: string;
+    steps: [string, string, string];
+    stepsHeading: string;
+    footnote: string;
+    cta: string;
+  };
 };
 
 const EMAIL_STRINGS_ES: EmailStrings = {
@@ -351,9 +411,11 @@ const EMAIL_STRINGS_ES: EmailStrings = {
     welcomeAthlete: "¡Bienvenido a Triboo Sport!",
     welcomeStaff: "Bienvenido al Staff Console — Triboo Sport",
     registrationConfirmed: "¡Inscripción confirmada! — Triboo Sport",
+    groupOrderSummary: "Resumen de tu pedido grupal — Triboo Sport",
     eventSubmittedForApproval: "Evento pendiente de aprobación — Triboo Sport",
     eventApproved: "¡Evento publicado! — Triboo Sport",
     eventRejected: "Evento devuelto a borrador — Triboo Sport",
+    organizerPayoutSetup: "Activa cobros en línea — Triboo Sport",
   },
   otp: {
     preheader: "Tu código de acceso expira en 10 minutos",
@@ -397,7 +459,22 @@ const EMAIL_STRINGS_ES: EmailStrings = {
     eventLabel: "Evento",
     categoryLabel: "Categoría",
     folioLabel: "Folio",
+    extrasHeading: "Complementos",
     cta: "Ver mi inscripción",
+    guestClaimIntro:
+      "Esta inscripción fue comprada para ti. Crea tu cuenta Triboo o inicia sesión con este correo para ver tu QR en el portal.",
+    guestClaimCta: "Reclamar mi inscripción",
+  },
+  groupOrderSummary: {
+    preheader: "Tu pedido grupal fue confirmado",
+    title: "Pedido grupal confirmado",
+    greeting: "Hola {{name}},",
+    intro:
+      "Procesamos tu pedido grupal. Cada participante recibirá su propio correo con QR y folio. Este es tu resumen de compra:",
+    eventLabel: "Evento",
+    totalLabel: "Total pagado",
+    participantsHeading: "Participantes",
+    cta: "Ver mis inscripciones",
   },
   footer: {
     tagline: "La plataforma de eventos deportivos de México",
@@ -447,6 +524,23 @@ const EMAIL_STRINGS_ES: EmailStrings = {
     noReason: "No se indicó un motivo específico.",
     cta: "Editar evento",
   },
+  organizerPayoutSetup: {
+    preheader: "Configura pagos para vender inscripciones de pago",
+    title: "Activa tus cobros en línea",
+    greeting: "Hola {{name}},",
+    intro:
+      "Tu evento ya está publicado. Para vender categorías de pago y recibir el dinero en tu cuenta, completa la configuración de pagos en unos minutos.",
+    eventLabel: "Evento",
+    steps: [
+      "Completa tu perfil fiscal y de facturación",
+      "Acepta los términos de pagos y comisiones",
+      "Conecta tu cuenta Stripe Express (México)",
+    ],
+    stepsHeading: "En 3 pasos",
+    footnote:
+      "Mientras tanto, las categorías gratuitas siguen disponibles para inscripción.",
+    cta: "Configurar pagos",
+  },
 };
 
 const EMAIL_STRINGS_EN: EmailStrings = {
@@ -456,9 +550,11 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     welcomeAthlete: "Welcome to Triboo Sport!",
     welcomeStaff: "Welcome to Staff Console — Triboo Sport",
     registrationConfirmed: "Registration confirmed! — Triboo Sport",
+    groupOrderSummary: "Your group order summary — Triboo Sport",
     eventSubmittedForApproval: "Event pending approval — Triboo Sport",
     eventApproved: "Event published! — Triboo Sport",
     eventRejected: "Event returned to draft — Triboo Sport",
+    organizerPayoutSetup: "Activate online payouts — Triboo Sport",
   },
   otp: {
     preheader: "Your access code expires in 10 minutes",
@@ -502,7 +598,22 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     eventLabel: "Event",
     categoryLabel: "Category",
     folioLabel: "Registration #",
+    extrasHeading: "Add-ons",
     cta: "View my registration",
+    guestClaimIntro:
+      "This registration was purchased for you. Create your Triboo account or sign in with this email to access your QR in the portal.",
+    guestClaimCta: "Claim my registration",
+  },
+  groupOrderSummary: {
+    preheader: "Your group order is confirmed",
+    title: "Group order confirmed",
+    greeting: "Hi {{name}},",
+    intro:
+      "Your group order was processed successfully. Each participant will receive their own email with QR and registration number. Here is your purchase summary:",
+    eventLabel: "Event",
+    totalLabel: "Total paid",
+    participantsHeading: "Participants",
+    cta: "View my registrations",
   },
   footer: {
     tagline: "Mexico's sports events platform",
@@ -551,6 +662,22 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     reasonLabel: "Reason",
     noReason: "No specific reason was provided.",
     cta: "Edit event",
+  },
+  organizerPayoutSetup: {
+    preheader: "Set up payouts to sell paid entries",
+    title: "Activate your online payouts",
+    greeting: "Hi {{name}},",
+    intro:
+      "Your event is now live. To sell paid categories and receive funds in your bank account, complete payout setup in just a few minutes.",
+    eventLabel: "Event",
+    steps: [
+      "Complete your billing and tax profile",
+      "Accept payout terms and platform fees",
+      "Connect your Stripe Express account (Mexico)",
+    ],
+    stepsHeading: "3 quick steps",
+    footnote: "Free categories remain open for registration in the meantime.",
+    cta: "Set up payouts",
   },
 };
 
@@ -904,13 +1031,85 @@ function buildEventRejectedEmail(params: {
   };
 }
 
-function buildRegistrationConfirmedEmail(params: {
+function emailNumberedSteps(steps: readonly string[]): string {
+  return steps
+    .map(
+      (step, i) =>
+        `<tr><td style="padding:14px 16px;${i < steps.length - 1 ? `border-bottom:1px solid ${EMAIL_BRAND.border};` : ""}">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td valign="top" width="36" style="width:36px;padding-right:12px;">
+                <div style="width:28px;height:28px;border-radius:9999px;background:linear-gradient(135deg,${EMAIL_BRAND.orange} 0%,${EMAIL_BRAND.red} 100%);color:${EMAIL_BRAND.textPrimary};font-weight:800;font-size:13px;line-height:28px;text-align:center;">${i + 1}</div>
+              </td>
+              <td valign="top" style="color:${EMAIL_BRAND.textMuted};font-size:15px;line-height:1.55;">${escapeHtml(step)}</td>
+            </tr>
+          </table>
+        </td></tr>`,
+    )
+    .join("");
+}
+
+export function buildOrganizerPayoutSetupEmail(params: {
+  locale: AppLocale;
+  firstName: string;
+  eventTitle: string;
+  appUrl: string;
+}): { subject: string; html: string; text: string } {
+  const { locale, firstName, eventTitle, appUrl } = params;
+  const s = emailStrings(locale);
+  const payoutsUrl = `${appUrl.replace(/\/$/, "")}/staff/payouts`;
+  const bodyHtml = `
+    <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.organizerPayoutSetup.greeting, { name: firstName }))}</p>
+    <p style="margin:0 0 16px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.organizerPayoutSetup.intro)}</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.orange};margin-bottom:20px;">
+      <tr>
+        <td style="padding:14px 20px;">
+          <span style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:${EMAIL_BRAND.orange};font-weight:700;">${escapeHtml(s.organizerPayoutSetup.eventLabel)}</span>
+          <span style="display:block;margin-top:6px;font-size:17px;font-weight:700;color:${EMAIL_BRAND.textPrimary};">${escapeHtml(eventTitle)}</span>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:${EMAIL_BRAND.textDim};">${escapeHtml(s.organizerPayoutSetup.stepsHeading)}</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.border};margin-bottom:16px;">${emailNumberedSteps(s.organizerPayoutSetup.steps)}</table>
+    <p style="margin:0;font-size:13px;color:${EMAIL_BRAND.textDim};line-height:1.5;">${escapeHtml(s.organizerPayoutSetup.footnote)}</p>`;
+  const stepsText = s.organizerPayoutSetup.steps
+    .map((step, i) => `${i + 1}. ${step}`)
+    .join("\n");
+  return {
+    subject: s.subjects.organizerPayoutSetup,
+    html: emailShell({
+      locale,
+      preheader: s.organizerPayoutSetup.preheader,
+      title: s.organizerPayoutSetup.title,
+      bodyHtml,
+      cta: { label: s.organizerPayoutSetup.cta, url: payoutsUrl },
+      appUrl,
+    }),
+    text: `${interpolateEmail(s.organizerPayoutSetup.greeting, { name: firstName })}\n\n${s.organizerPayoutSetup.intro}\n\n${s.organizerPayoutSetup.eventLabel}: ${eventTitle}\n\n${stepsText}\n\n${s.organizerPayoutSetup.footnote}\n\n${payoutsUrl}`,
+  };
+}
+
+export function buildRegistrationConfirmedEmail(params: {
   locale: AppLocale;
   firstName: string;
   eventTitle: string;
   categoryName: string;
   registrationNumber: string;
   appUrl: string;
+  purchasedExtras?: Array<{
+    name: string;
+    quantity: number;
+    total_cents: number;
+    field_answers?: Array<{
+      field_key: string;
+      label: string;
+      value_text?: string | null;
+      value_json?: Record<string, unknown> | null;
+      field_kind?: "standard" | "mx_shipping_block";
+      field_type?: string;
+    }>;
+  }>;
+  guestClaimUrl?: string | null;
 }): { subject: string; html: string; text: string } {
   const {
     locale,
@@ -919,11 +1118,52 @@ function buildRegistrationConfirmedEmail(params: {
     categoryName,
     registrationNumber,
     appUrl,
+    purchasedExtras = [],
+    guestClaimUrl,
   } = params;
   const s = emailStrings(locale);
 
   const detailRow = (label: string, value: string) =>
     `<tr><td style="padding:12px 20px;border-bottom:1px solid ${EMAIL_BRAND.border};"><span style="display:block;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:${EMAIL_BRAND.textDim};">${escapeHtml(label)}</span><span style="display:block;margin-top:4px;font-size:16px;font-weight:600;color:${EMAIL_BRAND.textPrimary};">${escapeHtml(value)}</span></td></tr>`;
+
+  const extrasHtml =
+    purchasedExtras.length > 0
+      ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.border};margin-top:16px;">
+      <tr><td style="padding:12px 20px;border-bottom:1px solid ${EMAIL_BRAND.border};"><span style="display:block;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:${EMAIL_BRAND.textDim};">${escapeHtml(s.registrationConfirmed.extrasHeading)}</span></td></tr>
+      ${purchasedExtras
+        .map((extra, index) => {
+          const qtyLabel = extra.quantity > 1 ? ` × ${extra.quantity}` : "";
+          const isLast = index === purchasedExtras.length - 1;
+          const answersHtml =
+            (extra.field_answers?.length ?? 0) > 0
+              ? `<div style="margin-top:8px;padding-left:12px;border-left:2px solid ${EMAIL_BRAND.border};">
+              ${extra.field_answers!
+                .map((answer) => {
+                  const display = formatExtraFieldAnswerDisplay(
+                    {
+                      field_kind: answer.field_kind ?? "standard",
+                      field_type: (answer.field_type as "text") ?? "text",
+                    },
+                    answer.value_text ?? null,
+                    answer.value_json ?? null,
+                  );
+                  return `<p style="margin:4px 0 0;font-size:13px;color:${EMAIL_BRAND.textMuted};"><span style="color:${EMAIL_BRAND.textPrimary};">${escapeHtml(answer.label)}:</span> ${escapeHtml(display)}</p>`;
+                })
+                .join("")}
+            </div>`
+              : "";
+          return `<tr><td style="padding:12px 20px;${isLast ? "" : `border-bottom:1px solid ${EMAIL_BRAND.border};`}">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="font-size:15px;color:${EMAIL_BRAND.textPrimary};">${escapeHtml(extra.name)}${escapeHtml(qtyLabel)}</td>
+                <td align="right" style="font-size:15px;color:${EMAIL_BRAND.textMuted};white-space:nowrap;">${escapeHtml(formatMxn(extra.total_cents))}</td>
+              </tr>
+            </table>${answersHtml}
+          </td></tr>`;
+        })
+        .join("")}
+    </table>`
+      : "";
 
   const bodyHtml = `
     <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.registrationConfirmed.greeting, { name: firstName }))}</p>
@@ -932,20 +1172,126 @@ function buildRegistrationConfirmedEmail(params: {
       ${detailRow(s.registrationConfirmed.eventLabel, eventTitle)}
       ${detailRow(s.registrationConfirmed.categoryLabel, categoryName)}
       ${detailRow(s.registrationConfirmed.folioLabel, registrationNumber)}
-    </table>`;
+    </table>${extrasHtml}`;
+
+  const guestClaimHtml = guestClaimUrl
+    ? `<p style="margin:20px 0 0;color:${EMAIL_BRAND.textMuted};font-size:14px;line-height:1.5;">${escapeHtml(s.registrationConfirmed.guestClaimIntro)}</p>`
+    : "";
 
   const regUrl = `${appUrl.replace(/\/$/, "")}/portal/registrations`;
+  const extrasText =
+    purchasedExtras.length > 0
+      ? `\n\n${s.registrationConfirmed.extrasHeading}:\n${purchasedExtras
+          .map((extra) => {
+            const qtyLabel = extra.quantity > 1 ? ` × ${extra.quantity}` : "";
+            const answersText =
+              (extra.field_answers?.length ?? 0) > 0
+                ? `\n${extra
+                    .field_answers!.map((answer) => {
+                      const display = formatExtraFieldAnswerDisplay(
+                        {
+                          field_kind: answer.field_kind ?? "standard",
+                          field_type: (answer.field_type as "text") ?? "text",
+                        },
+                        answer.value_text ?? null,
+                        answer.value_json ?? null,
+                      );
+                      return `    ${answer.label}: ${display}`;
+                    })
+                    .join("\n")}`
+                : "";
+            return `- ${extra.name}${qtyLabel} — ${formatMxn(extra.total_cents)}${answersText}`;
+          })
+          .join("\n")}`
+      : "";
+
   return {
     subject: s.subjects.registrationConfirmed,
     html: emailShell({
       locale,
       preheader: s.registrationConfirmed.preheader,
       title: s.registrationConfirmed.title,
-      bodyHtml,
-      cta: { label: s.registrationConfirmed.cta, url: regUrl },
+      bodyHtml: bodyHtml + guestClaimHtml,
+      cta: guestClaimUrl
+        ? { label: s.registrationConfirmed.guestClaimCta, url: guestClaimUrl }
+        : { label: s.registrationConfirmed.cta, url: regUrl },
       appUrl,
     }),
-    text: `${interpolateEmail(s.registrationConfirmed.greeting, { name: firstName })}\n\n${eventTitle} — ${categoryName}\n${registrationNumber}`,
+    text: `${interpolateEmail(s.registrationConfirmed.greeting, { name: firstName })}\n\n${eventTitle} — ${categoryName}\n${registrationNumber}${extrasText}${guestClaimUrl ? `\n\n${s.registrationConfirmed.guestClaimIntro}\n${guestClaimUrl}` : ""}`,
+  };
+}
+
+export function buildGroupOrderSummaryEmail(params: {
+  locale: AppLocale;
+  firstName: string;
+  eventTitle: string;
+  totalCents: number;
+  itemCount: number;
+  participants: Array<{
+    label: string;
+    categoryName: string;
+    registrationNumber: string;
+    totalCents: number;
+  }>;
+  appUrl: string;
+}): { subject: string; html: string; text: string } {
+  const {
+    locale,
+    firstName,
+    eventTitle,
+    totalCents,
+    itemCount,
+    participants,
+    appUrl,
+  } = params;
+  const s = emailStrings(locale);
+  const portalUrl = `${appUrl.replace(/\/$/, "")}/portal/registrations`;
+
+  const detailRow = (label: string, value: string) =>
+    `<tr><td style="padding:12px 20px;border-bottom:1px solid ${EMAIL_BRAND.border};"><span style="display:block;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:${EMAIL_BRAND.textDim};">${escapeHtml(label)}</span><span style="display:block;margin-top:4px;font-size:16px;font-weight:600;color:${EMAIL_BRAND.textPrimary};">${escapeHtml(value)}</span></td></tr>`;
+
+  const participantsHtml = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.border};margin-top:16px;">
+    <tr><td style="padding:12px 20px;border-bottom:1px solid ${EMAIL_BRAND.border};"><span style="display:block;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:${EMAIL_BRAND.textDim};">${escapeHtml(s.groupOrderSummary.participantsHeading)} (${itemCount})</span></td></tr>
+    ${participants
+      .map((p, index) => {
+        const isLast = index === participants.length - 1;
+        return `<tr><td style="padding:12px 20px;${isLast ? "" : `border-bottom:1px solid ${EMAIL_BRAND.border};`}">
+          <p style="margin:0;font-size:15px;font-weight:600;color:${EMAIL_BRAND.textPrimary};">${escapeHtml(p.label)}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(p.categoryName)} · #${escapeHtml(p.registrationNumber)}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(formatMxn(p.totalCents))}</p>
+        </td></tr>`;
+      })
+      .join("")}
+  </table>`;
+
+  const bodyHtml = `
+    <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.groupOrderSummary.greeting, { name: firstName }))}</p>
+    <p style="margin:0 0 20px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.groupOrderSummary.intro)}</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.black}" style="border-radius:12px;border:1px solid ${EMAIL_BRAND.border};">
+      ${detailRow(s.groupOrderSummary.eventLabel, eventTitle)}
+      ${detailRow(s.groupOrderSummary.totalLabel, formatMxn(totalCents))}
+    </table>
+    ${participantsHtml}
+  `;
+
+  const participantsText = participants
+    .map(
+      (p) =>
+        `- ${p.label} — ${p.categoryName} (#${p.registrationNumber}) — ${formatMxn(p.totalCents)}`,
+    )
+    .join("\n");
+
+  return {
+    subject: s.subjects.groupOrderSummary,
+    html: emailShell({
+      locale,
+      preheader: s.groupOrderSummary.preheader,
+      title: s.groupOrderSummary.title,
+      bodyHtml,
+      cta: { label: s.groupOrderSummary.cta, url: portalUrl },
+      appUrl,
+    }),
+    text: `${interpolateEmail(s.groupOrderSummary.greeting, { name: firstName })}\n\n${eventTitle}\n${s.groupOrderSummary.totalLabel}: ${formatMxn(totalCents)}\n\n${s.groupOrderSummary.participantsHeading}:\n${participantsText}`,
   };
 }
 
@@ -1966,13 +2312,25 @@ function newQrToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
-async function nextRegistrationNumber(eventId: number): Promise<string> {
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS c FROM registrations WHERE event_id = ?`,
-    [eventId],
-  );
-  const n = Number(rows[0]?.c ?? 0) + 1;
-  return `REG-${String(eventId).padStart(4, "0")}-${String(n).padStart(5, "0")}`;
+async function nextRegistrationNumber(
+  ctx: RegistrationFolioContext,
+  conn?: PoolConnection,
+): Promise<{ registrationNumber: string; folioSegmentId: number | null }> {
+  if (conn) {
+    return allocateRegistrationNumber(conn, ctx);
+  }
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await allocateRegistrationNumber(connection, ctx);
+    await connection.commit();
+    return result;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 }
 
 async function processPaymentRefund(opts: {
@@ -2252,24 +2610,6 @@ async function ensureDefaultPaymentMethodAfterPay(
   });
 }
 
-type CheckoutResumePayload = {
-  paymentPublicUuid: string;
-  clientSecret: string | null;
-  amountCents: number;
-  registrationAmountCents: number;
-  serviceFeeCents: number;
-  currency: string;
-  categoryName: string;
-  eventTitle: string;
-  feePresentation?: FeePresentation;
-  listPriceCents?: number;
-  displayIvaCents?: number;
-  organizerFiscalNetCents?: number;
-  fieldValues?: Record<string, string | boolean>;
-  discountCode?: string;
-  discountAmountCents?: number;
-};
-
 type DbExecutor = Pool | PoolConnection;
 
 type RegistrationWindowRow = {
@@ -2386,7 +2726,7 @@ async function cancelStalePendingEventPayments(
 async function buildCheckoutResponseForPayment(
   paymentPublicUuid: string,
   athleteId: number,
-): Promise<CheckoutResumePayload | null> {
+): Promise<RegistrationCheckoutResponse | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT p.id, p.public_uuid, p.amount_cents, p.registration_amount_cents,
             p.service_fee_cents, p.currency, p.metadata_json, p.stripe_payment_intent_id,
@@ -2483,6 +2823,14 @@ async function buildCheckoutResponseForPayment(
     listPriceCents: meta.breakdown?.listPriceCents,
     displayIvaCents: meta.breakdown?.displayIvaCents,
     organizerFiscalNetCents: meta.breakdown?.organizerFiscalNetCents,
+    extrasSubtotalCents: meta.extrasSubtotalCents,
+    extras: meta.selectedExtras?.map((line) => ({
+      extraId: line.extraId,
+      name: line.name,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      totalCents: line.totalCents,
+    })),
     ...(meta.discountCode
       ? { discountCode: meta.discountCode, discountAmountCents: meta.discountAmountCents }
       : {}),
@@ -2568,7 +2916,7 @@ async function deliverRegistrationConfirmedEmail(
   opts?: { force?: boolean },
 ): Promise<{ sent: boolean; skipped?: boolean; error?: string }> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT r.registration_number, r.status,
+    `SELECT r.registration_number, r.status, r.guest_claim_token,
             a.id AS athlete_id, a.email AS athlete_email, a.first_name AS athlete_first_name,
             a.preferred_language,
             e.title AS event_title,
@@ -2610,6 +2958,13 @@ async function deliverRegistrationConfirmedEmail(
   }
 
   const locale = resolveLocale(reg.preferred_language as string | undefined);
+  const purchasedExtras = await fetchRegistrationPurchasedExtras(pool, registrationId);
+  const guestClaimToken = reg.guest_claim_token
+    ? String(reg.guest_claim_token).trim()
+    : "";
+  const guestClaimUrl = guestClaimToken
+    ? `${APP_URL.replace(/\/$/, "")}/auth/login?claimToken=${encodeURIComponent(guestClaimToken)}`
+    : null;
   const mail = buildRegistrationConfirmedEmail({
     locale,
     firstName: String(reg.athlete_first_name || "Atleta"),
@@ -2617,6 +2972,8 @@ async function deliverRegistrationConfirmedEmail(
     categoryName: String(reg.category_name),
     registrationNumber: String(reg.registration_number),
     appUrl: APP_URL,
+    purchasedExtras,
+    guestClaimUrl,
   });
 
   let queueId: number | null = null;
@@ -2673,6 +3030,153 @@ async function deliverRegistrationConfirmedEmail(
   }
 }
 
+function formatGroupOrderResponse(
+  orderPublicUuid: string,
+  registrations: RowDataPacket[],
+  eventTitle?: string,
+  eventSlug?: string,
+) {
+  return {
+    publicUuid: orderPublicUuid,
+    itemCount: registrations.length,
+    registrations: registrations.map((r) => ({
+      public_uuid: r.public_uuid,
+      registration_number: r.registration_number,
+      qr_code_token: r.qr_code_token,
+      status: r.status,
+      total_cents: r.total_cents,
+      category_name: r.category_name,
+      participant_label: r.participant_label,
+      participant_email: r.participant_email,
+      guest_claim_token: r.guest_claim_token ?? null,
+      event_title: r.event_title ?? eventTitle,
+      event_slug: r.event_slug ?? eventSlug,
+    })),
+  };
+}
+
+async function deliverGroupOrderSummaryEmail(
+  orderId: number,
+  purchaserAthleteId: number,
+  opts?: { force?: boolean },
+): Promise<{ sent: boolean; skipped?: boolean; error?: string }> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT ro.id, ro.public_uuid, ro.total_cents, ro.item_count,
+            e.title AS event_title,
+            a.id AS athlete_id, a.email AS athlete_email, a.first_name AS athlete_first_name,
+            a.preferred_language
+     FROM registration_orders ro
+     JOIN events e ON e.id = ro.event_id
+     JOIN athletes a ON a.id = ro.purchaser_athlete_id AND a.deleted_at IS NULL
+     WHERE ro.id = ? AND ro.purchaser_athlete_id = ? AND ro.status = 'confirmed'
+     LIMIT 1`,
+    [orderId, purchaserAthleteId],
+  );
+  if (rows.length === 0) {
+    return { sent: false, error: "Order not found" };
+  }
+  const order = rows[0];
+  const purchaserEmail = String(order.athlete_email ?? "").trim();
+  if (!purchaserEmail) {
+    return { sent: false, error: "Purchaser email missing" };
+  }
+
+  if (!opts?.force) {
+    const [alreadySent] = await pool.query<RowDataPacket[]>(
+      `SELECT id FROM notification_queue
+       WHERE channel = 'email' AND status IN ('sent', 'pending')
+         AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.type')) = 'group_order_summary'
+         AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.order_id')) = ?
+       LIMIT 1`,
+      [String(orderId)],
+    );
+    if (alreadySent.length > 0) {
+      return { sent: false, skipped: true };
+    }
+  }
+
+  const [participants] = await pool.query<RowDataPacket[]>(
+    `SELECT r.registration_number, r.total_cents,
+            ec.name AS category_name,
+            CONCAT(a.first_name, ' ', a.last_name) AS participant_label
+     FROM registrations r
+     JOIN event_categories ec ON ec.id = r.event_category_id
+     JOIN athletes a ON a.id = r.athlete_id
+     WHERE r.order_id = ? AND r.deleted_at IS NULL AND r.status = 'confirmed'
+     ORDER BY r.id ASC`,
+    [orderId],
+  );
+
+  const locale = resolveLocale(order.preferred_language as string | undefined);
+  const mail = buildGroupOrderSummaryEmail({
+    locale,
+    firstName: String(order.athlete_first_name || "Atleta"),
+    eventTitle: String(order.event_title),
+    totalCents: Number(order.total_cents),
+    itemCount: Number(order.item_count) || participants.length,
+    participants: participants.map((p) => ({
+      label: String(p.participant_label ?? "").trim() || "Participante",
+      categoryName: String(p.category_name),
+      registrationNumber: String(p.registration_number),
+      totalCents: Number(p.total_cents),
+    })),
+    appUrl: APP_URL,
+  });
+
+  let queueId: number | null = null;
+  try {
+    const [ins] = await pool.query<ResultSetHeader>(
+      `INSERT INTO notification_queue (
+         recipient_type, recipient_id, channel, to_address, subject, body, status, payload_json
+       ) VALUES ('athlete', ?, 'email', ?, ?, ?, 'pending', ?)`,
+      [
+        order.athlete_id,
+        purchaserEmail,
+        mail.subject,
+        mail.text ?? mail.subject,
+        JSON.stringify({
+          type: "group_order_summary",
+          order_id: orderId,
+          order_public_uuid: order.public_uuid,
+        }),
+      ],
+    );
+    queueId = ins.insertId;
+
+    await sendEmail({
+      to: purchaserEmail,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+
+    await pool.query<ResultSetHeader>(
+      `UPDATE notification_queue SET status = 'sent', sent_at = NOW() WHERE id = ?`,
+      [queueId],
+    );
+
+    console.log("[email:group-order-summary] sent", {
+      orderId,
+      to: purchaserEmail,
+    });
+    return { sent: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[email:group-order-summary] failed", {
+      orderId,
+      to: purchaserEmail,
+      error: message,
+    });
+    if (queueId != null) {
+      await pool.query<ResultSetHeader>(
+        `UPDATE notification_queue SET status = 'failed', error_message = ? WHERE id = ?`,
+        [message.slice(0, 2000), queueId],
+      );
+    }
+    return { sent: false, error: message };
+  }
+}
+
 async function resolveConnectPaymentIds(
   pi: Stripe.PaymentIntent,
 ): Promise<{ transferId: string | null; applicationFeeId: string | null }> {
@@ -2708,7 +3212,12 @@ async function resolveConnectPaymentIds(
 async function finalizeRegistrationAfterPayment(
   paymentPublicUuid: string,
   pi: Stripe.PaymentIntent,
-): Promise<{ success: boolean; registration?: RowDataPacket; error?: string }> {
+): Promise<{
+  success: boolean;
+  registration?: RowDataPacket;
+  order?: ReturnType<typeof formatGroupOrderResponse>;
+  error?: string;
+}> {
   if (pi.status !== "succeeded") {
     return {
       success: false,
@@ -2788,6 +3297,48 @@ async function finalizeRegistrationAfterPayment(
     );
     if (!meta) {
       return failFinalize("Invalid checkout data");
+    }
+
+    if (isGroupCheckoutMetadata(meta)) {
+      const groupResult = await finalizeGroupRegistrationOrder(conn, pay, meta, pi, {
+        deliverRegistrationConfirmedEmail,
+        deliverGroupOrderSummaryEmail,
+      });
+      if (!groupResult.success) {
+        return failFinalize(groupResult.error ?? "Group registration failed");
+      }
+      await conn.query<ResultSetHeader>(
+        `UPDATE payments SET status = 'succeeded', paid_at = NOW(), registration_id = NULL,
+         stripe_charge_id = ?, stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ?)
+         WHERE id = ?`,
+        [
+          typeof pi.latest_charge === "string" ? pi.latest_charge : null,
+          pi.id,
+          pay.id,
+        ],
+      );
+      await conn.commit();
+      const firstReg = groupResult.registrations?.[0];
+      const orderPublicUuid = groupResult.orderPublicUuid ?? meta.orderPublicUuid;
+      return {
+        success: true,
+        registration: firstReg
+          ? {
+              ...firstReg,
+              event_title: pay.event_title,
+              event_slug: pay.event_slug,
+            }
+          : undefined,
+        order:
+          orderPublicUuid && groupResult.registrations?.length
+            ? formatGroupOrderResponse(
+                orderPublicUuid,
+                groupResult.registrations,
+                pay.event_title as string,
+                pay.event_slug as string,
+              )
+            : undefined,
+      };
     }
 
     const athleteId = pay.athlete_id as number;
@@ -2880,8 +3431,41 @@ async function finalizeRegistrationAfterPayment(
       return failFinalize("Category is sold out");
     }
 
+    const [[eventMetaRow]] = await conn.query<RowDataPacket[]>(
+      "SELECT slug, starts_at FROM events WHERE id = ? LIMIT 1",
+      [eventId],
+    );
+    const eventStartsAt = eventMetaRow?.starts_at as string | Date | null | undefined;
+    const eventYear =
+      eventStartsAt != null
+        ? String(new Date(eventStartsAt).getFullYear())
+        : String(new Date().getFullYear());
+    const eventCode = String(eventMetaRow?.slug ?? eventId)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+
+    let discountCode: string | null = null;
+    if (meta.discountCodeId) {
+      const [[discountRow]] = await conn.query<RowDataPacket[]>(
+        "SELECT code FROM discount_codes WHERE id = ? LIMIT 1",
+        [meta.discountCodeId],
+      );
+      discountCode = discountRow?.code ? String(discountRow.code) : null;
+    }
+
     const regUuid = newPublicUuid();
-    const regNumber = await nextRegistrationNumber(eventId);
+    const { registrationNumber: regNumber, folioSegmentId } = await nextRegistrationNumber(
+      {
+        eventId,
+        categoryId: Number(category.id),
+        discountCodeId: meta.discountCodeId ?? null,
+        discountCode,
+        eventYear,
+        eventCode,
+      },
+      conn,
+    );
     const qrToken = newQrToken();
     const priceCents = meta.breakdown?.listPriceCents ?? Number(pay.registration_amount_cents);
     const serviceFeeCents = Number(pay.service_fee_cents);
@@ -2890,15 +3474,16 @@ async function finalizeRegistrationAfterPayment(
     const [regResult] = await conn.query<ResultSetHeader>(
       `INSERT INTO registrations (
         public_uuid, event_id, event_category_id, athlete_id, registration_number,
-        qr_code_token, status, price_cents, service_fee_cents, total_cents,
+        folio_segment_id, qr_code_token, status, price_cents, service_fee_cents, total_cents,
         discount_code_id, currency, source, payment_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         regUuid,
         eventId,
         category.id,
         athleteId,
         regNumber,
+        folioSegmentId,
         qrToken,
         "confirmed",
         priceCents,
@@ -2923,10 +3508,10 @@ async function finalizeRegistrationAfterPayment(
       }
     }
 
-    const [fieldRows] = await conn.query<RowDataPacket[]>(
-      `SELECT id, field_key, field_type FROM event_registration_fields
-       WHERE event_id = ? AND is_active = 1`,
-      [eventId],
+    const fieldRows = await fetchRegistrationFieldsForCategory(
+      conn,
+      eventId,
+      meta.categoryId,
     );
     for (const field of fieldRows) {
       const key = field.field_key as string;
@@ -2987,6 +3572,19 @@ async function finalizeRegistrationAfterPayment(
       return failFinalize("Category is sold out");
     }
 
+    if (meta.selectedExtras?.length) {
+      const extrasSoldErr = await incrementExtrasSoldCount(conn, meta.selectedExtras);
+      if (extrasSoldErr) {
+        return failFinalize(extrasSoldErr.error);
+      }
+      await insertRegistrationExtras(
+        conn,
+        registrationId,
+        meta.selectedExtras,
+        meta.extraFieldAnswers,
+      );
+    }
+
     if (isWaitlistClaim && waitlistEntryId) {
       const [wlUp] = await conn.query<ResultSetHeader>(
         `UPDATE waitlist_entries
@@ -3034,6 +3632,7 @@ async function confirmRegistrationPayment(
 ): Promise<{
   success: boolean;
   registration?: RowDataPacket;
+  order?: ReturnType<typeof formatGroupOrderResponse>;
   error?: string;
   requiresAction?: boolean;
   clientSecret?: string;
@@ -3199,6 +3798,13 @@ function buildApp() {
         reason: params.reason,
         appUrl: params.appUrl,
         eventId: params.eventId,
+      }),
+    buildOrganizerPayoutSetupEmail: (params) =>
+      buildOrganizerPayoutSetupEmail({
+        locale: params.locale as AppLocale,
+        firstName: params.firstName,
+        eventTitle: params.eventTitle,
+        appUrl: params.appUrl,
       }),
     sendStaffLoginOtp: async ({ adminId, to, firstName, preferredLanguage }) => {
       const code = await createOtp("admin", adminId, "login");
@@ -4335,6 +4941,14 @@ function registerMarketplaceRoutes(app: express.Express) {
       WHERE e.status = 'published' AND e.visibility = 'public' AND e.deleted_at IS NULL`;
 
   app.get(
+    "/api/public/site-profile",
+    asyncHandler(async (_req, res) => {
+      const profile = await fetchSitePublicProfile(pool);
+      res.json({ profile });
+    }),
+  );
+
+  app.get(
     "/api/public/home",
     asyncHandler(async (_req, res) => {
       const emptyStats = {
@@ -4933,13 +5547,7 @@ function registerMarketplaceRoutes(app: express.Express) {
       [event.id],
     );
 
-    const [fields] = await pool.query<RowDataPacket[]>(
-      `SELECT id, field_key, label, field_type, options_json, is_required, sort_order
-       FROM event_registration_fields
-       WHERE event_id = ? AND is_active = 1
-       ORDER BY sort_order ASC`,
-      [event.id],
-    );
+    const fields = await fetchActiveRegistrationFieldsForEvent(pool, event.id as number);
 
     const [sponsors] = await pool.query<RowDataPacket[]>(
       `SELECT id, name, logo_url, website_url, tier, sort_order
@@ -5035,18 +5643,25 @@ function registerMarketplaceRoutes(app: express.Express) {
     }
     const waiver = waivers[0] ?? null;
 
+    const paymentAvailability = await attachEventPaymentAvailability(
+      pool,
+      {
+        id: event.id as number,
+        status: String(event.status),
+        organizer_id: Number(event.organizer_id),
+      },
+      getStripeClient(),
+    );
+
+    const extras = await fetchEventExtras(pool, event.id as number);
+
     res.json({
       event: withNormalizedEventMedia(event),
       categories: categoriesWithFees,
-      registrationFields: (fields as RowDataPacket[]).map((f) => ({
-        id: f.id,
-        field_key: f.field_key,
-        label: f.label,
-        field_type: f.field_type,
-        options_json: parseFieldOptions(f.options_json),
-        is_required: Boolean(f.is_required),
-        sort_order: f.sort_order,
-      })),
+      extras,
+      payments_available: paymentAvailability.payments_available,
+      has_paid_categories: paymentAvailability.has_paid_categories,
+      registrationFields: fields.map(mapPublicRegistrationField),
       sponsors,
       tags,
       scheduleWaves: waves,
@@ -5311,13 +5926,235 @@ function registerMarketplaceRoutes(app: express.Express) {
         stripeConfigured: isStripeConfigured(),
       });
 
-      if (!Number.isFinite(categoryId)) {
-        return res.status(400).json({ error: "categoryId required" });
-      }
       if (!idempotencyKey || idempotencyKey.length > 64) {
         return res
           .status(400)
           .json({ error: "idempotencyKey required (max 64 chars)" });
+      }
+
+      const lineItemsRaw = Array.isArray(req.body?.lineItems) ? req.body.lineItems : null;
+      if (lineItemsRaw && lineItemsRaw.length >= 1) {
+        const discountCodeInput = req.body?.discountCode
+          ? String(req.body.discountCode).trim()
+          : "";
+
+        const [eventRows] = await pool.query<RowDataPacket[]>(
+          `SELECT e.id, e.title, e.slug, e.status, e.organizer_id, e.service_fee_percent,
+                  e.fee_presentation, e.start_date, e.requires_waiver, e.registration_opens_at,
+                  e.registration_closes_at, e.max_registrations_per_order,
+                  o.stripe_account_id, o.stripe_onboarding_complete, o.stripe_connect_status,
+                  o.stripe_charges_enabled, o.stripe_payouts_enabled,
+                  o.service_fee_percent AS org_fee_percent,
+                  o.fee_presentation AS org_fee_presentation
+           FROM events e
+           JOIN organizers o ON o.id = e.organizer_id
+           WHERE e.slug = ? AND e.status = 'published' LIMIT 1`,
+          [slug],
+        );
+        if (eventRows.length === 0) {
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const event = eventRows[0];
+        await cancelStalePendingEventPayments(athleteId, event.id as number, idempotencyKey);
+
+        const feePercent = resolveServiceFeePercent(
+          event.service_fee_percent as number | string | null,
+          event.org_fee_percent as number | string | null,
+        );
+        const feePresentation = resolveFeePresentation(
+          event.fee_presentation as string | null,
+          event.org_fee_presentation as string | null,
+        );
+        const maxPerOrder = Number(event.max_registrations_per_order) || 10;
+
+        let discount:
+          | {
+              id: number;
+              code: string;
+              discount_type: string;
+              discount_value: number;
+              applies_to: string;
+              min_purchase_cents: number | null;
+            }
+          | undefined;
+        if (discountCodeInput) {
+          const discountResult = await fetchValidDiscountCode(
+            discountCodeInput,
+            event.id as number,
+            event.organizer_id as number,
+          );
+          if ("error" in discountResult) {
+            return res.status(400).json({ error: discountResult.error });
+          }
+          discount = discountResult.discount;
+        }
+
+        const priced = await validateAndPriceGroupCheckout(pool, {
+          eventId: event.id as number,
+          eventStartDate: String(event.start_date),
+          purchaserAthleteId: athleteId,
+          maxPerOrder,
+          feePercent,
+          feePresentation,
+          requiresWaiver: Boolean(event.requires_waiver),
+          lineItems: lineItemsRaw,
+          discount,
+        });
+        if (priced.ok === false) {
+          return res.status(priced.error.status).json(priced.error.body);
+        }
+
+        const orderPublicUuid = newGroupPublicUuid();
+        const { resolved, totals } = priced;
+        const checkoutMetadata = {
+          orderMode: "group" as const,
+          orderPublicUuid,
+          lineItems: resolved,
+          itemCount: resolved.length,
+          categoryId: resolved[0].categoryId,
+          fieldValues: {},
+          categoryName: resolved.map((l) => l.categoryName).join(", "),
+          feePresentation,
+          breakdown: totals.orderBreakdown,
+          ...(discount
+            ? {
+                discountCodeId: discount.id,
+                discountCode: discount.code,
+                discountAmountCents: totals.discountAmountCents,
+              }
+            : {}),
+          clientIp: req.ip?.slice(0, 45),
+          userAgent: String(req.headers["user-agent"] ?? "").slice(0, 500),
+          deviceInfo: String(req.headers["user-agent"] ?? "").slice(0, 255),
+        };
+
+        const payUuid = newPublicUuid();
+        const currency = "MXN";
+        const totalCents = totals.totalCents;
+
+        if (totalCents === 0) {
+          await pool.query<ResultSetHeader>(
+            `INSERT INTO payments (
+              public_uuid, idempotency_key, registration_id, athlete_id, organizer_id, event_id,
+              amount_cents, registration_amount_cents, service_fee_cents, currency, status, provider,
+              metadata_json, paid_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+            [
+              payUuid,
+              idempotencyKey,
+              null,
+              athleteId,
+              event.organizer_id,
+              event.id,
+              0,
+              totals.registrationAmountCents,
+              totals.serviceFeeCents,
+              currency,
+              "succeeded",
+              "mock",
+              JSON.stringify(checkoutMetadata),
+            ],
+          );
+          const response: GroupCheckoutApiResponse = {
+            paymentPublicUuid: payUuid,
+            clientSecret: null,
+            amountCents: 0,
+            registrationAmountCents: totals.registrationAmountCents,
+            serviceFeeCents: totals.serviceFeeCents,
+            currency,
+            categoryName: checkoutMetadata.categoryName,
+            eventTitle: String(event.title),
+            feePresentation,
+            listPriceCents: totals.subtotalCents,
+            discountAmountCents: totals.discountAmountCents || undefined,
+            discountCode: discount?.code,
+            orderMode: "group",
+            orderPublicUuid,
+            itemCount: resolved.length,
+            lineItems: resolved,
+          };
+          return res.json(response);
+        }
+
+        if (!isStripeConfigured() || !getStripeClient()) {
+          return res.status(503).json({ error: "Payment service unavailable" });
+        }
+
+        const stripeCustomerId = await ensureStripeCustomer(athleteId);
+        let piParams = buildRegistrationPaymentIntentParams({
+          amount: totalCents,
+          currency,
+          metadata: {
+            payment_public_uuid: payUuid,
+            event_slug: slug,
+            athlete_id: String(athleteId),
+            order_mode: "group",
+            event_id: String(event.id),
+            organizer_id: String(event.organizer_id ?? ""),
+          },
+          eventTitle: event.title as string | undefined,
+          customerId: stripeCustomerId,
+        });
+        const connectMode = await resolveCheckoutConnectMode(
+          pool,
+          Number(event.organizer_id),
+          getStripeClient(),
+        );
+        if (connectMode.mode === "destination") {
+          piParams = applyConnectToPaymentIntent(piParams, {
+            destinationAccountId: connectMode.stripeAccountId,
+            applicationFeeCents: totals.serviceFeeCents,
+          });
+        }
+
+        const pi = await getStripeClient()!.paymentIntents.create(piParams);
+        await pool.query<ResultSetHeader>(
+          `INSERT INTO payments (
+            public_uuid, idempotency_key, registration_id, athlete_id, organizer_id, event_id,
+            amount_cents, registration_amount_cents, service_fee_cents, currency, status, provider,
+            stripe_payment_intent_id, metadata_json
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            payUuid,
+            idempotencyKey,
+            null,
+            athleteId,
+            event.organizer_id,
+            event.id,
+            totalCents,
+            totals.registrationAmountCents,
+            totals.serviceFeeCents,
+            currency,
+            "pending",
+            "stripe",
+            pi.id,
+            JSON.stringify(checkoutMetadata),
+          ],
+        );
+
+        const response: GroupCheckoutApiResponse = {
+          paymentPublicUuid: payUuid,
+          clientSecret: pi.client_secret,
+          amountCents: totalCents,
+          registrationAmountCents: totals.registrationAmountCents,
+          serviceFeeCents: totals.serviceFeeCents,
+          currency,
+          categoryName: checkoutMetadata.categoryName,
+          eventTitle: String(event.title),
+          feePresentation,
+          listPriceCents: totals.subtotalCents,
+          discountAmountCents: totals.discountAmountCents || undefined,
+          discountCode: discount?.code,
+          orderMode: "group",
+          orderPublicUuid,
+          itemCount: resolved.length,
+          lineItems: resolved,
+        };
+        return res.json(response);
+      }
+
+      if (!Number.isFinite(categoryId)) {
+        return res.status(400).json({ error: "categoryId required" });
       }
 
       const [eventRows] = await pool.query<RowDataPacket[]>(
@@ -5424,11 +6261,10 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
-      const [fieldRows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, field_key, label, field_type, options_json, is_required
-         FROM event_registration_fields
-         WHERE event_id = ? AND is_active = 1`,
-        [event.id],
+      const fieldRows = await fetchRegistrationFieldsForCategory(
+        pool,
+        event.id as number,
+        categoryId,
       );
 
       for (const field of fieldRows) {
@@ -5525,6 +6361,91 @@ function registerMarketplaceRoutes(app: express.Express) {
         }
       }
 
+      const selectedExtrasRaw = Array.isArray(req.body?.selectedExtras)
+        ? (req.body.selectedExtras as Array<{ extraId?: unknown; quantity?: unknown }>)
+        : undefined;
+
+      if (selectedExtrasRaw) {
+        for (const item of selectedExtrasRaw) {
+          const extraId = Number(item?.extraId);
+          const quantity = Number(item?.quantity);
+          if (!Number.isFinite(extraId) || extraId <= 0) {
+            return res.status(400).json({ error: "Invalid extra selection" });
+          }
+          if (!Number.isFinite(quantity) || quantity < 1 || quantity > 99) {
+            return res.status(400).json({ error: "Invalid extra quantity" });
+          }
+        }
+      }
+
+      const selectedExtrasInput =
+        selectedExtrasRaw?.map((item) => ({
+          extraId: Number(item.extraId),
+          quantity: Number(item.quantity),
+        })) ?? [];
+
+      const extraFieldAnswersRaw = Array.isArray(req.body?.extraFieldAnswers)
+        ? (req.body.extraFieldAnswers as Array<{
+            extraId?: unknown;
+            values?: unknown;
+          }>)
+        : undefined;
+      const extraFieldAnswers: ExtraFieldAnswersInput | undefined = extraFieldAnswersRaw
+        ?.map((row) => ({
+          extraId: Number(row.extraId),
+          values:
+            row.values && typeof row.values === "object"
+              ? (row.values as Record<string, unknown>)
+              : {},
+        }))
+        .filter((row) => Number.isFinite(row.extraId) && row.extraId > 0);
+
+      const extrasResult = await resolveSelectedExtras(
+        pool,
+        event.id as number,
+        selectedExtrasInput,
+        { categoryId: category.id as number },
+      );
+      if (extrasResult.ok === false) {
+        return res.status(400).json({ error: extrasResult.error });
+      }
+
+      const extraAnswersValidation = await validateExtraFieldAnswersForCheckout(
+        pool,
+        event.id as number,
+        selectedExtrasInput,
+        extraFieldAnswers,
+      );
+      if (extraAnswersValidation.ok === false) {
+        return res.status(400).json({ error: extraAnswersValidation.error });
+      }
+
+      const categoryListPriceCents = breakdown.listPriceCents;
+      const extrasSubtotalCents = sumExtrasSubtotalCents(extrasResult.lines);
+      if (extrasSubtotalCents > 0) {
+        breakdown = computeCheckoutWithExtras({
+          categoryListPriceCents,
+          extrasSubtotalCents,
+          serviceFeePercent: feePercent,
+          feePresentation,
+        });
+      }
+      const breakdownErrorWithExtras = validateCheckoutBreakdown(breakdown);
+      if (breakdownErrorWithExtras) {
+        return res.status(400).json({ error: breakdownErrorWithExtras });
+      }
+
+      const extrasCheckoutPayload = {
+        extrasSubtotalCents,
+        extras: extrasResult.lines.map((line) => ({
+          extraId: line.extraId,
+          name: line.name,
+          quantity: line.quantity,
+          unitPriceCents: line.unitPriceCents,
+          totalCents: line.totalCents,
+        })),
+      };
+
       const listPriceCents = breakdown.listPriceCents;
       const registrationAmountCents = breakdown.stripeOrganizerTransferCents;
       const serviceFeeCents = breakdown.serviceFeeCents;
@@ -5547,6 +6468,10 @@ function registerMarketplaceRoutes(app: express.Express) {
         categoryName: String(category.name),
         feePresentation,
         breakdown: breakdownToSnapshot(breakdown),
+        categoryListPriceCents,
+        extrasSubtotalCents,
+        selectedExtras: extrasResult.lines,
+        ...(extraFieldAnswers?.length ? { extraFieldAnswers } : {}),
         ...(waitlistEntryId && Number.isFinite(waitlistEntryId)
           ? { waitlistEntryId }
           : {}),
@@ -5621,6 +6546,7 @@ function registerMarketplaceRoutes(app: express.Express) {
             fieldValues,
             feePresentation,
             listPriceCents,
+            ...extrasCheckoutPayload,
             ...(discountCode ? { discountCode, discountAmountCents } : {}),
           });
         }
@@ -5632,7 +6558,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         const resumed = await buildCheckoutResponseForPayment(existingUuid, athleteId);
         if (resumed) {
           checkoutTrace("checkout-resumed", { paymentPublicUuid: existingUuid });
-          return res.json({ ...resumed, fieldValues });
+          return res.json({ ...resumed, fieldValues, ...extrasCheckoutPayload });
         }
       }
 
@@ -5674,6 +6600,7 @@ function registerMarketplaceRoutes(app: express.Express) {
           eventTitle: event.title,
           feePresentation,
           listPriceCents,
+          ...extrasCheckoutPayload,
           ...(discountCode ? { discountCode, discountAmountCents } : {}),
         });
       }
@@ -5808,6 +6735,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         listPriceCents,
         displayIvaCents: breakdown.displayIvaCents,
         organizerFiscalNetCents: breakdown.organizerFiscalNetCents,
+        ...extrasCheckoutPayload,
         ...(discountCode
           ? { discountCode, discountAmountCents }
           : {}),
@@ -5876,12 +6804,47 @@ function registerMarketplaceRoutes(app: express.Express) {
         });
       }
 
-      if (pay.provider === "mock" && Number(pay.amount_cents) === 0) {
-        const result = await confirmRegistrationPayment(payUuid, athleteId);
-        if (result.success && result.registration) {
+      if (pay.status === "succeeded") {
+        const [orderRows] = await pool.query<RowDataPacket[]>(
+          `SELECT id, public_uuid FROM registration_orders
+           WHERE payment_id = ? AND status = 'confirmed' LIMIT 1`,
+          [pay.id],
+        );
+        if (orderRows.length > 0) {
+          const orderRow = orderRows[0];
+          const [regs] = await pool.query<RowDataPacket[]>(
+            `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.status, r.total_cents,
+                    ec.name AS category_name, e.title AS event_title, e.slug AS event_slug,
+                    CONCAT(a.first_name, ' ', a.last_name) AS participant_label,
+                    a.email AS participant_email, r.guest_claim_token
+             FROM registrations r
+             JOIN event_categories ec ON ec.id = r.event_category_id
+             JOIN events e ON e.id = r.event_id
+             JOIN athletes a ON a.id = r.athlete_id
+             WHERE r.order_id = ? AND r.deleted_at IS NULL`,
+            [orderRow.id],
+          );
           return res.json({
             status: "complete",
-            registration: result.registration,
+            order: formatGroupOrderResponse(
+              String(orderRow.public_uuid),
+              regs,
+              pay.event_title as string,
+              pay.event_slug as string,
+            ),
+            registration: regs[0] ?? null,
+            confirmationEmail: await athleteLoginEmail(athleteId),
+          });
+        }
+      }
+
+      if (pay.provider === "mock" && Number(pay.amount_cents) === 0) {
+        const result = await confirmRegistrationPayment(payUuid, athleteId);
+        if (result.success && (result.registration || result.order)) {
+          return res.json({
+            status: "complete",
+            registration: result.registration ?? null,
+            order: result.order,
             confirmationEmail: await athleteLoginEmail(athleteId),
           });
         }
@@ -5897,10 +6860,11 @@ function registerMarketplaceRoutes(app: express.Express) {
         );
         if (pi.status === "succeeded") {
           const result = await finalizeRegistrationAfterPayment(payUuid, pi);
-          if (result.success && result.registration) {
+          if (result.success && (result.registration || result.order)) {
             return res.json({
               status: "complete",
-              registration: result.registration,
+              registration: result.registration ?? null,
+              order: result.order,
               confirmationEmail: await athleteLoginEmail(athleteId),
             });
           }
@@ -5962,7 +6926,7 @@ function registerMarketplaceRoutes(app: express.Express) {
         paymentMethodId,
       );
 
-      if (!result.success || !result.registration) {
+      if (!result.success || (!result.registration && !result.order)) {
         return res.status(402).json({
           success: false,
           error: result.error || "Payment failed",
@@ -5972,11 +6936,17 @@ function registerMarketplaceRoutes(app: express.Express) {
         });
       }
 
-      const r = result.registration;
-      res.json({
+      const confirmationEmail = await athleteLoginEmail(req.auth!.id);
+      const payload: Record<string, unknown> = {
         success: true,
-        confirmationEmail: await athleteLoginEmail(req.auth!.id),
-        registration: {
+        confirmationEmail,
+      };
+      if (result.order) {
+        payload.order = result.order;
+      }
+      if (result.registration) {
+        const r = result.registration;
+        payload.registration = {
           public_uuid: r.public_uuid,
           registration_number: r.registration_number,
           qr_code_token: r.qr_code_token,
@@ -5985,8 +6955,9 @@ function registerMarketplaceRoutes(app: express.Express) {
           category_name: r.category_name,
           event_title: r.event_title,
           event_slug: r.event_slug,
-        },
-      });
+        };
+      }
+      res.json(payload);
     },
   );
 }
@@ -6301,6 +7272,19 @@ function registerAthleteRoutes(app: express.Express) {
       );
 
       res.json({ registrations });
+    },
+  );
+
+  app.post(
+    "/api/athlete/registrations/claim-guest",
+    requireAthlete,
+    async (req: AuthedRequest, res) => {
+      const claimToken = String(req.body?.claimToken ?? "").trim();
+      const result = await claimGuestRegistration(pool, req.auth!.id, claimToken);
+      if (result.ok === false) {
+        return res.status(result.error.status).json(result.error.body);
+      }
+      res.json({ success: true, registration: result.registration });
     },
   );
 
@@ -7177,6 +8161,28 @@ function registerAdminRoutes(app: express.Express) {
       },
       top_events: topEvents,
     });
+  });
+
+  app.get("/api/admin/site-profile", requireAdmin, async (_req, res) => {
+    const profile = await fetchSitePublicProfile(pool);
+    res.json({ profile });
+  });
+
+  app.patch("/api/admin/site-profile", requireAdmin, async (req, res) => {
+    const profile = normalizeSitePublicProfile(req.body);
+    if (!profile) {
+      return res.status(400).json({ error: "Invalid site profile payload" });
+    }
+    try {
+      await saveSitePublicProfile(pool, profile);
+      res.json({ ok: true, profile });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Could not save site profile";
+      if (message.includes("platform_settings table missing")) {
+        return res.status(503).json({ error: message });
+      }
+      throw err;
+    }
   });
 
   app.patch("/api/admin/preferences", requireAdmin, async (req: AuthedRequest, res) => {

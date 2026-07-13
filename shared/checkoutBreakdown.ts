@@ -163,6 +163,27 @@ export function athleteFacingTotalCents(
   }).athleteTotalCents;
 }
 
+/** Category + add-ons combined into one checkout breakdown (discount applies to category only). */
+export function computeCheckoutWithExtras(opts: {
+  categoryListPriceCents: number;
+  extrasSubtotalCents: number;
+  serviceFeePercent: number;
+  feePresentation?: FeePresentation;
+}): CheckoutBreakdown & { extrasSubtotalCents: number; categoryListPriceCents: number } {
+  const categoryListPriceCents = Math.max(0, Math.round(opts.categoryListPriceCents));
+  const extrasSubtotalCents = Math.max(0, Math.round(opts.extrasSubtotalCents));
+  const combinedList = categoryListPriceCents + extrasSubtotalCents;
+  return {
+    ...computeCheckoutBreakdown({
+      listPriceCents: combinedList,
+      serviceFeePercent: opts.serviceFeePercent,
+      feePresentation: opts.feePresentation,
+    }),
+    extrasSubtotalCents,
+    categoryListPriceCents,
+  };
+}
+
 export function validatePaidCategoryPricing(opts: {
   name: string;
   priceCents: number;

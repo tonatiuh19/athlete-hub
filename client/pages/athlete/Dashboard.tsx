@@ -77,7 +77,7 @@ export default function AthleteDashboard() {
       >
         <div className="absolute top-0 right-0 w-64 h-64 bg-cyan/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         <div className="relative">
-          <div className="flex items-center gap-2 text-cyan text-sm font-medium mb-2">
+          <div className="flex items-center gap-2 text-primary text-sm font-medium mb-2">
             <Flame className="w-4 h-4" />
             {quote}
           </div>
@@ -100,7 +100,7 @@ export default function AthleteDashboard() {
             label: t("athletePortal.dashboard.statRegistrations"),
             value: confirmed.length,
             icon: QrCode,
-            color: "text-cyan",
+            color: "text-primary",
           },
           {
             label: t("athletePortal.dashboard.statUpcoming"),
@@ -131,7 +131,7 @@ export default function AthleteDashboard() {
         <section className="card-sport p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <span className="text-xs font-semibold text-cyan uppercase tracking-wider">
+              <span className="text-xs font-semibold text-primary uppercase tracking-wider">
                 {t("athletePortal.dashboard.nextEvent")}
               </span>
               <h2 className="text-xl font-bold mt-1">{nextReg.event_title}</h2>
@@ -159,12 +159,12 @@ export default function AthleteDashboard() {
       <section>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold flex items-center gap-2">
-            <Zap className="w-5 h-5 text-cyan" />
+            <Zap className="w-5 h-5 text-primary" />
             {t("athletePortal.dashboard.discoverTitle")}
           </h2>
           <Link
             to="/portal/events"
-            className="text-sm text-cyan hover:underline flex items-center gap-1"
+            className="text-sm text-primary hover:underline flex items-center gap-1"
           >
             {t("athletePortal.dashboard.viewAll")}
             <ChevronRight className="w-4 h-4" />
@@ -189,7 +189,7 @@ export default function AthleteDashboard() {
                   />
                 </div>
                 <div className="p-4">
-                  <span className="text-[10px] uppercase tracking-wider text-cyan">
+                  <span className="text-[10px] uppercase tracking-wider text-primary">
                     {ev.sport_name}
                   </span>
                   <h3 className="font-semibold mt-1 line-clamp-2">{ev.title}</h3>

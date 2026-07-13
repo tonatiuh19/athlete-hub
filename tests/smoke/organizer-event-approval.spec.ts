@@ -12,6 +12,7 @@ import {
   STAFF_SCENARIO,
 } from "../helpers/staffPortalHarness";
 import { staffSeeds } from "../helpers/staffPortalScenarioDb";
+import { getCapturedTestEmails } from "../../api/testHooks";
 
 const eventBody = {
   title: "Smoke Test Marathon",
@@ -188,6 +189,17 @@ describe("HTTP smoke: organizer event approval workflow", () => {
     expect(res.status).toBe(200);
     expect(res.body.event.status).toBe("published");
     expect(db.publishedSlugs()).toContain("test-event-100");
+
+    const emails = getCapturedTestEmails();
+    expect(emails.length).toBeGreaterThanOrEqual(2);
+    expect(emails.some((e) => /publicado|published/i.test(e.subject))).toBe(true);
+    expect(
+      emails.some(
+        (e) =>
+          /cobros|payout/i.test(e.subject) && e.html.includes("/staff/payouts"),
+      ),
+    ).toBe(true);
+    expect(emails.some((e) => e.to === "finance@test.local")).toBe(true);
   });
 
   it("admin rejects pending event back to draft", async () => {

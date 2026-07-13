@@ -26,8 +26,8 @@ export default function EventMediaGallery({ media, className }: EventMediaGaller
   return (
     <>
       <div className={cn("space-y-4", className)}>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <ImageIcon className="w-5 h-5 text-cyan" />
+        <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+          <ImageIcon className="w-5 h-5 text-primary" />
           {t("eventDetail.mediaGallery")}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -40,14 +40,14 @@ export default function EventMediaGallery({ media, className }: EventMediaGaller
                 type="button"
                 onClick={() => setLightbox(item)}
                 className={cn(
-                  "group relative aspect-[4/3] rounded-xl overflow-hidden border border-gray-700/50",
-                  "bg-surface-dark/60 hover:border-cyan/40 transition-all focus:outline-none focus:ring-2 focus:ring-cyan/40",
+                  "group relative aspect-[4/3] rounded-xl overflow-hidden border border-border",
+                  "bg-card/80 hover:border-cyan/40 transition-all focus:outline-none focus:ring-2 focus:ring-cyan/40",
                   item.is_primary && "md:col-span-2 md:row-span-2 aspect-[16/10]",
                 )}
               >
                 {video ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                    <Film className="w-10 h-10 text-cyan" />
+                    <Film className="w-10 h-10 text-primary" />
                   </div>
                 ) : (
                   <img
@@ -65,10 +65,10 @@ export default function EventMediaGallery({ media, className }: EventMediaGaller
       </div>
 
       <Dialog open={lightbox != null} onOpenChange={(o) => !o && setLightbox(null)}>
-        <DialogContent className="max-w-4xl w-[calc(100%-2rem)] p-0 bg-black border-gray-700 overflow-hidden">
+        <DialogContent className="max-w-4xl w-[calc(100%-2rem)] p-0 bg-black border-border overflow-hidden">
           <button
             type="button"
-            className="absolute top-3 right-3 z-10 p-2 rounded-full bg-black/60 text-white hover:bg-black/80"
+            className="absolute top-3 right-3 z-10 p-2 rounded-full bg-black/60 text-foreground hover:bg-black/80"
             onClick={() => setLightbox(null)}
             aria-label={t("common.close")}
           >

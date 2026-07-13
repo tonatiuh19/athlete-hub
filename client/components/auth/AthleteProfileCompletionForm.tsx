@@ -51,7 +51,7 @@ export default function AthleteProfileCompletionForm({
     <div className={compact ? "space-y-4" : "space-y-5"}>
       {!compact ? (
         <div>
-          <h2 className="text-lg font-bold text-white">
+          <h2 className="text-lg font-bold text-foreground">
             {t("athletePortal.completeProfile.title")}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -59,7 +59,7 @@ export default function AthleteProfileCompletionForm({
           </p>
         </div>
       ) : (
-        <p className="text-sm text-gray-400">{t("athletePortal.completeProfile.wizardHint")}</p>
+        <p className="text-sm text-muted-foreground">{t("athletePortal.completeProfile.wizardHint")}</p>
       )}
       <form onSubmit={formik.handleSubmit} className="space-y-4">
         <AthleteOnboardingFields

@@ -42,7 +42,7 @@ export default function StaffPeople() {
       />
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <UserCog className="w-7 h-7 text-cyan" />
+          <UserCog className="w-7 h-7 text-primary" />
           {t("staffPortal.staffManagement.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">{t("staffPortal.staffManagement.subtitle")}</p>

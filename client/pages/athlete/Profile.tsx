@@ -158,7 +158,7 @@ export default function AthleteProfile() {
   if (loading && !user) {
     return (
       <div className="flex justify-center py-24">
-        <Loader2 className="w-8 h-8 animate-spin text-cyan" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -194,7 +194,7 @@ export default function AthleteProfile() {
 
         {user?.email ? (
           <div className="flex items-center gap-3 text-sm">
-            <Mail className="w-4 h-4 text-cyan shrink-0" />
+            <Mail className="w-4 h-4 text-primary shrink-0" />
             <div>
               <p className="text-xs text-muted-foreground">
                 {t("athletePortal.profile.emailLabel")}
@@ -208,7 +208,7 @@ export default function AthleteProfile() {
       <PortalErrorAlert error={error} />
 
       <form onSubmit={formik.handleSubmit} className="card-sport p-6 space-y-5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-cyan">
+        <div className="flex items-center gap-2 text-sm font-semibold text-primary">
           <User className="w-4 h-4" />
           {t("athletePortal.profile.personalSection")}
         </div>
@@ -331,7 +331,7 @@ export default function AthleteProfile() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-sm font-semibold text-cyan pt-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-primary pt-2">
           <MapPin className="w-4 h-4" />
           {t("athletePortal.profile.locationSection")}
         </div>
@@ -369,7 +369,7 @@ export default function AthleteProfile() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-sm font-semibold text-cyan pt-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-primary pt-2">
           <HeartPulse className="w-4 h-4" />
           {t("athletePortal.profile.emergencySection")}
         </div>
@@ -418,7 +418,7 @@ export default function AthleteProfile() {
         </Button>
 
         {profileSaved ? (
-          <p className="text-xs text-cyan">{t("athletePortal.profile.profileSaved")}</p>
+          <p className="text-xs text-primary">{t("athletePortal.profile.profileSaved")}</p>
         ) : null}
       </form>
 
@@ -443,7 +443,7 @@ export default function AthleteProfile() {
           ))}
         </div>
         {languageSaved && (
-          <p className="text-xs text-cyan mt-2">{t("athletePortal.profile.languageSaved")}</p>
+          <p className="text-xs text-primary mt-2">{t("athletePortal.profile.languageSaved")}</p>
         )}
       </div>
 
@@ -452,7 +452,7 @@ export default function AthleteProfile() {
         className="card-sport p-4 flex items-center gap-3 hover:border-cyan/40 transition-colors group"
       >
         <div className="w-10 h-10 rounded-xl bg-cyan/10 border border-cyan/25 flex items-center justify-center shrink-0">
-          <CreditCard className="w-5 h-5 text-cyan" />
+          <CreditCard className="w-5 h-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold">{t("athletePortal.profile.manageCards")}</p>
@@ -460,7 +460,7 @@ export default function AthleteProfile() {
             {t("athletePortal.paymentMethods.subtitle")}
           </p>
         </div>
-        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-cyan shrink-0" />
+        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0" />
       </Link>
     </div>
   );

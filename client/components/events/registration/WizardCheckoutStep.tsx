@@ -3,7 +3,8 @@ import { useFormik } from "formik";
 import * as Yup from "yup";
 import { ArrowLeft, Loader2, Receipt } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { DiscountValidateResponse, EventCategory, EventRegistrationField, FeePresentation } from "@shared/api";
+import type { DiscountValidateResponse, EventCategory, EventExtra, EventRegistrationField, FeePresentation, RegistrationCheckoutExtraLine } from "@shared/api";
+import { computeCheckoutWithExtras } from "@shared/checkoutBreakdown";
 import {
   buildRegistrationFieldInitialValues,
   normalizeCheckoutFieldValues,
@@ -35,6 +36,7 @@ import {
 } from "@/utils/registrationCheckoutErrors";
 import { resolveAppliedDiscountCode } from "@/utils/registrationCheckoutDiscount";
 import { registrationCheckoutIsReady } from "@/utils/registrationCheckoutPayment";
+import LegalConsentNotice from "@/components/legal/LegalConsentNotice";
 
 export type CheckoutUiPhase = "details" | "payment";
 
@@ -49,6 +51,7 @@ interface WizardCheckoutStepProps {
   restoredFieldValues?: Record<string, string | boolean> | null;
   checkoutPaymentReady: boolean;
   onCheckoutPaymentReady: (ready: boolean) => void;
+  eventExtras?: EventExtra[];
 }
 
 function buildValidationSchema(
@@ -122,6 +125,8 @@ function CheckoutOrderSummary({
   feePresentation,
   discountPreview,
   language,
+  extras = [],
+  extrasSubtotalCents = 0,
 }: {
   eventTitle: string;
   categoryName: string;
@@ -134,18 +139,20 @@ function CheckoutOrderSummary({
   serviceFeePercent: number;
   discountPreview: DiscountValidateResponse | null;
   language: string;
+  extras?: RegistrationCheckoutExtraLine[];
+  extrasSubtotalCents?: number;
 }) {
   const { t } = useTranslation();
   const absorbAll = feePresentation === "absorb_all";
 
   return (
-    <div className="rounded-xl border border-gray-700/50 bg-surface-dark/40 p-4">
+    <div className="rounded-xl border border-border bg-card/40 p-4">
       <div className="flex items-start gap-3">
-        <Receipt className="w-5 h-5 text-cyan shrink-0 mt-0.5" />
+        <Receipt className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-500 truncate">{eventTitle}</p>
-          <p className="text-sm font-bold text-white">{categoryName}</p>
-          <div className="mt-3 space-y-1 text-xs text-gray-400">
+          <p className="text-xs text-muted-foreground truncate">{eventTitle}</p>
+          <p className="text-sm font-bold text-foreground">{categoryName}</p>
+          <div className="mt-3 space-y-1 text-xs text-muted-foreground">
             {absorbAll ? (
               <div className="flex justify-between">
                 <span>{t("registrationWizard.checkout.finalPrice")}</span>
@@ -163,6 +170,21 @@ function CheckoutOrderSummary({
                 </div>
               </>
             )}
+            {extras.map((line) => (
+              <div key={line.extraId} className="flex justify-between pl-2 border-l border-border/60">
+                <span className="truncate pr-2">
+                  {line.name}
+                  {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                </span>
+                <span className="shrink-0">{formatPriceMxn(line.totalCents, language)}</span>
+              </div>
+            ))}
+            {extrasSubtotalCents > 0 ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>{t("registrationWizard.checkout.extrasSubtotal")}</span>
+                <span>{formatPriceMxn(extrasSubtotalCents, language)}</span>
+              </div>
+            ) : null}
             {discountPreview?.valid && discountPreview.discountAmountCents > 0 ? (
               <div className="flex justify-between text-accent">
                 <span>{t("registrationWizard.checkout.discountApplied")}</span>
@@ -171,13 +193,13 @@ function CheckoutOrderSummary({
                 </span>
               </div>
             ) : null}
-            <div className="flex justify-between font-bold text-cyan pt-1 border-t border-gray-700/50">
+            <div className="flex justify-between font-bold text-primary pt-1 border-t border-border">
               <span>{t("eventDetail.total")}</span>
               <span>{formatPriceMxn(totalCents, language)}</span>
             </div>
             {absorbAll && displayIvaCents != null ? (
-              <details className="pt-2 text-[11px] text-gray-500">
-                <summary className="cursor-pointer text-gray-400">
+              <details className="pt-2 text-[11px] text-muted-foreground">
+                <summary className="cursor-pointer text-muted-foreground">
                   {t("registrationWizard.checkout.invoicePreviewToggle")}
                 </summary>
                 <div className="mt-2 space-y-1 pl-1">
@@ -220,6 +242,7 @@ export default function WizardCheckoutStep({
   restoredFieldValues,
   checkoutPaymentReady,
   onCheckoutPaymentReady,
+  eventExtras = [],
 }: WizardCheckoutStepProps) {
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
@@ -238,6 +261,8 @@ export default function WizardCheckoutStep({
     waitlistEntryId,
     waitlistClaimMode,
     pending3dsClientSecret,
+    selectedExtras,
+    extraFieldAnswers,
   } = useAppSelector((s) => s.registrationCheckout);
   const athleteEmail = useAppSelector((s) => s.athleteAuth.user?.email);
 
@@ -262,19 +287,51 @@ export default function WizardCheckoutStep({
   const appliedDiscountCode = resolveAppliedDiscountCode(discountPreview, discountCode);
 
   const absorbAll = feePresentation === "absorb_all";
-  const serviceFeeCents =
-    discountPreview?.serviceFeeCents ??
-    category.service_fee_cents ??
-    Math.round(category.price_cents * (serviceFeePercent / 100));
   const priceCents = discountPreview?.priceCents ?? category.price_cents;
-  const totalCents =
-    discountPreview?.totalCents ??
-    category.total_cents ??
-    (absorbAll ? category.price_cents : category.price_cents + serviceFeeCents);
   const displayIvaCents =
     discountPreview?.displayIvaCents ?? category.display_iva_cents;
   const organizerFiscalNetCents =
     discountPreview?.organizerFiscalNetCents ?? category.organizer_fiscal_net_cents;
+
+  const previewExtraLines = useMemo(() => {
+    if (checkout?.extras?.length) return checkout.extras;
+    return selectedExtras
+      .map((row) => {
+        const extra = eventExtras.find((e) => e.id === row.extraId);
+        if (!extra) return null;
+        return {
+          extraId: extra.id,
+          name: extra.name,
+          quantity: row.quantity,
+          unitPriceCents: extra.price_cents,
+          totalCents: extra.price_cents * row.quantity,
+        };
+      })
+      .filter(Boolean) as RegistrationCheckoutExtraLine[];
+  }, [checkout?.extras, selectedExtras, eventExtras]);
+
+  const previewExtrasSubtotal =
+    checkout?.extrasSubtotalCents ??
+    previewExtraLines.reduce((sum, line) => sum + line.totalCents, 0);
+
+  const combinedCheckoutPreview = useMemo(
+    () =>
+      computeCheckoutWithExtras({
+        categoryListPriceCents: priceCents,
+        extrasSubtotalCents: previewExtrasSubtotal,
+        serviceFeePercent,
+        feePresentation,
+      }),
+    [priceCents, previewExtrasSubtotal, serviceFeePercent, feePresentation],
+  );
+
+  const totalCents = checkout?.amountCents ?? combinedCheckoutPreview.athleteTotalCents;
+  const serviceFeeCents =
+    checkout?.serviceFeeCents ??
+    discountPreview?.serviceFeeCents ??
+    combinedCheckoutPreview.serviceFeeCents ??
+    category.service_fee_cents ??
+    Math.round(category.price_cents * (serviceFeePercent / 100));
 
   const handleCheckout = useCallback(
     async (values: Record<string, string | boolean>) => {
@@ -288,6 +345,8 @@ export default function WizardCheckoutStep({
           waiverSignatures: waiverAcceptance ?? undefined,
           discountCode: appliedDiscountCode,
           waitlistEntryId: waitlistClaimMode ? waitlistEntryId ?? undefined : undefined,
+          selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
+          extraFieldAnswers: extraFieldAnswers.length > 0 ? extraFieldAnswers : undefined,
         }),
       );
       if (createRegistrationCheckout.fulfilled.match(result)) {
@@ -328,6 +387,8 @@ export default function WizardCheckoutStep({
       waitlistClaimMode,
       waitlistEntryId,
       waiverAcceptance,
+      selectedExtras,
+      extraFieldAnswers,
     ],
   );
 
@@ -555,14 +616,16 @@ export default function WizardCheckoutStep({
             serviceFeePercent={serviceFeePercent}
             discountPreview={discountPreview}
             language={i18n.language}
+            extras={previewExtraLines}
+            extrasSubtotalCents={previewExtrasSubtotal}
           />
 
           {normalizedFields.length > 0 ? (
             <form onSubmit={formik.handleSubmit} className="space-y-4">
-              <h3 className="text-sm font-bold text-white">
+              <h3 className="text-sm font-bold text-foreground">
                 {t("registrationWizard.checkout.prerequisites")}
               </h3>
-              <p className="text-xs text-gray-500 -mt-2">
+              <p className="text-xs text-muted-foreground -mt-2">
                 {t("registrationWizard.checkout.prerequisitesHint")}
               </p>
 
@@ -580,7 +643,7 @@ export default function WizardCheckoutStep({
                 return (
                   <div key={field.id} className="space-y-2">
                     {field.field_type !== "checkbox" ? (
-                      <Label className="text-gray-300">
+                      <Label className="text-muted-foreground">
                         {field.label}
                         {field.is_required ? " *" : ""}
                       </Label>
@@ -610,10 +673,12 @@ export default function WizardCheckoutStep({
               {renderCheckoutError()}
               {renderWaitlistOffer()}
 
+              <LegalConsentNotice variant="checkout" />
+
               <Button
                 type="submit"
                 disabled={fieldsLocked || hasBlockingFileField}
-                className="w-full bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+                className="w-full bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
               >
                 {t("registrationWizard.checkout.continueToPayment")}
               </Button>
@@ -621,12 +686,13 @@ export default function WizardCheckoutStep({
           ) : (
             <div className="space-y-3">
               {waitlistClaimMode ? (
-                <div className="rounded-xl border border-cyan/30 bg-cyan/5 p-3 text-sm text-cyan">
+                <div className="rounded-xl border border-cyan/30 bg-cyan/5 p-3 text-sm text-primary">
                   {t("registrationWizard.checkout.claimHint")}
                 </div>
               ) : null}
               {renderCheckoutError()}
               {renderWaitlistOffer()}
+              <LegalConsentNotice variant="checkout" />
               <Button
                 type="button"
                 onClick={() => {
@@ -635,7 +701,7 @@ export default function WizardCheckoutStep({
                   onCheckoutPaymentReady(true);
                   dispatch(setCheckoutError(null));
                 }}
-                className="w-full bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+                className="w-full bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
               >
                 {t("registrationWizard.checkout.continueToPayment")}
               </Button>
@@ -648,7 +714,7 @@ export default function WizardCheckoutStep({
             <button
               type="button"
               onClick={handleBackToDetails}
-              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-cyan transition-colors"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               {t("registrationWizard.checkout.backToDetails")}
@@ -667,14 +733,16 @@ export default function WizardCheckoutStep({
             serviceFeePercent={serviceFeePercent}
             discountPreview={discountPreview}
             language={i18n.language}
+            extras={previewExtraLines}
+            extrasSubtotalCents={previewExtrasSubtotal}
           />
 
-          <div className="space-y-4 pt-1 border-t border-gray-800/60">
+          <div className="space-y-4 pt-1 border-t border-border/60">
             <div>
-              <h3 className="text-sm font-bold text-white">
+              <h3 className="text-sm font-bold text-foreground">
                 {t("registrationWizard.payment.title")}
               </h3>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 {t("registrationWizard.checkout.paymentSectionHint")}
               </p>
             </div>
@@ -692,8 +760,8 @@ export default function WizardCheckoutStep({
             {renderWaitlistOffer()}
 
             {preparingPayment ? (
-              <div className="rounded-xl border border-gray-700/50 bg-surface-dark/30 p-6 flex flex-col items-center gap-3 text-gray-400">
-                <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+              <div className="rounded-xl border border-border bg-card/60 p-6 flex flex-col items-center gap-3 text-muted-foreground">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
                 <p className="text-xs text-center">
                   {t("registrationWizard.payment.preparing")}
                 </p>
@@ -707,6 +775,8 @@ export default function WizardCheckoutStep({
                 {t("registrationWizard.payment.unavailable")}
               </p>
             ) : null}
+
+            <LegalConsentNotice variant="checkout" />
 
             {showStripe && checkout && paymentConfig ? (
               <StripeCheckout
@@ -726,7 +796,7 @@ export default function WizardCheckoutStep({
                 type="button"
                 disabled={loadingCheckout}
                 onClick={() => void handlePreparePayment()}
-                className="w-full bg-cyan/10 text-cyan border border-cyan/40"
+                className="w-full bg-cyan/10 text-primary border border-cyan/40"
               >
                 {loadingCheckout ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import TribooLogo from "@/components/brand/TribooLogo";
@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
+import { useIsDarkTheme } from "@/hooks/use-is-dark-theme";
 import { useHomeNavScroll } from "./useHomeNavScroll";
 
 const NAV_SECTIONS = [
@@ -20,12 +21,12 @@ function NavUserAvatar({
   firstName,
   lastName,
   avatarUrl,
-  solid,
+  onLightSurface,
 }: {
   firstName: string;
   lastName: string;
   avatarUrl?: string;
-  solid: boolean;
+  onLightSurface: boolean;
 }) {
   const initials =
     `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "?";
@@ -33,7 +34,7 @@ function NavUserAvatar({
 
   const avatarShell = cn(
     "h-8 w-8 shrink-0 rounded-full ring-2",
-    solid
+    onLightSurface
       ? "ring-primary/30 ring-offset-2 ring-offset-background"
       : "ring-white/25 ring-offset-2 ring-offset-transparent shadow-glow-triboo",
   );
@@ -68,8 +69,15 @@ function NavUserAvatar({
 export default function HomeNavbar() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
+  const { pathname } = useLocation();
+  const isHome = pathname === "/";
+  const isDarkTheme = useIsDarkTheme();
   const { token, user, loading } = useAppSelector((s) => s.athleteAuth);
-  const { solid, scrollProgress } = useHomeNavScroll();
+  const { solid: scrollSolid, scrollProgress } = useHomeNavScroll(undefined, isHome);
+
+  const navSolid = !isHome || scrollSolid;
+  const overDarkHero = isHome && !scrollSolid && isDarkTheme;
+  const onLightSurface = !overDarkHero;
 
   useEffect(() => {
     if (token && !user) dispatch(fetchAthleteMe());
@@ -79,37 +87,45 @@ export default function HomeNavbar() {
 
   const authButtonClass = cn(
     "text-xs sm:text-sm font-semibold rounded-xl transition-all duration-300 whitespace-nowrap",
-    solid
+    onLightSurface
       ? "btn-primary px-3 py-2 sm:px-5 sm:py-2.5"
       : "px-3 py-2 sm:px-5 sm:py-2.5 text-primary border border-primary/40 bg-white/[0.06] backdrop-blur-md hover:bg-primary/15 hover:border-primary/70 hover:shadow-glow-triboo",
   );
 
   const portalChipClass = cn(
     "inline-flex items-center gap-2 sm:gap-2.5 rounded-full pl-1 pr-3 sm:pr-4 py-1 text-xs sm:text-sm font-semibold transition-all duration-300 whitespace-nowrap",
-    solid
+    onLightSurface
       ? "border border-border bg-card/90 text-foreground hover:border-primary/45 hover:bg-primary/5 hover:shadow-glow-triboo"
       : "border border-white/15 bg-white/[0.08] text-white backdrop-blur-md hover:border-primary/50 hover:bg-white/[0.12] hover:shadow-glow-triboo",
   );
+
+  const navLinkClass = onLightSurface
+    ? "text-muted-foreground hover:text-primary hover:bg-primary/5"
+    : "text-white/75 hover:text-white hover:bg-white/5";
 
   return (
     <header
       className={cn(
         "fixed top-0 left-0 right-0 z-50 transition-[background-color,box-shadow,border-color,backdrop-filter] duration-500 ease-out",
-        solid ? "home-nav-solid" : "home-nav-glass",
+        navSolid
+          ? "home-nav-solid"
+          : overDarkHero
+            ? "home-nav-glass"
+            : "home-nav-glass-light",
       )}
     >
       <div
         className="absolute bottom-0 left-0 h-[2px] bg-triboo-gradient origin-left transition-opacity duration-300"
         style={{
           width: `${scrollProgress * 100}%`,
-          opacity: solid ? 0.95 : 0.5,
+          opacity: navSolid ? 0.95 : 0.5,
         }}
         aria-hidden
       />
 
       <div className="relative max-w-7xl mx-auto px-4 md:px-6 h-[4.5rem] flex items-center justify-between gap-3 min-w-0">
         <TribooLogo
-          surface="dark"
+          surface={overDarkHero ? "dark" : "auto"}
           className="h-9 sm:h-10 shrink-0"
         />
 
@@ -121,9 +137,7 @@ export default function HomeNavbar() {
                 to={href}
                 className={cn(
                   "home-nav-link relative px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-300",
-                  solid
-                    ? "text-muted-foreground hover:text-primary hover:bg-primary/5"
-                    : "text-white/75 hover:text-white hover:bg-white/5",
+                  navLinkClass,
                 )}
               >
                 {t(key)}
@@ -134,9 +148,7 @@ export default function HomeNavbar() {
                 href={href}
                 className={cn(
                   "home-nav-link relative px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-300",
-                  solid
-                    ? "text-muted-foreground hover:text-primary hover:bg-primary/5"
-                    : "text-white/75 hover:text-white hover:bg-white/5",
+                  navLinkClass,
                 )}
               >
                 {t(key)}
@@ -148,14 +160,20 @@ export default function HomeNavbar() {
         {/* Mobile auth */}
         <div className="flex md:hidden items-center shrink-0">
           {token && !user && loading ? (
-            <div className="h-9 w-16 rounded-xl bg-white/10 animate-pulse" aria-hidden />
+            <div
+              className={cn(
+                "h-9 w-16 rounded-xl animate-pulse",
+                onLightSurface ? "bg-muted" : "bg-white/10",
+              )}
+              aria-hidden
+            />
           ) : isLoggedIn && user ? (
             <Link to="/portal" className={cn(portalChipClass, "pl-1 pr-3")}>
               <NavUserAvatar
                 firstName={user.firstName}
                 lastName={user.lastName}
                 avatarUrl={user.avatarUrl}
-                solid={solid}
+                onLightSurface={onLightSurface}
               />
               <span className="max-w-[5rem] truncate">{user.firstName}</span>
             </Link>
@@ -168,14 +186,20 @@ export default function HomeNavbar() {
 
         <div className="hidden md:flex items-center gap-2 sm:gap-3 shrink-0">
           {token && !user && loading ? (
-            <div className="h-9 w-24 sm:w-28 rounded-xl bg-white/10 animate-pulse" aria-hidden />
+            <div
+              className={cn(
+                "h-9 w-24 sm:w-28 rounded-xl animate-pulse",
+                onLightSurface ? "bg-muted" : "bg-white/10",
+              )}
+              aria-hidden
+            />
           ) : isLoggedIn && user ? (
             <Link to="/portal" className={portalChipClass} title={t("home.myPortal")}>
               <NavUserAvatar
                 firstName={user.firstName}
                 lastName={user.lastName}
                 avatarUrl={user.avatarUrl}
-                solid={solid}
+                onLightSurface={onLightSurface}
               />
               <span className="hidden sm:inline max-w-[8rem] truncate">{user.firstName}</span>
               <span className="sm:hidden">{t("home.myPortalShort")}</span>
@@ -186,7 +210,9 @@ export default function HomeNavbar() {
                 to="/login"
                 className={cn(
                   "hidden sm:inline text-sm font-medium transition-colors",
-                  solid ? "text-muted-foreground hover:text-primary" : "text-white/80 hover:text-white",
+                  onLightSurface
+                    ? "text-muted-foreground hover:text-primary"
+                    : "text-white/80 hover:text-white",
                 )}
               >
                 {t("home.signIn")}
@@ -201,7 +227,7 @@ export default function HomeNavbar() {
 
       <motion.div
         className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent"
-        animate={{ opacity: solid ? 0 : 1 }}
+        animate={{ opacity: navSolid ? 0 : 1 }}
         transition={{ duration: 0.4 }}
         aria-hidden
       />

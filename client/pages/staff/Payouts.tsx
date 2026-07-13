@@ -12,6 +12,7 @@ import {
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
+import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ import {
   validatePayoutProfileForm,
   type PayoutProfileFieldErrors,
 } from "@/utils/payoutProfileValidation";
+import { getPayoutProfileMissing } from "@/utils/staffFormMissing";
 import {
   acceptOrganizerPayoutTerms,
   fetchOrganizerPayoutStatus,
@@ -80,7 +82,9 @@ export default function StaffPayouts() {
     loadingPayoutStatus,
     payoutStatusError,
     savingPayoutProfile,
+    acceptingPayoutTerms,
     onboardingPayouts,
+    payoutOnboardError,
     syncingPayouts,
   } = useAppSelector((s) => s.staffPortal);
 
@@ -171,13 +175,28 @@ export default function StaffPayouts() {
   };
 
   const handleAcceptTerms = async () => {
-    await dispatch(acceptOrganizerPayoutTerms());
+    const result = await dispatch(acceptOrganizerPayoutTerms());
+    if (acceptOrganizerPayoutTerms.fulfilled.match(result)) {
+      toast({ title: t("staffPortal.payouts.termsAccepted") });
+    } else if (acceptOrganizerPayoutTerms.rejected.match(result)) {
+      toast({
+        variant: "destructive",
+        title: result.payload || t("staffPortal.errors.acceptPayoutTerms"),
+      });
+    }
   };
 
   const handleOnboard = async () => {
     const result = await dispatch(onboardOrganizerPayouts());
     if (onboardOrganizerPayouts.fulfilled.match(result) && result.payload.url) {
       window.location.href = result.payload.url;
+      return;
+    }
+    if (onboardOrganizerPayouts.rejected.match(result)) {
+      toast({
+        variant: "destructive",
+        title: result.payload || t("staffPortal.errors.startPayoutVerification"),
+      });
     }
   };
 
@@ -194,6 +213,12 @@ export default function StaffPayouts() {
   };
 
   const eventuallyDue = org?.requirements_eventually_due ?? [];
+  const payoutProfileMissing = getPayoutProfileMissing({
+    legal_name: legalName,
+    billing_email: billingEmail,
+    rfc,
+    tax_regime: taxRegime,
+  });
 
   return (
     <div className="max-w-3xl mx-auto w-full min-w-0 overflow-x-clip space-y-6">
@@ -314,6 +339,10 @@ export default function StaffPayouts() {
                 <Input id="tax_regime" value={taxRegime} onChange={(e) => setTaxRegime(e.target.value)} />
               </div>
             </div>
+            <StaffFormMissingChips
+              items={payoutProfileMissing}
+              showCompleteState={payoutProfileMissing.length === 0}
+            />
             <Button onClick={handleSaveProfile} disabled={savingPayoutProfile}>
               {savingPayoutProfile ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               {t("staffPortal.payouts.saveProfile")}
@@ -327,8 +356,17 @@ export default function StaffPayouts() {
                   ? t("staffPortal.payouts.termsTextAbsorb")
                   : t("staffPortal.payouts.termsTextPassThrough")}
               </p>
-              <Button variant="outline" onClick={handleAcceptTerms}>
-                {t("staffPortal.payouts.acceptTerms")}
+              <Button
+                variant="outline"
+                onClick={handleAcceptTerms}
+                disabled={acceptingPayoutTerms}
+              >
+                {acceptingPayoutTerms ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                {acceptingPayoutTerms
+                  ? t("staffPortal.payouts.acceptingTerms")
+                  : t("staffPortal.payouts.acceptTerms")}
               </Button>
             </div>
           ) : null}
@@ -365,15 +403,21 @@ export default function StaffPayouts() {
           />
 
           <ChecklistSection
-            title={t("staffPortal.payouts.stripeSectionTitle")}
-            hint={t("staffPortal.payouts.stripeSectionHint")}
+            title={t("staffPortal.payouts.bankVerificationSectionTitle")}
+            hint={t("staffPortal.payouts.bankVerificationSectionHint")}
             items={payoutStatus.stripeChecklist.items}
-            itemKeyPrefix="staffPortal.payouts.stripeItem"
+            itemKeyPrefix="staffPortal.payouts.bankVerificationItem"
           />
 
           {eventuallyDue.length > 0 ? (
             <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/30 px-3 py-2">
               {t("staffPortal.payouts.eventuallyDueHint", { count: eventuallyDue.length })}
+            </p>
+          ) : null}
+
+          {payoutOnboardError ? (
+            <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              {payoutOnboardError}
             </p>
           ) : null}
 
@@ -388,7 +432,7 @@ export default function StaffPayouts() {
               ) : (
                 <ExternalLink className="w-4 h-4 mr-2" />
               )}
-              {t("staffPortal.payouts.continueStripe")}
+              {t("staffPortal.payouts.continueVerification")}
             </Button>
             <Button
               variant="outline"

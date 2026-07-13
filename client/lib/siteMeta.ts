@@ -15,7 +15,9 @@ export const DEFAULT_OG_IMAGE_WIDTH = 1200;
 export const DEFAULT_OG_IMAGE_HEIGHT = 630;
 export const DEFAULT_OG_IMAGE_ALT = "Triboo Sport — sports events and athlete community";
 
-export const THEME_COLOR = "#05070D";
+export const THEME_COLOR_DARK = "#05070D";
+export const THEME_COLOR_LIGHT = "#f5f6f9";
+export const THEME_COLOR = THEME_COLOR_DARK;
 
 export const DEFAULT_DESCRIPTION =
   "Connect. Participate. Push your limits. Discover and register for triathlons, marathons, trails, and races across Mexico and Latin America.";

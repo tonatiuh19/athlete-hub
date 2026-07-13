@@ -32,7 +32,7 @@ export default function LanguageSwitcher({
       onClick={toggle}
       title={t("common.language")}
       aria-label={t("common.language")}
-      className={`inline-flex items-center gap-1.5 border border-border bg-card/60 hover:border-cyan/40 hover:bg-cyan/5 text-muted-foreground hover:text-cyan transition-all ${base} ${className}`}
+      className={`inline-flex items-center gap-1.5 border border-border bg-card/60 hover:border-cyan/40 hover:bg-cyan/5 text-muted-foreground hover:text-primary transition-all ${base} ${className}`}
     >
       <Globe className="w-3.5 h-3.5 shrink-0" />
       <span className="font-medium">{LOCALE_LABELS[current]}</span>

@@ -31,7 +31,12 @@
       "pickDate": "Choose a date",
       "clear": "Clear"
     },
-    "staff": "Staff"
+    "staff": "Staff",
+    "theme": {
+      "light": "Light theme",
+      "dark": "Dark theme",
+      "system": "System theme"
+    }
   },
   "auth": {
     "athlete": {
@@ -425,6 +430,9 @@
       "rejectEvent": "Could not reject event",
       "addCategory": "Could not add category",
       "removeCategory": "Could not remove category",
+      "addExtra": "Could not add extra",
+      "updateExtra": "Could not update extra",
+      "removeExtra": "Could not remove extra",
       "loadSponsors": "Could not load sponsors",
       "saveSponsors": "Could not save sponsors",
       "loadEventSummary": "Could not load event summary",
@@ -433,13 +441,14 @@
       "loadPayoutStatus": "Could not load payout status",
       "savePayoutProfile": "Could not save payout profile",
       "acceptPayoutTerms": "Could not accept payout terms",
-      "startStripeOnboarding": "Could not start payout verification",
+      "connectNotEnabled": "Payout verification is not available yet. Ask a Triboo admin to enable the platform payment account.",
+      "startPayoutVerification": "Could not start payout verification",
       "syncPayoutStatus": "Could not sync payout status",
       "openPayoutDashboard": "Could not open payout dashboard",
       "loadConnectStatus": "Could not load payout account status",
       "startAssistedOnboarding": "Could not start assisted onboarding",
       "syncConnectStatus": "Could not sync payout account status",
-      "linkStripeAccount": "Could not link payout account",
+      "linkPayoutAccount": "Could not link payout account",
       "disablePayouts": "Could not disable payouts",
       "enablePayouts": "Could not enable payouts",
       "loadTeam": "Could not load team",
@@ -453,6 +462,9 @@
       "loadCourse": "Could not load course",
       "saveCourse": "Could not save course",
       "loadDiscountCodes": "Could not load discount codes",
+      "loadFolioSegments": "Could not load folio rules",
+      "saveFolioSegments": "Could not save folio rules",
+      "loadSellerSummary": "Could not load seller sales summary",
       "createDiscountCode": "Could not create discount code",
       "updateDiscountCode": "Could not update discount code",
       "deleteDiscountCode": "Could not delete discount code",
@@ -480,6 +492,7 @@
       "blog": "Blog",
       "registrations": "Registrations",
       "analytics": "Analytics",
+      "siteSettings": "Site & legal",
       "settings": "Settings",
       "profile": "Profile",
       "myEvents": "My events",
@@ -679,6 +692,11 @@
       "sponsor": "Sponsor",
       "tier": "Tier"
     },
+    "formMissing": {
+      "requiredHeading": "Still needed",
+      "recommendedHeading": "Recommended",
+      "complete": "All set — ready to submit"
+    },
     "eventEdit": {
       "createTitle": "Create event",
       "editTitle": "Edit event",
@@ -809,6 +827,7 @@
       "sectionsLabel": "Event sections",
       "tabDetails": "Details",
       "tabCategories": "Categories",
+      "tabExtras": "Extras",
       "tabSponsors": "Sponsors",
       "tabSponsorAnalytics": "Sponsor analytics",
       "fieldTitle": "Event title",
@@ -861,6 +880,8 @@
         "file": "File upload"
       },
       "fieldMaxRegs": "Max registrations",
+      "fieldMaxRegsPerOrder": "Max tickets per order",
+      "fieldMaxRegsPerOrderHint": "Family/group checkout limit (1–20 participants per purchase).",
       "fieldRequiresWaiver": "Require digital waivers at registration",
       "fieldRequiresWaiverHint": "Athletes must accept all active waivers before checkout. Configure them in the Waiver tab.",
       "fieldFeePresentation": "Fee presentation",
@@ -967,9 +988,104 @@
       "fieldRegOpens": "Registration opens",
       "fieldRegCloses": "Registration closes",
       "tabFields": "Custom fields",
+      "extrasTitle": "Registration add-ons",
+      "extrasIntro": "Sell merch, services, and upgrades athletes can add during checkout. Use quick templates or build your own.",
+      "extrasSectionLegend": "Extras are optional purchases at checkout (tees, parking, upgrades) with a price or marked free. For custom form questions without a product—like emergency contact—use Campos extra instead.",
+      "extrasEmpty": "No add-ons yet. Pick a template below or create a custom extra.",
+      "extraTemplatesHeading": "Quick templates",
+      "extraTemplates": {
+        "officialTee": "Official event tee",
+        "officialTeeDesc": "Breathable race-day shirt with event branding.",
+        "runningShorts": "Performance shorts",
+        "runningShortsDesc": "Lightweight shorts with inner liner.",
+        "commemorativeHoodie": "Commemorative hoodie",
+        "commemorativeHoodieDesc": "Premium fleece hoodie with finisher artwork.",
+        "goldFolio": "Gold folio bib",
+        "goldFolioDesc": "Metallic gold race number for photos and keepsakes.",
+        "finisherMedal": "Extra finisher medal",
+        "finisherMedalDesc": "Additional medal for a friend or family member.",
+        "chipTimingPremium": "Premium chip timing",
+        "chipTimingPremiumDesc": "Disposable chip with live splits and SMS alerts.",
+        "vipBagDrop": "VIP bag drop",
+        "vipBagDropDesc": "Secure gear check near the start line.",
+        "parkingPass": "Venue parking pass",
+        "parkingPassDesc": "Reserved parking for race morning.",
+        "postRaceMeal": "Post-race meal",
+        "postRaceMealDesc": "Hot meal voucher at the finish festival.",
+        "photoPackage": "Pro photo package",
+        "photoPackageDesc": "Digital download of official race photos.",
+        "recoveryKit": "Recovery kit",
+        "recoveryKitDesc": "Foam roller, salts, and cooling towel.",
+        "hydrationBelt": "Hydration belt",
+        "hydrationBeltDesc": "Adjustable belt with two soft flasks.",
+        "massageSession": "15-min sports massage",
+        "massageSessionDesc": "Post-race recovery massage at the expo.",
+        "spectatorPass": "Spectator pass",
+        "spectatorPassDesc": "Access to VIP viewing area for friends & family."
+      },
+      "extraTypes": {
+        "merch": "Merchandise",
+        "addon": "Add-on",
+        "folio": "Folio / bib upgrade",
+        "service": "Service",
+        "experience": "Experience",
+        "custom": "Custom"
+      },
+      "addExtra": "Add custom extra",
+      "addExtraCta": "Create extra",
+      "extraName": "Name",
+      "extraNamePlaceholder": "e.g. Finisher hoodie",
+      "extraPriceMxn": "Price (MXN)",
+      "extraType": "Type",
+      "extraMaxPerAthlete": "Max per athlete",
+      "extraCapacity": "Total capacity",
+      "extraDescription": "Description (optional)",
+      "extraDescriptionHint": "Shown to athletes on the add-ons step. Use this for pickup time and location, available sizes, or what's included.",
+      "extraDescriptionPlaceholder": "e.g. Pick up at packet pickup Saturday 6–10 AM. Sizes S–XL.",
+      "extraImage": "Image (optional)",
+      "extraImageHint": "Recommended — helps athletes recognize merch and upgrades at checkout.",
+      "extraFreeToggle": "Free add-on (no charge)",
+      "extraFreeBadge": "Free",
+      "extraDeleteTitle": "Remove add-on?",
+      "extraDeleteDescription": "\"{{name}}\" will be permanently removed. This cannot be undone.",
+      "extraDeleteConfirm": "Remove",
+      "extraDeactivateTitle": "Hide add-on from sale?",
+      "extraDeactivateDescription": "\"{{name}}\" has {{count}} purchase(s). It will be hidden from new registrations but purchase history is kept for check-in.",
+      "extraDeactivateConfirm": "Hide from sale",
+      "extraScopeTitle": "Category availability",
+      "extraScopeAll": "All categories",
+      "extraScopeSelected": "Selected categories only",
+      "extraScopeNoCategories": "Add event categories before limiting add-ons to specific distances.",
+      "extraSalesCloses": "Sales close date",
+      "extraSalesClosesHint": "Optional. Must fall within the event registration window.",
+      "extraFieldsCount": "{{count}} custom field(s)",
+      "extraFieldsTitle": "Athlete questions",
+      "extraFieldsHint": "Up to {{max}} fields per add-on. Locked after the first purchase.",
+      "extraFieldsLocked": "Field definitions are locked because this add-on has sales.",
+      "extraFieldsEmpty": "No custom questions yet. Add fields athletes must answer when selecting this add-on.",
+      "extraFieldShippingBlock": "MX shipping address",
+      "extraFieldItem": "Field {{index}}",
+      "extraFieldLabel": "Label",
+      "extraFieldType": "Type",
+      "extraFieldTypes": {
+        "text": "Short text",
+        "textarea": "Long text",
+        "select": "Dropdown",
+        "checkbox": "Checkbox",
+        "number": "Number",
+        "date": "Date"
+      },
+      "extraFieldOptions": "Dropdown options",
+      "extraFieldOptionsPlaceholder": "Comma-separated, e.g. S, M, L, XL",
+      "extraFieldAdd": "Add field",
+      "extraFieldAddShipping": "Add MX shipping block",
+      "extraFieldAddShirtSize": "Add shirt size",
+      "extraFieldAddShirtFit": "Add fit + size",
+      "unlimited": "Unlimited",
       "tabWaiver": "Waiver",
       "fieldsTitle": "Registration questions",
       "fieldsSubtitle": "Collect extra info during checkout (shirt size, emergency contact, etc.)",
+      "fieldsSectionLegend": "Campos extra are custom checkout questions (text, dropdowns, etc.) for every registrant. For sellable add-ons with pricing—like merch or parking—use Extras instead.",
       "fieldLabel": "Field label",
       "fieldRequired": "Required",
       "addField": "Add field",
@@ -1003,6 +1119,7 @@
       "tabWaves": "Waves",
       "tabCourse": "Course",
       "tabDiscounts": "Discounts",
+      "tabFolios": "Custom folios",
       "wavesTitle": "Start waves",
       "wavesSubtitle": "Group athletes into corral start times",
       "waveName": "Wave name",
@@ -1028,6 +1145,50 @@
       "discountUses": "{{used}} / {{max}} uses",
       "deactivateDiscount": "Deactivate",
       "activateDiscount": "Activate"
+    },
+    "folioSegments": {
+      "title": "Custom folio rules",
+      "subtitle": "Assign registration folios by category and coupon. Rules are checked top to bottom — first match wins.",
+      "empty": "No custom folio rules yet. New registrations use the default REG format until you add rules.",
+      "unnamed": "Untitled rule",
+      "shadowedWarning": "A higher rule already covers this same category + coupon scope.",
+      "ruleName": "Rule name",
+      "ruleNamePlaceholder": "e.g. 5K with early bird",
+      "counterScope": "Counter scope",
+      "counterSegment": "Per rule (separate counter)",
+      "counterEvent": "Per event (shared counter)",
+      "counterCategory": "Per category (shared within category)",
+      "couponScope": "Coupon filter",
+      "couponAny": "Any coupon status",
+      "couponNone": "No coupon used",
+      "couponAnyUsed": "Any coupon used",
+      "couponSpecific": "Specific coupon",
+      "couponCode": "Coupon",
+      "selectCoupon": "Select coupon",
+      "startNumber": "Start number",
+      "active": "Active",
+      "addRule": "Add rule",
+      "save": "Save folio rules",
+      "fallbackNote": "If no rule matches, athletes receive the default folio format REG-{event}-{sequence}. Existing folios are never changed.",
+      "patternTitle": "Folio pattern",
+      "patternSubtitle": "Build the folio with tokens and separators. Drag parts to reorder.",
+      "prefixValue": "Prefix value ({PREFIX})",
+      "categoryCode": "Category code ({CAT})",
+      "patternParts": "Pattern parts",
+      "patternEmpty": "Add tokens to build a pattern.",
+      "addSeparator": "Separator",
+      "seqPadding": "Sequence padding",
+      "preview": "Preview",
+      "tokenPrefix": "Prefix",
+      "tokenCat": "Category code",
+      "tokenYear": "Year",
+      "tokenCoupon": "Coupon code",
+      "tokenSeq": "Sequence",
+      "tokenEvent": "Event code",
+      "presetPrefixSeq": "Prefix + sequence",
+      "presetCatSeq": "Category + sequence",
+      "presetCatYearSeq": "Category + year + sequence",
+      "presetPrefixCatSeq": "Prefix + category + sequence"
     },
     "courseEditor": {
       "tools": "Map tools",
@@ -1142,6 +1303,7 @@
       "forceUnsignedDescription": "This athlete has not signed the required waiver. Force check-in only if you have verified their waiver on paper or have staff authorization.",
       "forceOutdatedDescription": "The waiver was updated after this athlete signed. They should re-sign in the app, or you can force check-in if you have verified acceptance offline.",
       "forceConfirm": "Force check-in",
+      "purchasedExtras": "Add-ons purchased",
       "windowLoading": "Loading check-in window…",
       "windowOpen": "Check-in is open",
       "windowOpenHint": "Closes {{closes}}",
@@ -1202,7 +1364,16 @@
       "colEmail": "Email",
       "colRole": "Role",
       "colStatus": "Status",
-      "colJoined": "Added"
+      "colJoined": "Added",
+      "roles": {
+        "organizer": "Organizer",
+        "operations": "Operations",
+        "marketing": "Marketing",
+        "finance": "Finance",
+        "timing": "Timing",
+        "sponsor": "Sponsor",
+        "seller": "Seller"
+      }
     },
     "messaging": {
       "title": "Bulk messaging",
@@ -1370,6 +1541,7 @@
       "waiverOutdated": "Outdated",
       "waiverWaivedManual": "I confirm the waiver requirement is waived for this manual registration",
       "fieldsSection": "Custom fields",
+      "purchasedExtras": "Add-ons purchased",
       "historySection": "Status history",
       "addManual": "Add registration",
       "addManualTitle": "Manual registration",
@@ -1407,10 +1579,32 @@
       "connectNone": "Not connected",
       "serviceFee": "Service fee",
       "feePresentation": "Fee mode",
-      "organizerTransfer": "Organizer Stripe transfer",
+      "organizerTransfer": "Organizer payout transfer",
       "listPrice": "List / sticker price",
       "displayIva": "Illustrative IVA",
-      "fiscalNet": "Organizer fiscal net"
+      "fiscalNet": "Organizer fiscal net",
+      "manualSaleCta": "Record manual sale",
+      "manualSaleTitle": "Manual sale",
+      "manualSaleSubtitle": "Capture an in-person registration payment at category price with no platform commission.",
+      "manualSaleEvent": "Event",
+      "manualSaleEventPlaceholder": "Select event",
+      "manualSaleNoCommission": "Platform commission is not charged on manual sales.",
+      "manualSaleSubmit": "Record sale",
+      "providerAll": "All providers",
+      "providerManual": "Manual",
+      "providerMock": "Comp / mock",
+      "colSeller": "Seller",
+      "colSales": "Sales",
+      "sellerOnline": "Online checkout",
+      "sellerSummaryTitle": "Sales by seller",
+      "sellerSummarySubtitle": "Manual in-person sales attributed to each team member.",
+      "sellerSummaryEmpty": "No manual sales recorded yet.",
+      "manualSalesTotal": "Manual sales total",
+      "manualSalesCount": "Manual sales count",
+      "sellerFilter": "Seller",
+      "sellerFilterAll": "All sellers",
+      "clearFilters": "Clear filters",
+      "sellerSummaryFilterHint": "Click a row to filter the payments grid"
     },
     "payouts": {
       "title": "Payout setup",
@@ -1420,8 +1614,8 @@
       "statusNotReady": "Payout setup incomplete",
       "tribooSectionTitle": "Step 1 — Triboo profile",
       "tribooSectionHint": "Complete your business details before starting bank verification.",
-      "stripeSectionTitle": "Step 2 — Bank verification",
-      "stripeSectionHint": "We verify your identity and bank details. Triboo cannot skip this step.",
+      "bankVerificationSectionTitle": "Step 2 — Bank verification",
+      "bankVerificationSectionHint": "We verify your identity and bank details. Triboo cannot skip this step.",
       "profileFormTitle": "Business profile",
       "fieldLegalName": "Legal business name",
       "fieldBillingEmail": "Billing email",
@@ -1439,7 +1633,9 @@
       "termsTextAbsorb": "I understand that when fee absorption is enabled, athletes pay only my public sticker price. Platform fee and illustrative IVA are deducted from my net. Triboo deposits my payout directly to my bank.",
       "feePresentationSwitchConfirm": "Enabling fee absorption changes what your category prices mean. Review and update existing prices before publishing. Continue?",
       "acceptTerms": "I accept payout terms",
-      "continueStripe": "Continue verification",
+      "acceptingTerms": "Accepting terms…",
+      "termsAccepted": "Payout terms accepted",
+      "continueVerification": "Continue verification",
       "syncStatus": "Refresh status",
       "completeTribooFirst": "Complete Step 1 and accept terms before continuing verification.",
       "feeCalculatorTitle": "Fee calculator",
@@ -1455,11 +1651,11 @@
       "linePublicPrice": "Public price (IVA incl.)",
       "lineDisplayIva": "Illustrative IVA (16%)",
       "lineOrganizerNet": "Your take-home per registration",
-      "lineStripeDeposit": "Triboo deposits to your bank (before SAT IVA)",
+      "lineBankDeposit": "Triboo deposits to your bank (before SAT IVA)",
       "ivaAbsorbSummary": "Illustrative IVA {{iva}} on {{total}} sticker (informative only).",
       "ivaDisclaimer": "CFDI invoices use official SAT back-calculation per gross component.",
       "projectionOrganizerNet": "Your net ≈ {{amount}}",
-      "projectionStripe": "Triboo deposits ≈ {{amount}}",
+      "projectionBankDeposit": "Triboo deposits ≈ {{amount}}",
       "feePercentLabel": "Platform service fee (%)",
       "samplePriceLabel": "Sample inscription",
       "lineInscription": "Inscription (IVA incl.)",
@@ -1481,6 +1677,9 @@
       "paymentsUnavailableBanner": "Registration payments are paused until payout setup is complete. Athletes cannot check out for paid categories.",
       "paymentsUnavailableBannerAdmin": "This organizer's registration payments are paused until payout setup is complete.",
       "paymentsUnavailableEditEvent": "Review event setup",
+      "setupBannerTitle": "Set up your bank account to receive paid registrations",
+      "setupBannerBody": "Athletes cannot pay online until you complete payout setup (business profile + bank verification). Free categories are not affected.",
+      "setupBannerCta": "Complete payout setup",
       "adminSectionTitle": "Assisted payout onboarding",
       "adminSectionHint": "Start or refresh payout onboarding for this organizer. They must still complete bank verification.",
       "adminStartOnboard": "Start / resend verification link",
@@ -1503,7 +1702,7 @@
         "payout_terms": "Payout terms accepted",
         "fee_acknowledged": "Fee structure acknowledged"
       },
-      "stripeItem": {
+      "bankVerificationItem": {
         "account_created": "Payout account created",
         "business_details": "Business details submitted",
         "identity": "Identity verification",
@@ -1562,6 +1761,53 @@
         "tooLarge": "Image must be under 180KB",
         "failed": "Could not upload photo"
       }
+    },
+    "siteSettings": {
+      "title": "Site & legal profile",
+      "subtitle": "Public contact details and legal entity fields used on the contact page and legal documents. Empty fields are hidden automatically.",
+      "eyebrow": "Platform settings",
+      "previewContact": "Preview contact page",
+      "save": "Save site profile",
+      "saved": "Site profile saved. Changes appear on the contact page and legal documents.",
+      "sections": {
+        "legal": "Legal entity",
+        "legalHint": "Used in Terms, Privacy Notice, and footer legal links. Leave blank to hide a field.",
+        "contact": "Contact page",
+        "contactHint": "Optional copy and channels shown on /contact. Headline and subtitle fall back to defaults when empty."
+      },
+      "fields": {
+        "brandName": "Brand name",
+        "legalName": "Legal name (razón social)",
+        "rfc": "RFC",
+        "address": "Address",
+        "arcoEmail": "Privacy / ARCO email",
+        "supportEmail": "Support email",
+        "website": "Website URL",
+        "lastUpdated": "Legal docs last updated (YYYY-MM-DD)",
+        "phone": "Phone",
+        "whatsapp": "WhatsApp number",
+        "whatsappHint": "Digits only with country code, e.g. 5215512345678. Hidden when empty.",
+        "headline": "Contact page headline",
+        "subtitle": "Contact page subtitle",
+        "supportHint": "Support card hint",
+        "organizerHint": "Organizers card hint",
+        "responseTime": "Response time note",
+        "officeHours": "Office hours",
+        "socialInstagram": "Instagram URL",
+        "socialFacebook": "Facebook URL",
+        "socialYoutube": "YouTube URL",
+        "emptyHidden": "Leave empty to hide on the public site.",
+        "optionalDefault": "Leave empty to use the default translated copy."
+      },
+      "validation": {
+        "brandRequired": "Brand name is required",
+        "emailInvalid": "Enter a valid email or leave blank",
+        "urlInvalid": "Enter a valid URL or leave blank"
+      },
+      "errors": {
+        "loadFailed": "Could not load site profile",
+        "saveFailed": "Could not save site profile"
+      }
     }
   },
   "mobileNav": {
@@ -1576,7 +1822,8 @@
     "signIn": "Sign in",
     "myPortal": "Go to my portal",
     "myPortalShort": "Portal",
-    "staffAccess": "Staff access",
+    "staffAccess": "Organizer login",
+    "hostEvent": "Host an event",
     "rightsReserved": "All rights reserved.",
     "meta": {
       "title": "Triboo Sport — Events & Your Triboo",
@@ -1761,6 +2008,8 @@
       "legal": "Legal",
       "about": "About us",
       "blog": "Blog",
+      "support": "Support",
+      "help": "Help & FAQ",
       "contact": "Contact",
       "privacy": "Privacy",
       "terms": "Terms",
@@ -1769,8 +2018,370 @@
       "emailPlaceholder": "Your email"
     }
   },
+  "faq": {
+    "meta": {
+      "title": "Help & FAQ — Triboo Sport",
+      "description": "Answers about event registration, payments, QR check-in, Triboos, and athlete support on Triboo Sport."
+    },
+    "home": {
+      "title": "Questions before race day?",
+      "subtitle": "Quick answers on registering, paying, and showing up ready.",
+      "viewAll": "View all help topics",
+      "cardTitle": "Help center",
+      "cardBody": "Registration, family orders, waitlists, payments, and check-in — curated for athletes.",
+      "stillStuck": "Still stuck?",
+      "contactCta": "Contact support"
+    },
+    "page": {
+      "eyebrow": "Help & support",
+      "title": "How can we help?",
+      "subtitle": "Browse common questions about Triboo Sport. For personal help, our support team is one click away.",
+      "categoryNav": "FAQ categories"
+    },
+    "categories": {
+      "registration": "Registration & events",
+      "registrationDesc": "Sign up solo or with your crew, waivers, add-ons, and sold-out categories.",
+      "payments": "Payments & pricing",
+      "paymentsDesc": "Cards, MXN totals, free events, and refunds.",
+      "account": "Account & check-in",
+      "accountDesc": "Your profile, QR code, and transferring a spot.",
+      "communities": "Triboos & teams",
+      "communitiesDesc": "Find crews, join with a code, or start your own.",
+      "organizers": "Organizers",
+      "organizersDesc": "Publish your race on Triboo.",
+      "support": "Support",
+      "supportDesc": "Reach Triboo when you need a human."
+    },
+    "support": {
+      "title": "Didn't find your answer?",
+      "subtitle": "Our team can help with registrations, payments, account access, and race-day questions.",
+      "contactCta": "Go to contact page",
+      "whatsappCta": "WhatsApp",
+      "organizerLink": "I want to host an event"
+    },
+    "items": {
+      "howToRegisterForEvent": {
+        "question": "How do I register for an event?",
+        "answer": "Open any event on the marketplace and choose Register now for your category. The wizard walks you through sign-in (if needed), waivers, optional add-ons, organizer fields, and payment—or instant confirmation for free categories. Your registration and QR code appear in My registrations once confirmed."
+      },
+      "groupFamilyRegistration": {
+        "question": "Can I register multiple people in one order?",
+        "answer": "Yes. On the event page, use Register family / group to add up to the event's per-order limit (usually 10). Include yourself, link participants who already have Triboo accounts, or add guests without accounts. One checkout covers the whole order and sends confirmation emails to each participant."
+      },
+      "guestRegistrationClaim": {
+        "question": "I was registered as a guest—how do I claim my spot?",
+        "answer": "If someone registered you as a guest, you'll get a confirmation email with a Claim my registration link. Sign in or create a Triboo account with the same email—the app links the registration to your profile. After that, the registration shows in your portal with your QR code."
+      },
+      "waitlistHowItWorks": {
+        "question": "What happens when a category is sold out?",
+        "answer": "If the organizer enabled a waitlist, you can Join waitlist when a category is full. You'll see your queue position and get an email when a spot opens. From My registrations, use Claim spot to complete checkout before the offer expires."
+      },
+      "waiverRequirement": {
+        "question": "Do I need to sign a waiver to register?",
+        "answer": "Many events require one or more digital waivers before checkout. You'll read each waiver (HTML and/or PDF) and accept them in the registration wizard. If an organizer updates a waiver later, you may be prompted to re-sign from My registrations."
+      },
+      "registrationExtrasAddons": {
+        "question": "What are registration add-ons?",
+        "answer": "Organizers can offer optional extras (merch, meals, services, and more) during registration. You choose quantities per participant; some add-ons ask extra questions or a shipping address. Add-ons are included in your checkout total alongside the category price."
+      },
+      "discountCodesAtCheckout": {
+        "question": "Can I use a promo or discount code?",
+        "answer": "Yes, if the organizer created one. Enter your code at checkout (solo or group orders) and tap Apply before paying. Valid codes reduce your total; invalid or expired codes are rejected with an error message."
+      },
+      "registrationEligibility": {
+        "question": "Why can't I select certain categories?",
+        "answer": "Categories can restrict age, gender, or registration window dates. Triboo recommends categories based on your profile date of birth and gender—complete those in Profile if you see eligibility warnings. Registration also closes after the event's registration deadline."
+      },
+      "paymentMethodsStripe": {
+        "question": "How do I pay for a registration?",
+        "answer": "Paid registrations are processed securely through Stripe with MXN card payments. Pay with a new card at checkout or use a card saved under Payment methods in your portal. Triboo does not store your full card number—Stripe handles PCI-compliant processing."
+      },
+      "pricesInMxnAndFees": {
+        "question": "What currency are prices shown in?",
+        "answer": "Event and add-on prices are shown in Mexican pesos (MXN). Checkout may include a Triboo service fee and IVA in the total; expand the invoice breakdown on the payment step for an itemized preview."
+      },
+      "freeEventRegistration": {
+        "question": "Do I need a card for free events?",
+        "answer": "No. When your category and add-ons total $0 MXN, checkout skips card entry and confirms your registration immediately. You'll still get a confirmation email and QR code like any other registration."
+      },
+      "refundsAndCancellations": {
+        "question": "How do refunds and cancellations work?",
+        "answer": "Refunds are issued by the organizer or Triboo staff, not self-service in the athlete portal. Contact the event organizer or Triboo support via the Contact page. Refunded registrations show as Refunded in your portal."
+      },
+      "createAthleteAccount": {
+        "question": "How do I create or sign in to my athlete account?",
+        "answer": "Go to Login and enter your email. Sign in with a password, use social sign-in when enabled, or create a new profile. Your athlete portal holds registrations, results, teams, and payment methods."
+      },
+      "completeAthleteProfile": {
+        "question": "Why is Triboo asking me to complete my profile?",
+        "answer": "Date of birth and gender are used to recommend eligible categories and validate restrictions at checkout. If either is missing, you may be redirected to Complete profile before finishing registration. Update details anytime under Profile."
+      },
+      "qrCheckInCode": {
+        "question": "Where is my check-in QR code?",
+        "answer": "After confirmation, open My registrations in your portal and tap View QR on any active registration. Show that code at packet pickup or race-day check-in—it encodes your unique registration token and displays your folio (and bib when assigned)."
+      },
+      "transferRegistration": {
+        "question": "Can I transfer my registration to someone else?",
+        "answer": "Yes, for eligible confirmed registrations. In My registrations, use Transfer and enter the recipient's email. They'll receive instructions to accept the transfer into their Triboo account. Only one pending transfer is allowed per registration at a time."
+      },
+      "whatAreTriboos": {
+        "question": "What are Triboos and how do I find them?",
+        "answer": "Triboos are public athlete communities—training crews and race groups. Browse them at Communities, view member rosters and captains, then join with an invite code from your portal. Creating a team is free from Portal → Teams."
+      },
+      "joinOrCreateTeam": {
+        "question": "How do I join or start a team?",
+        "answer": "Sign in and go to Teams in your portal. Join with a captain's invite code, or Create a team with a name and description to get your own code to share. Public teams can appear on the communities page for others to discover."
+      },
+      "hostEventOnTriboo": {
+        "question": "I want to organize a race—where do I start?",
+        "answer": "Visit Host an event to learn how Triboo handles registrations, Stripe payments, and QR check-in. Tap Start free to begin self-service organizer signup; events are reviewed before appearing on the public marketplace."
+      },
+      "contactAthleteSupport": {
+        "question": "How do I contact Triboo for help?",
+        "answer": "Visit the Contact page for athlete support: support email, phone, WhatsApp, and office details from our public site profile. Use this for registration, payment, or account questions. Organizers have a separate onboarding path at Host an event."
+      },
+      "paymentsUnavailableForEvent": {
+        "question": "Why can't I pay online for a paid category?",
+        "answer": "If the organizer hasn't finished Stripe Connect payout setup, paid categories may show online payment temporarily unavailable while free categories can still work. Check back later or contact the organizer—the event page explains when payouts are still being configured."
+      }
+    }
+  },
+  "organizerSignup": {
+    "metaTitle": "Organizer signup — Triboo Sport",
+    "metaDescription": "Create your organizer account and start building your event on Triboo Sport.",
+    "back": "Back",
+    "helpPrompt": "Need help?",
+    "helpEmail": "soporte@triboosport.com",
+    "stepLabel": "Step {{current}} of {{total}}",
+    "start": {
+      "metaTitle": "Host an event — Triboo Sport",
+      "metaDescription": "Publish your race on Triboo. Registrations, payments, and check-in in one place.",
+      "eyebrow": "For organizers",
+      "title": "Publish your race on Triboo",
+      "subtitle": "Registrations, secure card payments, and check-in — we handle the tech so you can focus on your athletes.",
+      "cta": "Start free",
+      "signIn": "Sign in",
+      "reviewNote": "We review every event before it goes live on the marketplace.",
+      "howTitle": "How it works",
+      "howStep1": "Create your free organizer account in minutes.",
+      "howStep2": "Build your event draft — categories, pricing, waivers, and more.",
+      "howStep3": "Submit for Triboo review. Once approved, athletes can register.",
+      "advantages": {
+        "title": "Why organizers choose Triboo",
+        "subtitle": "Everything you need to launch and run a professional race—without building your own stack.",
+        "console": {
+          "title": "One modern console",
+          "body": "Categories, pricing, waivers, sponsors, and registrations—managed from a single staff portal built for race day."
+        },
+        "payments": {
+          "title": "Secure card payments",
+          "body": "Athletes pay online with confidence. You get clear payment records and payout tools when you're ready to go live."
+        },
+        "checkIn": {
+          "title": "QR check-in on site",
+          "body": "Fast bib pickup and check-in from any phone. Less queue, less chaos—more time for your athletes."
+        },
+        "trust": {
+          "title": "Reviewed marketplace listing",
+          "body": "Every event is reviewed before it goes public—so athletes trust what they see and you launch with credibility."
+        },
+        "experience": {
+          "title": "Athlete-first experience",
+          "body": "Mobile-friendly registration, clear confirmations, and a portal athletes actually want to use—your brand looks pro from day one."
+        },
+        "focus": {
+          "title": "We handle the tech",
+          "body": "You focus on the course, the community, and race day. Triboo handles registrations, payments, and the digital layer."
+        }
+      }
+    },
+    "welcome": {
+      "title": "Publish your race on Triboo",
+      "subtitle": "A few quick questions, then verify your email. No password to remember.",
+      "cta": "Get started",
+      "hasAccount": "Already have an account?"
+    },
+    "steps": {
+      "ownerTitle": "About you",
+      "organizationTitle": "Your organization",
+      "intakeTitle": "Your first event (optional)",
+      "verifyTitle": "Verify your email"
+    },
+    "owner": {
+      "hint": "This email is how you'll sign in — we'll send a code, no password.",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "email": "Email",
+      "phoneOptional": "Phone (optional)"
+    },
+    "organization": {
+      "hint": "Club, timing company, or race name — your city must be from our catalog.",
+      "name": "Organization name",
+      "emailOptional": "Organization email (optional)",
+      "emailPlaceholder": "Defaults to your sign-in email",
+      "phoneOptional": "Organization phone (optional)"
+    },
+    "intake": {
+      "hint": "Help us personalize your welcome — you can skip and decide later.",
+      "sport": "Sport type",
+      "sportPlaceholder": "Select a sport",
+      "dateOptional": "Rough date (optional)",
+      "sizeOptional": "Expected size (optional)",
+      "sizeUnder100": "Under 100",
+      "size100to500": "100–500",
+      "size500Plus": "500+",
+      "submit": "Create account",
+      "skip": "I'll decide later"
+    },
+    "verify": {
+      "subtitle": "Enter the 6-digit code we sent to {{email}}.",
+      "submit": "Verify and continue",
+      "verifying": "Verifying…",
+      "resend": "Resend code",
+      "resending": "Sending…"
+    },
+    "errors": {
+      "invalidCity": "Please select a city from the list."
+    },
+    "onboarding": {
+      "metaTitle": "Welcome — Triboo organizer",
+      "metaDescription": "Your organizer account is ready. Create your first event draft.",
+      "fallbackName": "there",
+      "title": "You're in, {{name}}!",
+      "subtitle": "Let's create your first event.",
+      "checklistTitle": "Your launch checklist",
+      "checklistDraft": "Create event draft",
+      "checklistCategories": "Add categories & pricing",
+      "checklistSubmit": "Submit for Triboo review",
+      "reviewNote": "Your event stays private until Triboo approves it for the marketplace.",
+      "createEvent": "Create event",
+      "exploreDashboard": "Explore dashboard"
+    },
+    "adminIntake": {
+      "title": "Self-service signup",
+      "registeredAt": "Registered {{date}}",
+      "sport": "Sport interest",
+      "roughDate": "Rough date",
+      "expectedSize": "Expected size",
+      "none": "Not provided"
+    }
+  },
+  "legal": {
+    "pageDescription": "Legal information for Triboo Sport platform users.",
+    "backHome": "Back to home",
+    "links": {
+      "terms": "Terms of Service",
+      "privacy": "Privacy Notice",
+      "organizerTerms": "Organizer Terms"
+    },
+    "consent": {
+      "athleteRegister": "I have read and accept the",
+      "checkout": "This registration is with the event organizer. Triboo Sport is a technology facilitator only and is not responsible for the event. By paying you confirm you agree to the",
+      "organizerRegister": "I accept the"
+    },
+    "errors": {
+      "mustAccept": "You must accept the legal terms to continue."
+    }
+  },
+  "contact": {
+    "metaTitle": "Contact — Triboo Sport",
+    "metaDescription": "Get in touch with Triboo Sport for athlete support, privacy requests, or organizer onboarding.",
+    "eyebrow": "Contact",
+    "defaultHeadline": "We're here to help",
+    "defaultSubtitle": "Reach out for athlete support, privacy (ARCO) requests, or questions about hosting your event on Triboo.",
+    "legalHint": "For legal documents and privacy rights, see our published notices.",
+    "faqHint": "Looking for quick answers?",
+    "faqLink": "Browse the help center",
+    "cards": {
+      "supportTitle": "Athlete support",
+      "supportBody": "Questions about registrations, payments, or your Triboo account.",
+      "privacyTitle": "Privacy & ARCO",
+      "privacyBody": "Exercise your data protection rights or report a privacy concern.",
+      "phoneTitle": "Phone",
+      "whatsappTitle": "WhatsApp",
+      "whatsappBody": "Message us on WhatsApp for quick support.",
+      "addressTitle": "Office",
+      "organizersTitle": "Organizers",
+      "organizersBody": "Ready to publish your race? Start the self-service onboarding flow.",
+      "organizersCta": "Host an event"
+    }
+  },
+  "about": {
+    "metaTitle": "About us — Triboo Sport",
+    "metaDescription": "Triboo Sport connects athletes, Triboos, and independent race organizers across Mexico and Latin America. Connect. Participate. Push your limits.",
+    "eyebrow": "Our story",
+    "hero": {
+      "title": "Every start line",
+      "titleHighlight": "is a promise.",
+      "subtitle": "Before the horn, before the first stride, there's the crew—the messages at dawn, the shared miles, the people who show up when it matters. Triboo Sport exists for that feeling: discover races, register with confidence, and never go alone."
+    },
+    "stats": {
+      "events": "Published events",
+      "athletes": "Active athletes",
+      "tribes": "Public Triboos"
+    },
+    "manifesto": {
+      "quote": "We believe sport is at its best when it's shared—when discovery leads to registration, registration leads to race day, and race day leads to the next challenge together.",
+      "attribution": "The Triboo Sport mission — built in Mexico for athletes across Latin America."
+    },
+    "mission": {
+      "title": "Connect. Participate. Push your limits.",
+      "subtitle": "Three words that guide everything we build—from the marketplace to your athlete portal.",
+      "connect": {
+        "title": "Connect",
+        "body": "Browse triathlons, trail runs, and road races across Mexico and Latin America. Find your Triboo—the crew that trains with you and meets you at the line."
+      },
+      "participate": {
+        "title": "Participate",
+        "body": "Register in minutes, pay securely, and arrive ready. Your confirmation, QR check-in, and event details live in one place—so you can focus on the start line."
+      },
+      "pushLimits": {
+        "title": "Push your limits",
+        "body": "Track your season, climb leaderboards, and keep the next challenge in sight. Progress isn't solo—it's the momentum you build with your people."
+      }
+    },
+    "platform": {
+      "badge": "The platform",
+      "title": "Technology for athletes and organizers—not the race itself",
+      "body": "Triboo Sport is a marketplace and athlete hub. Independent organizers publish their events; we provide registrations, secure payments, check-in tools, and the digital home for your Triboo.",
+      "facilitatorNote": "We don't organize, produce, or run sporting events. Every race on Triboo is operated by its organizer—we're the technology that makes it seamless.",
+      "regionTitle": "Rooted in Mexico, built for LATAM",
+      "regionBody": "From Mexico City outward, we're growing a trusted network of events and athlete communities across the region."
+    },
+    "audiences": {
+      "title": "Two sides of the same start line",
+      "subtitle": "Whether you're racing or putting on the race, Triboo is where the journey comes together.",
+      "athletesTitle": "For athletes",
+      "athletesBody": "Discover events, join public Triboos, manage registrations, and track your results—all in one athlete portal designed for people who live for the next start line.",
+      "athletesCta": "Browse events",
+      "organizersTitle": "For organizers",
+      "organizersBody": "Publish your race, accept registrations and card payments, run check-in, and manage your event from a modern staff console—we handle the tech so you can focus on your athletes.",
+      "organizersCta": "Host an event"
+    },
+    "journey": {
+      "title": "From discovery to finish line",
+      "subtitle": "A simple path—whether you're signing up for your next race or launching one for others.",
+      "step1Title": "Discover",
+      "step1Body": "Search the marketplace by sport, city, or date. Explore on the map, save your crew, and pick the event that calls to you.",
+      "step2Title": "Register",
+      "step2Body": "Complete your registration, sign waivers, and pay securely. Your spot is confirmed—with everything you need in your portal.",
+      "step3Title": "Show up together",
+      "step3Body": "Race day: QR check-in, your Triboo at the line, results when they're in. Then start planning the next one."
+    },
+    "trust": {
+      "title": "Built for trust",
+      "body": "Your data matters. We use industry-standard security, clear privacy practices aligned with Mexican law, and transparent terms for athletes and organizers.",
+      "reviewNote": "Every event is reviewed by Triboo before it goes live on the marketplace."
+    },
+    "cta": {
+      "title": "Ready for your",
+      "titleHighlight": "next challenge?",
+      "description": "Discover events, join your Triboo, and track your journey with Triboo Sport.",
+      "primary": "Start your journey",
+      "secondary": "Find your Triboo"
+    }
+  },
   "eventsBrowse": {
-    "pageTitle": "Discover Events",
     "pageSubtitle": "Browse races, triathlons, and trail runs across Mexico. Filter by sport, city, and date — or explore on the map and calendar.",
     "metaImageAlt": "Browse sports events on Triboo Sport",
     "eyebrow": "Marketplace",
@@ -1932,6 +2543,12 @@
     "from": "From",
     "freeOrTbd": "Free / TBD",
     "registerCta": "Register now",
+    "registerGroupCta": "Register family / group",
+    "registerUnavailable": "Registration unavailable",
+    "paymentsPausedTitle": "Online payment temporarily unavailable",
+    "paymentsPausedBody": "The organizer is still setting up secure payouts. Paid categories cannot be purchased online yet. Please check back soon or contact the organizer.",
+    "paymentsPausedFreeCategoriesHint": "Free categories below may still be available.",
+    "categoryPaymentsPaused": "Online payment not available for this category yet",
     "tabOverview": "Overview",
     "tabConvocatoria": "Convocatoria",
     "tabCourse": "Course map",
@@ -1997,6 +2614,41 @@
     "blogViewAll": "View all articles",
     "blogLinkedToEvent": "Event article"
   },
+  "groupRegistration": {
+    "title": "Family / group registration",
+    "howMany": "How many people are you registering?",
+    "maxPerOrder": "Up to {{max}} registrations per order",
+    "includeMe": "Include myself in this order",
+    "continue": "Continue",
+    "category": "Category",
+    "selectCategory": "Select a category",
+    "participantType": "Participant type",
+    "hasAccount": "Has a Triboo account",
+    "guest": "Guest (no account)",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "dateOfBirth": "Date of birth",
+    "gender": "Gender",
+    "genderMale": "Male",
+    "genderFemale": "Female",
+    "genderOther": "Other",
+    "genderPreferNot": "Prefer not to say",
+    "guardianRelationship": "Guardian relationship (minors)",
+    "guardianPlaceholder": "e.g. Parent, legal guardian",
+    "participantProgress": "Participant {{current}} of {{total}}",
+    "registeringAsYou": "Registering as you ({{email}})",
+    "nextParticipant": "Next participant",
+    "reviewOrder": "Review order",
+    "you": "You",
+    "discountCode": "Discount code (whole order)",
+    "preparingCheckout": "Preparing checkout…",
+    "continueToPayment": "Continue to payment",
+    "orderSummary": "{{count}} registrations",
+    "confirmFree": "Confirm registration",
+    "resultSuccessTitle": "Group registration confirmed!",
+    "resultSuccessHint": "Confirmation emails were sent to each participant. Your receipt was sent to {{email}}.",
+    "resultFailedTitle": "Payment could not be completed"
+  },
   "registrationWizard": {
     "title": "Event registration",
     "claimTitle": "Claim your spot",
@@ -2004,6 +2656,7 @@
     "steps": {
       "auth": "Account",
       "waiver": "Waiver",
+      "extras": "Add-ons",
       "checkout": "Details & pay",
       "result": "Done"
     },
@@ -2026,6 +2679,28 @@
       "orContinue": "Or continue with",
       "sessionReady": "Session verified…"
     },
+    "extras": {
+      "title": "Upgrade your race",
+      "subtitle": "Optional add-ons from the organizer. Adjust quantities before you pay.",
+      "feeNote": "service fee applies",
+      "soldOut": "Sold out",
+      "free": "Free",
+      "lineTotal": "{{total}} for {{qty}}",
+      "addOnsSubtotal": "Add-ons subtotal",
+      "skip": "Skip add-ons",
+      "continue": "Continue to checkout",
+      "questionsTitle": "Details for this add-on",
+      "useProfile": "Use my profile",
+      "selectPlaceholder": "Select…",
+      "shipping": {
+        "street": "Street",
+        "ext": "Ext.",
+        "int": "Int.",
+        "colonia": "Neighborhood",
+        "postalCode": "Postal code",
+        "references": "Delivery references (optional)"
+      }
+    },
     "checkout": {
       "prerequisites": "Registration details",
       "prerequisitesHint": "Required information set by the event organizer.",
@@ -2038,6 +2713,7 @@
       "discountPlaceholder": "PROMO2026",
       "discountApply": "Apply",
       "discountApplied": "Discount",
+      "extrasSubtotal": "Add-ons",
       "finalPrice": "Final price (IVA incl.)",
       "invoicePreviewToggle": "Invoice breakdown (informative)",
       "invoiceServiceFee": "Service fee (11%)",

@@ -16,7 +16,7 @@ export default function PublicSiteLayout() {
   });
 
   return (
-    <div className="flex flex-col bg-gradient-dark overflow-x-clip w-full max-w-full min-h-screen">
+    <div className="flex flex-col bg-page-gradient overflow-x-clip w-full max-w-full min-h-screen">
       <HomeNavbar />
       <main
         className={cn(

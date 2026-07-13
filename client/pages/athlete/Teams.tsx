@@ -103,7 +103,7 @@ export default function AthleteTeams() {
       >
         <div className="flex items-start gap-4">
           <div className="p-3 rounded-xl bg-cyan/15 border border-cyan/25">
-            <UsersRound className="w-7 h-7 text-cyan" />
+            <UsersRound className="w-7 h-7 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl md:text-3xl font-bold">{t("athletePortal.teams.title")}</h1>
@@ -120,14 +120,14 @@ export default function AthleteTeams() {
         <div className="card-sport p-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-bold flex items-center gap-2">
-              <Plus className="w-4 h-4 text-cyan" />
+              <Plus className="w-4 h-4 text-primary" />
               {t("athletePortal.teams.createTitle")}
             </h2>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="text-cyan"
+              className="text-primary"
               onClick={() => setShowCreate((v) => !v)}
             >
               {showCreate ? t("common.cancel") : t("athletePortal.teams.createTitle")}
@@ -168,7 +168,7 @@ export default function AthleteTeams() {
 
         <div className="card-sport p-5 space-y-4">
           <h2 className="font-bold flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-cyan" />
+            <UserPlus className="w-4 h-4 text-primary" />
             {t("athletePortal.teams.joinTitle")}
           </h2>
           <form onSubmit={joinFormik.handleSubmit} className="space-y-3">
@@ -201,14 +201,14 @@ export default function AthleteTeams() {
 
       <section className="space-y-4">
         <h2 className="text-lg font-bold flex items-center gap-2">
-          <Users className="w-5 h-5 text-cyan" />
+          <Users className="w-5 h-5 text-primary" />
           {t("athletePortal.teams.title")}
           <span className="text-sm font-normal text-muted-foreground">({teams.length})</span>
         </h2>
 
         {loading && teams.length === 0 ? (
           <div className="flex justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
           </div>
         ) : teams.length === 0 ? (
           <div className="card-sport p-8 text-center text-muted-foreground text-sm">
@@ -239,7 +239,7 @@ export default function AthleteTeams() {
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="flex items-center gap-1.5 text-muted-foreground">
-                    <Users className="w-4 h-4 text-cyan" />
+                    <Users className="w-4 h-4 text-primary" />
                     {t("athletePortal.teams.members", { count: team.member_count })}
                   </span>
                 </div>
@@ -249,7 +249,7 @@ export default function AthleteTeams() {
                       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                         {t("athletePortal.teams.inviteCode")}
                       </p>
-                      <p className="font-mono font-bold text-cyan truncate">{team.invite_code}</p>
+                      <p className="font-mono font-bold text-primary truncate">{team.invite_code}</p>
                     </div>
                     <Button
                       type="button"

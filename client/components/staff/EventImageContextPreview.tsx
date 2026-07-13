@@ -69,7 +69,7 @@ function EventImageContextPreview({
                 <Star className="h-2.5 w-2.5" />
                 {t("staffPortal.eventEdit.imageCrop.mockFeatured")}
               </span>
-              <span className="absolute right-2 top-2 z-10 rounded-md border border-primary/25 bg-bg-dark/80 px-1.5 py-0.5 text-[8px] font-medium text-primary">
+              <span className="absolute right-2 top-2 z-10 rounded-md border border-primary/25 bg-background/80 px-1.5 py-0.5 text-[8px] font-medium text-primary">
                 {t("staffPortal.eventEdit.imageCrop.mockSport")}
               </span>
               <div className="absolute inset-x-0 bottom-0 z-10 space-y-1 p-2">
@@ -111,7 +111,7 @@ function EventImageContextPreview({
           ) : null}
 
           {context.variant.startsWith("sponsor-") ? (
-            <div className="pointer-events-none absolute inset-0 rounded-md border border-border/60 bg-bg-dark/50" />
+            <div className="pointer-events-none absolute inset-0 rounded-md border border-border/60 bg-background/50" />
           ) : null}
 
           {context.variant === "gallery-standard" || context.variant === "gallery-featured" ? (

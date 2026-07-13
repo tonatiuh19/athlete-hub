@@ -217,7 +217,7 @@ export default function StaffLogin() {
                     setStep("email");
                     codeForm.resetForm();
                   }}
-                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1"
+                  className="w-full text-sm text-muted-foreground hover:text-primary py-1"
                 >
                   ← {email}
                 </button>
@@ -229,11 +229,11 @@ export default function StaffLogin() {
         <div className="px-6 pb-6 shrink-0">
           <div className="flex justify-center gap-4 text-xs text-muted-foreground mb-3">
             <span className="flex items-center gap-1">
-              <CheckCircle className="w-3.5 h-3.5 text-cyan" />
+              <CheckCircle className="w-3.5 h-3.5 text-primary" />
               {t("auth.staff.trustSecure")}
             </span>
             <span className="flex items-center gap-1">
-              <CheckCircle className="w-3.5 h-3.5 text-cyan" />
+              <CheckCircle className="w-3.5 h-3.5 text-primary" />
               {t("auth.staff.trustInternal")}
             </span>
           </div>

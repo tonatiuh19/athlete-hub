@@ -31,11 +31,17 @@ import {
   assertPaidCategoryMutationAllowed,
   attachEventPaymentAvailability,
   eventHasPaidActiveCategories,
+  loadOrganizerConnectRow,
   registerStripeConnectRoutes,
 } from "./stripeConnect.js";
+import { isOrganizerPayoutReady, isTribooPayoutProfileComplete } from "../shared/stripeConnect.js";
 import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
+  canOrganizerRecordManualSale,
+  canOrganizerViewAllPayments,
+  canOrganizerViewPayments,
+  canOrganizerViewSellerSalesSummary,
 } from "../shared/staffRoles.js";
 import { isValidFeePresentation } from "../shared/checkoutBreakdown.js";
 import {
@@ -44,6 +50,33 @@ import {
 } from "./organizerEventGuards.js";
 import { validateEventPublishPricing } from "./eventPricingGuards.js";
 import { parseCheckoutPaymentMetadata } from "./checkoutMetadata.js";
+import {
+  createEventExtraRecord,
+  deleteEventExtraRecord,
+  fetchAllEventExtras,
+  fetchRegistrationPurchasedExtras,
+  patchEventExtraRecord,
+} from "./eventExtras.js";
+import {
+  fetchActiveRegistrationFieldsForEvent,
+  fetchRegistrationFieldsForCategory,
+  fetchStaffRegistrationFields,
+  mapPublicRegistrationField,
+  replaceEventRegistrationFields,
+} from "./registrationFields.js";
+import {
+  fetchStaffFolioSegments,
+  mapStaffFolioSegment,
+  replaceEventFolioSegments,
+  type RegistrationFolioContext,
+} from "./folioSegments.js";
+import {
+  assertOrganizerCanOperateEvents,
+  buildSelfServiceOrganizerAdminEmail,
+  fetchOrganizerOnboardingIntake,
+  registerSelfServiceOrganizer,
+} from "./organizerRegistration.js";
+import { checkPublicOrganizerRateLimit } from "./authRateLimit.js";
 
 type ActorType = "athlete" | "organizer" | "admin";
 
@@ -65,7 +98,10 @@ export interface StaffPortalDeps {
   requireOrganizer: RequestHandler;
   newPublicUuid: () => string;
   newQrToken: () => string;
-  nextRegistrationNumber: (eventId: number) => Promise<string>;
+  nextRegistrationNumber: (
+    ctx: RegistrationFolioContext,
+    conn?: import("mysql2/promise").PoolConnection,
+  ) => Promise<{ registrationNumber: string; folioSegmentId: number | null }>;
   normalizeLocale: (value: unknown) => string;
   sendEmail: (opts: {
     to: string;
@@ -109,6 +145,12 @@ export interface StaffPortalDeps {
     appUrl: string;
     eventId: number;
   }) => { subject: string; html: string; text: string };
+  buildOrganizerPayoutSetupEmail: (params: {
+    locale: string;
+    firstName: string;
+    eventTitle: string;
+    appUrl: string;
+  }) => { subject: string; html: string; text: string };
   sendStaffLoginOtp: (opts: {
     adminId: number;
     to: string;
@@ -149,10 +191,6 @@ async function uniqueEventSlug(
     n += 1;
   }
   return `${candidate}-${Date.now()}`;
-}
-
-function fieldKeyFromLabel(label: string): string {
-  return slugify(label).slice(0, 80) || "field";
 }
 
 function parseFinishTimeToMs(value: unknown): number | null {
@@ -213,6 +251,7 @@ async function getMemberEventAccess(
   if (
     member.role === "owner" ||
     member.role === "organizer" ||
+    member.role === "seller" ||
     member.event_access_scope === "organization"
   ) {
     return "all";
@@ -310,6 +349,7 @@ async function fetchStaffEventDetail(
             e.hero_image_url, e.requires_waiver, e.fee_presentation, e.service_fee_percent,
             e.submitted_for_approval_at, e.approval_rejection_reason,
             ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count, e.max_registrations,
+            e.max_registrations_per_order,
             st.name AS sport_name, o.name AS organizer_name,
             o.fee_presentation AS organizer_fee_presentation,
             o.service_fee_percent AS organizer_service_fee_percent
@@ -755,8 +795,11 @@ export async function listAdminPayments(
   options: {
     q?: string;
     status?: string;
+    provider?: string;
     organizerId?: number;
     eventId?: number;
+    recordedByMemberId?: number;
+    recordedByMemberOnline?: boolean;
     page?: unknown;
     limit?: unknown;
     sortBy?: unknown;
@@ -783,6 +826,16 @@ export async function listAdminPayments(
     filters += " AND p.event_id = ?";
     params.push(options.eventId);
   }
+  if (options.provider && ["stripe", "mock", "manual"].includes(options.provider)) {
+    filters += " AND p.provider = ?";
+    params.push(options.provider);
+  }
+  if (options.recordedByMemberOnline) {
+    filters += " AND p.recorded_by_member_id IS NULL";
+  } else if (options.recordedByMemberId != null) {
+    filters += " AND p.recorded_by_member_id = ?";
+    params.push(options.recordedByMemberId);
+  }
   if (options.q) {
     const like = `%${options.q}%`;
     filters +=
@@ -804,16 +857,18 @@ export async function listAdminPayments(
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT p.id, p.public_uuid, p.registration_id, p.athlete_id, p.organizer_id, p.event_id,
             p.amount_cents, p.registration_amount_cents, p.service_fee_cents, p.currency, p.status,
-            p.provider, p.stripe_payment_intent_id, p.paid_at, p.created_at,
+            p.provider, p.recorded_by_member_id, p.stripe_payment_intent_id, p.paid_at, p.created_at,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name, a.email AS athlete_email,
             e.title AS event_title, e.slug AS event_slug,
             o.name AS organizer_name,
-            r.registration_number
+            r.registration_number,
+            om.first_name AS seller_first_name, om.last_name AS seller_last_name, om.email AS seller_email
      FROM payments p
      LEFT JOIN athletes a ON a.id = p.athlete_id
      LEFT JOIN events e ON e.id = p.event_id
      LEFT JOIN organizers o ON o.id = p.organizer_id
      LEFT JOIN registrations r ON r.id = p.registration_id
+     LEFT JOIN organizer_members om ON om.id = p.recorded_by_member_id
      ${filters}
      ORDER BY ${sortCol} ${sortDir}, p.id DESC
      LIMIT ? OFFSET ?`,
@@ -821,6 +876,45 @@ export async function listAdminPayments(
   );
 
   return { payments: rows, pagination: buildPagination(page, limit, total) };
+}
+
+export async function listOrganizerSellerSalesSummary(
+  pool: Pool,
+  organizerId: number,
+): Promise<{
+  sellers: RowDataPacket[];
+  manual_sale_total_cents: number;
+  manual_sale_count: number;
+}> {
+  const [sellerRows] = await pool.query<RowDataPacket[]>(
+    `SELECT om.id AS member_id, om.first_name, om.last_name, om.email,
+            COUNT(p.id) AS sale_count,
+            COALESCE(SUM(p.amount_cents), 0) AS total_cents
+     FROM payments p
+     JOIN organizer_members om ON om.id = p.recorded_by_member_id
+     WHERE p.organizer_id = ?
+       AND p.provider = 'manual'
+       AND p.status = 'succeeded'
+     GROUP BY om.id, om.first_name, om.last_name, om.email
+     ORDER BY total_cents DESC, sale_count DESC, om.first_name ASC`,
+    [organizerId],
+  );
+
+  const [[totals]] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS manual_sale_count,
+            COALESCE(SUM(amount_cents), 0) AS manual_sale_total_cents
+     FROM payments
+     WHERE organizer_id = ?
+       AND provider = 'manual'
+       AND status = 'succeeded'`,
+    [organizerId],
+  );
+
+  return {
+    sellers: sellerRows,
+    manual_sale_total_cents: Number(totals?.manual_sale_total_cents ?? 0),
+    manual_sale_count: Number(totals?.manual_sale_count ?? 0),
+  };
 }
 
 export async function fetchAdminPaymentDetail(
@@ -838,17 +932,19 @@ export async function fetchAdminPaymentDetail(
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT p.id, p.public_uuid, p.registration_id, p.athlete_id, p.organizer_id, p.event_id,
             p.amount_cents, p.registration_amount_cents, p.service_fee_cents, p.currency, p.status,
-            p.provider, p.stripe_payment_intent_id, p.stripe_charge_id, p.paid_at, p.created_at,
+            p.provider, p.recorded_by_member_id, p.stripe_payment_intent_id, p.paid_at, p.created_at,
             p.failure_code, p.failure_message, p.metadata_json,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name, a.email AS athlete_email,
             e.title AS event_title, e.slug AS event_slug,
             o.name AS organizer_name,
-            r.registration_number, r.status AS registration_status, r.bib_number
+            r.registration_number, r.status AS registration_status, r.bib_number,
+            om.first_name AS seller_first_name, om.last_name AS seller_last_name, om.email AS seller_email
      FROM payments p
      LEFT JOIN athletes a ON a.id = p.athlete_id
      LEFT JOIN events e ON e.id = p.event_id
      LEFT JOIN organizers o ON o.id = p.organizer_id
      LEFT JOIN registrations r ON r.id = p.registration_id
+     LEFT JOIN organizer_members om ON om.id = p.recorded_by_member_id
      ${scope}
      LIMIT 1`,
     params,
@@ -963,10 +1059,13 @@ async function fetchStaffRegistrationDetail(
       )
     : [[] as RowDataPacket[]];
 
+  const purchased_extras = await fetchRegistrationPurchasedExtras(pool, registrationId);
+
   return {
     registration: reg,
     payment,
     field_values: fieldValues,
+    purchased_extras,
     waiver: waiverRows[0] ?? null,
     waivers: waiverRows,
     status_history: statusHistory,
@@ -1099,10 +1198,14 @@ function mountEventHubRoutes(
   hubHelpers: {
     newPublicUuid: () => string;
     newQrToken: () => string;
-    nextRegistrationNumber: (eventId: number) => Promise<string>;
+    nextRegistrationNumber: (
+      ctx: RegistrationFolioContext,
+      conn?: import("mysql2/promise").PoolConnection,
+    ) => Promise<{ registrationNumber: string; folioSegmentId: number | null }>;
     getStripeClient?: () => import("stripe").default | null;
   },
   canMutate?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
+  canRecordManualSale?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
 ) {
   async function assertEventRead(
     req: AuthedRequest,
@@ -1147,6 +1250,31 @@ function mountEventHubRoutes(
     }
     return true;
   }
+
+  async function assertManualSaleWrite(
+    req: AuthedRequest,
+    res: Response,
+    eventId: number,
+  ): Promise<boolean> {
+    if (!Number.isFinite(eventId)) {
+      res.status(400).json({ error: "Invalid event id" });
+      return false;
+    }
+    if (canRecordManualSale) {
+      const gate = await canRecordManualSale(req, eventId);
+      if (gate === "forbidden") {
+        res.status(403).json({ error: "Insufficient permissions to record manual sales" });
+        return false;
+      }
+      if (gate !== "ok") {
+        res.status(404).json({ error: "Event not found" });
+        return false;
+      }
+      return true;
+    }
+    return assertEventWrite(req, res, eventId);
+  }
+
   app.get(`${basePath}/:eventId/summary`, guard, async (req: AuthedRequest, res) => {
     const eventId = Number(req.params.eventId);
     if (!(await assertEventRead(req, res, eventId))) return;
@@ -1226,7 +1354,11 @@ function mountEventHubRoutes(
         const status = await getRegistrationWaiverStatus(pool, registration.id as number);
         waiver_outdated = status.outdated;
       }
-      res.json({ registration: { ...registration, waiver_outdated } });
+      const purchased_extras = await fetchRegistrationPurchasedExtras(
+        pool,
+        registration.id as number,
+      );
+      res.json({ registration: { ...registration, waiver_outdated, purchased_extras } });
     },
   );
 
@@ -1522,7 +1654,12 @@ function mountEventHubRoutes(
 
   app.post(`${basePath}/:eventId/registrations`, guard, async (req: AuthedRequest, res) => {
     const eventId = Number(req.params.eventId);
-    if (!(await assertEventWrite(req, res, eventId))) return;
+    const manualSale = Boolean(req.body?.manual_sale);
+    if (manualSale) {
+      if (!(await assertManualSaleWrite(req, res, eventId))) return;
+    } else if (!(await assertEventWrite(req, res, eventId))) {
+      return;
+    }
 
     const categoryId = Number(req.body?.event_category_id);
     if (!Number.isFinite(categoryId)) {
@@ -1548,6 +1685,9 @@ function mountEventHubRoutes(
     }
 
     const comp = Boolean(req.body?.comp);
+    if (manualSale && comp) {
+      return res.status(400).json({ error: "manual_sale cannot be combined with comp" });
+    }
     const waiverWaived = Boolean(req.body?.waiver_waived);
     const bib_number = req.body?.bib_number
       ? String(req.body.bib_number).trim().slice(0, 20)
@@ -1605,37 +1745,72 @@ function mountEventHubRoutes(
     const feePercent = Number(
       category.service_fee_percent ?? category.org_fee_percent ?? 11,
     );
-    const serviceFeeCents = comp
-      ? 0
-      : Math.round(priceCents * (feePercent / 100));
-    const totalCents = priceCents + serviceFeeCents;
+    let serviceFeeCents = 0;
+    let totalCents = 0;
+    if (manualSale) {
+      if (priceCents <= 0) {
+        return res.status(400).json({
+          error: "Manual sales require a paid category — use comp for free entries",
+        });
+      }
+      serviceFeeCents = 0;
+      totalCents = priceCents;
+    } else {
+      serviceFeeCents = comp ? 0 : Math.round(priceCents * (feePercent / 100));
+      totalCents = priceCents + serviceFeeCents;
+    }
 
-    if (!comp && totalCents > 0) {
+    if (!manualSale && !comp && totalCents > 0) {
       return res.status(400).json({
         error:
-          "Paid manual registrations require comp mode — athletes must checkout online for paid entries",
+          "Paid manual registrations require comp mode or manual_sale — athletes must checkout online for standard paid entries",
       });
     }
-    const regNumber = await hubHelpers.nextRegistrationNumber(eventId);
-    const qrToken = hubHelpers.newQrToken();
-    const regUuid = hubHelpers.newPublicUuid();
+    const [[eventMetaRow]] = await pool.query<RowDataPacket[]>(
+      "SELECT slug, starts_at FROM events WHERE id = ? LIMIT 1",
+      [eventId],
+    );
+    const eventStartsAt = eventMetaRow?.starts_at as string | Date | null | undefined;
+    const eventYear =
+      eventStartsAt != null
+        ? String(new Date(eventStartsAt).getFullYear())
+        : String(new Date().getFullYear());
+    const eventCode = String(eventMetaRow?.slug ?? eventId)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
 
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
 
+      const { registrationNumber: regNumber, folioSegmentId } =
+        await hubHelpers.nextRegistrationNumber(
+          {
+            eventId,
+            categoryId,
+            discountCodeId: null,
+            eventYear,
+            eventCode,
+          },
+          conn,
+        );
+      const qrToken = hubHelpers.newQrToken();
+      const regUuid = hubHelpers.newPublicUuid();
+
       const [regResult] = await conn.query<ResultSetHeader>(
         `INSERT INTO registrations (
            public_uuid, event_id, event_category_id, athlete_id, registration_number,
-           qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
+           folio_segment_id, qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
            currency, source
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'admin')`,
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'admin')`,
         [
           regUuid,
           eventId,
           categoryId,
           athleteId,
           regNumber,
+          folioSegmentId,
           qrToken,
           bib_number,
           "confirmed",
@@ -1647,14 +1822,17 @@ function mountEventHubRoutes(
       );
       const registrationId = regResult.insertId;
 
-      if (comp || totalCents === 0) {
+      if (comp || manualSale || totalCents === 0) {
         const payUuid = hubHelpers.newPublicUuid();
+        const paymentProvider = manualSale ? "manual" : "mock";
+        const recordedByMemberId =
+          manualSale && req.auth?.actor === "organizer" ? req.auth.id : null;
         const [payResult] = await conn.query<ResultSetHeader>(
           `INSERT INTO payments (
              public_uuid, registration_id, athlete_id, organizer_id, event_id,
              amount_cents, registration_amount_cents, service_fee_cents, currency,
-             status, provider, paid_at
-           ) VALUES (?,?,?,?,?,?,?,?,?,'succeeded','mock',NOW())`,
+             status, provider, recorded_by_member_id, paid_at
+           ) VALUES (?,?,?,?,?,?,?,?,?,'succeeded',?,?,NOW())`,
           [
             payUuid,
             registrationId,
@@ -1665,6 +1843,8 @@ function mountEventHubRoutes(
             priceCents,
             serviceFeeCents,
             category.currency || "MXN",
+            paymentProvider,
+            recordedByMemberId,
           ],
         );
         await conn.query<ResultSetHeader>(
@@ -1726,6 +1906,7 @@ function mountEventResultsRoutes(
   basePath: string,
   canAccess: (req: AuthedRequest, eventId: number) => Promise<boolean>,
   canMutate?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
+  canRecordManualSale?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
 ) {
   async function assertEventRead(
     req: AuthedRequest,
@@ -2414,13 +2595,14 @@ type ParsedEventBody = {
   hero_image_url: string | null;
   banner_image_url: string | null;
   max_registrations: number | null;
+  max_registrations_per_order: number;
   requires_waiver: boolean;
   fee_presentation: string | null;
 };
 
 function eventBodySqlTail(): string {
   return `location_name = ?, location_city = ?, location_state = ?, location_lat = ?, location_lng = ?,
-           hero_image_url = ?, banner_image_url = ?, max_registrations = ?`;
+           hero_image_url = ?, banner_image_url = ?, max_registrations = ?, max_registrations_per_order = ?`;
 }
 
 function eventBodySqlValues(data: ParsedEventBody): (
@@ -2437,6 +2619,7 @@ function eventBodySqlValues(data: ParsedEventBody): (
     data.hero_image_url,
     data.banner_image_url,
     data.max_registrations,
+    data.max_registrations_per_order,
   ];
 }
 
@@ -2534,6 +2717,19 @@ function parseEventBody(body: Record<string, unknown>):
     return { error: "invalid max_registrations" };
   }
 
+  const maxPerOrderRaw = body.max_registrations_per_order;
+  const max_registrations_per_order =
+    maxPerOrderRaw === null || maxPerOrderRaw === undefined || maxPerOrderRaw === ""
+      ? 10
+      : Number(maxPerOrderRaw);
+  if (
+    !Number.isFinite(max_registrations_per_order) ||
+    max_registrations_per_order < 1 ||
+    max_registrations_per_order > 20
+  ) {
+    return { error: "invalid max_registrations_per_order (1-20)" };
+  }
+
   let fee_presentation: string | null | undefined;
   if (body.fee_presentation === null || body.fee_presentation === "") {
     fee_presentation = null;
@@ -2581,6 +2777,7 @@ function parseEventBody(body: Record<string, unknown>):
         ? normalizeCdnUploadUrl(String(body.banner_image_url).trim()).slice(0, 500)
         : null,
       max_registrations,
+      max_registrations_per_order,
       requires_waiver: body.requires_waiver === false || body.requires_waiver === 0 ? false : true,
       fee_presentation: fee_presentation ?? null,
     },
@@ -2671,6 +2868,7 @@ export function registerStaffPortalRoutes(
     buildEventSubmittedForApprovalEmail,
     buildEventApprovedEmail,
     buildEventRejectedEmail,
+    buildOrganizerPayoutSetupEmail,
     sendStaffLoginOtp,
     getStripeClient,
   } = deps;
@@ -2751,6 +2949,64 @@ export function registerStaffPortalRoutes(
     }
   }
 
+  async function notifyOrganizerPayoutContacts(
+    organizerId: number,
+    buildMail: (firstName: string, locale: string) => {
+      subject: string;
+      html: string;
+      text: string;
+    },
+  ) {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT email, first_name, preferred_language
+       FROM organizer_members
+       WHERE organizer_id = ?
+         AND status = 'active'
+         AND deleted_at IS NULL
+         AND role IN ('owner', 'organizer', 'finance')`,
+      [organizerId],
+    );
+    for (const row of rows) {
+      const firstName = String(row.first_name ?? "Organizer");
+      const locale = normalizeLocale(row.preferred_language);
+      const mail = buildMail(firstName, locale);
+      void sendEmail({
+        to: String(row.email),
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
+      }).catch((err) => console.error("[email:organizer-payout-setup]", err));
+    }
+  }
+
+  async function sendPayoutSetupNudgeIfNeeded(
+    organizerId: number,
+    eventTitle: string,
+  ): Promise<void> {
+    const row = await loadOrganizerConnectRow(pool, organizerId);
+    if (!row) return;
+
+    const tribooComplete = isTribooPayoutProfileComplete(row);
+    const payoutReady = isOrganizerPayoutReady({
+      stripe_connect_status: row.stripe_connect_status ?? "not_started",
+      stripe_account_id: row.stripe_account_id,
+      stripe_charges_enabled: Boolean(row.stripe_charges_enabled),
+      stripe_payouts_enabled: Boolean(row.stripe_payouts_enabled),
+      requirements_currently_due: [],
+      triboo_profile_complete: tribooComplete,
+    });
+    if (payoutReady) return;
+
+    void notifyOrganizerPayoutContacts(organizerId, (firstName, locale) =>
+      buildOrganizerPayoutSetupEmail({
+        locale,
+        firstName,
+        eventTitle,
+        appUrl,
+      }),
+    );
+  }
+
   app.post(
     "/api/admin/events/upload-asset",
     requireAdmin,
@@ -2801,6 +3057,53 @@ export function registerStaffPortalRoutes(
     }).catch((err) => console.error("[email:welcome-staff]", err));
   }
 
+  app.post("/api/public/organizers/register", async (req, res) => {
+    const rate = checkPublicOrganizerRateLimit(req, "organizer-register");
+    if (rate.ok === false) {
+      res.setHeader("Retry-After", String(rate.retryAfterSec));
+      return res.status(429).json({
+        error: "Too many attempts. Please try again later.",
+        code: "rate_limited",
+        retryAfterSec: rate.retryAfterSec,
+      });
+    }
+
+    const result = await registerSelfServiceOrganizer(
+      pool,
+      (req.body ?? {}) as import("../shared/api.js").PublicOrganizerRegisterRequest,
+      { newPublicUuid, normalizeLocale },
+    );
+    if (result.ok === false) {
+      return res.status(result.status).json({
+        error: result.error,
+        code: result.code,
+      });
+    }
+
+    sendStaffWelcomeEmail({
+      to: String(req.body?.owner_email ?? "").trim().toLowerCase(),
+      firstName: String(req.body?.owner_first_name ?? "").trim(),
+      audience: "organizer",
+      preferredLanguage: req.body?.locale,
+    });
+
+    void notifyActiveAdmins((firstName, locale) =>
+      buildSelfServiceOrganizerAdminEmail({
+        locale,
+        adminFirstName: firstName,
+        organizerName: result.organizer.name,
+        ownerEmail: String(req.body?.owner_email ?? "").trim().toLowerCase(),
+        city: String(req.body?.city ?? "").trim(),
+        appUrl,
+      }),
+    );
+
+    res.status(201).json({
+      organizer: result.organizer,
+      next: "verify_otp",
+    });
+  });
+
   async function organizerEventAccess(req: AuthedRequest, eventId: number): Promise<boolean> {
     const organizerId = req.auth!.organizerId;
     if (!organizerId || !req.auth?.id) return false;
@@ -2818,6 +3121,22 @@ export function registerStaffPortalRoutes(
     }
     const memberRole = await getOrganizerMemberRole(pool, req.auth.id, organizerId);
     if (!memberRole || !canOrganizerEditEvents(memberRole)) {
+      return "forbidden";
+    }
+    return "ok";
+  }
+
+  async function organizerManualSaleAccess(
+    req: AuthedRequest,
+    eventId: number,
+  ): Promise<OrganizerMutateGate> {
+    const organizerId = req.auth!.organizerId;
+    if (!organizerId || !req.auth?.id) return "forbidden";
+    if (!(await assertMemberCanAccessEvent(pool, req.auth.id, organizerId, eventId))) {
+      return "not_found";
+    }
+    const memberRole = await getOrganizerMemberRole(pool, req.auth.id, organizerId);
+    if (!memberRole || !canOrganizerRecordManualSale(memberRole)) {
       return "forbidden";
     }
     return "ok";
@@ -2867,6 +3186,7 @@ export function registerStaffPortalRoutes(
     async (req, eventId) => organizerEventAccess(req, eventId),
     hubHelpers,
     organizerEventMutateAccess,
+    organizerManualSaleAccess,
   );
 
   mountEventHubRoutes(
@@ -2949,6 +3269,7 @@ export function registerStaffPortalRoutes(
       res.json({
         event: { ...event, ...paymentAvailability },
         categories,
+        extras: await fetchAllEventExtras(pool, eventId),
       });
     },
   );
@@ -2968,6 +3289,10 @@ export function registerStaffPortalRoutes(
       );
       if (!memberRole || !canOrganizerCreateEvents(memberRole)) {
         return res.status(403).json({ error: "Insufficient permissions to create events" });
+      }
+      const orgGate = await assertOrganizerCanOperateEvents(pool, organizerId);
+      if (orgGate.ok === false) {
+        return res.status(orgGate.status).json({ error: orgGate.error, code: orgGate.code });
       }
       const parsed = parseEventBody((req.body ?? {}) as Record<string, unknown>);
       if ("error" in parsed) {
@@ -2995,8 +3320,8 @@ export function registerStaffPortalRoutes(
            status, visibility, featured, start_date, end_date, registration_opens_at,
            registration_closes_at, check_in_opens_at, check_in_closes_at,
            location_name, location_city, location_state, location_lat, location_lng,
-           hero_image_url, banner_image_url, max_registrations, requires_waiver
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, requires_waiver
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizerId,
@@ -3169,6 +3494,10 @@ export function registerStaffPortalRoutes(
       if (!memberRole || !canOrganizerEditEvents(memberRole)) {
         return res.status(403).json({ error: "Insufficient permissions to publish events" });
       }
+      const orgGate = await assertOrganizerCanOperateEvents(pool, organizerId);
+      if (orgGate.ok === false) {
+        return res.status(orgGate.status).json({ error: orgGate.error, code: orgGate.code });
+      }
 
       const [[eventRow]] = await pool.query<RowDataPacket[]>(
         "SELECT status FROM events WHERE id = ? AND organizer_id = ? AND deleted_at IS NULL LIMIT 1",
@@ -3298,6 +3627,62 @@ export function registerStaffPortalRoutes(
     },
   );
 
+  app.post(
+    "/api/organizer/events/:eventId/extras",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
+
+      const err = await createEventExtraRecord(
+        pool,
+        newPublicUuid,
+        eventId,
+        (req.body ?? {}) as Record<string, unknown>,
+        getStripeClient?.() ?? null,
+      );
+      if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+
+      res.status(201).json({ extras: await fetchAllEventExtras(pool, eventId) });
+    },
+  );
+
+  app.patch(
+    "/api/organizer/events/:eventId/extras/:extraId",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      const extraId = Number(req.params.extraId);
+      if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
+
+      const err = await patchEventExtraRecord(
+        pool,
+        eventId,
+        extraId,
+        (req.body ?? {}) as Record<string, unknown>,
+        getStripeClient?.() ?? null,
+      );
+      if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+
+      res.json({ extras: await fetchAllEventExtras(pool, eventId) });
+    },
+  );
+
+  app.delete(
+    "/api/organizer/events/:eventId/extras/:extraId",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      const extraId = Number(req.params.extraId);
+      if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
+
+      const err = await deleteEventExtraRecord(pool, eventId, extraId);
+      if (err) return res.status(err.status).json({ error: err.error });
+
+      res.json({ extras: await fetchAllEventExtras(pool, eventId) });
+    },
+  );
+
   // ── Organizer: registration fields & waivers ─────────────────────────────
   app.get(
     "/api/organizer/events/:eventId/registration-fields",
@@ -3311,12 +3696,7 @@ export function registerStaffPortalRoutes(
       if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
         return res.status(404).json({ error: "Event not found" });
       }
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, field_key, label, field_type, options_json, is_required, sort_order, is_active
-         FROM event_registration_fields WHERE event_id = ? ORDER BY sort_order ASC, id ASC`,
-        [eventId],
-      );
-      res.json({ fields: rows });
+      res.json({ fields: await fetchStaffRegistrationFields(pool, eventId) });
     },
   );
 
@@ -3327,89 +3707,43 @@ export function registerStaffPortalRoutes(
       const eventId = Number(req.params.eventId);
       if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
 
-      const raw = req.body?.fields;
-      if (!Array.isArray(raw)) {
-        return res.status(400).json({ error: "fields array required" });
+      const result = await replaceEventRegistrationFields(pool, eventId, req.body?.fields);
+      if (result.ok === false) {
+        return res.status(result.error.status).json({ error: result.error.error });
       }
+      res.json({ fields: result.fields });
+    },
+  );
 
-      const validTypes = new Set([
-        "text",
-        "textarea",
-        "select",
-        "checkbox",
-        "number",
-        "date",
-        "file",
-      ]);
-
-      const fields = raw
-        .map((f: Record<string, unknown>, index: number) => {
-          const label = String(f.label ?? "").trim();
-          if (!label) return null;
-          const field_type = String(f.field_type ?? "text");
-          if (!validTypes.has(field_type)) return null;
-          const field_key =
-            String(f.field_key ?? "").trim() || fieldKeyFromLabel(label);
-          const options = Array.isArray(f.options)
-            ? f.options.map((o) => String(o).trim()).filter(Boolean)
-            : null;
-          return {
-            field_key: field_key.slice(0, 80),
-            label: label.slice(0, 200),
-            field_type,
-            options_json: options?.length ? JSON.stringify(options) : null,
-            is_required: f.is_required ? 1 : 0,
-            sort_order: Number(f.sort_order) || index,
-            is_active: f.is_active === false ? 0 : 1,
-          };
-        })
-        .filter(Boolean) as Array<{
-        field_key: string;
-        label: string;
-        field_type: string;
-        options_json: string | null;
-        is_required: number;
-        sort_order: number;
-        is_active: number;
-      }>;
-
-      const conn = await pool.getConnection();
-      try {
-        await conn.beginTransaction();
-        await conn.query("DELETE FROM event_registration_fields WHERE event_id = ?", [
-          eventId,
-        ]);
-        for (const f of fields) {
-          await conn.query<ResultSetHeader>(
-            `INSERT INTO event_registration_fields (
-               event_id, field_key, label, field_type, options_json, is_required, sort_order, is_active
-             ) VALUES (?,?,?,?,?,?,?,?)`,
-            [
-              eventId,
-              f.field_key,
-              f.label,
-              f.field_type,
-              f.options_json,
-              f.is_required,
-              f.sort_order,
-              f.is_active,
-            ],
-          );
-        }
-        await conn.commit();
-      } catch (err) {
-        await conn.rollback();
-        throw err;
-      } finally {
-        conn.release();
+  app.get(
+    "/api/organizer/events/:eventId/folio-segments",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
       }
+      const eventId = Number(req.params.eventId);
+      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const rows = await fetchStaffFolioSegments(pool, eventId);
+      res.json({ segments: rows.map(mapStaffFolioSegment) });
+    },
+  );
 
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, field_key, label, field_type, options_json, is_required, sort_order, is_active
-         FROM event_registration_fields WHERE event_id = ? ORDER BY sort_order ASC, id ASC`,
-        [eventId],
-      );
-      res.json({ fields: rows });
+  app.put(
+    "/api/organizer/events/:eventId/folio-segments",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
+
+      const result = await replaceEventFolioSegments(pool, eventId, req.body?.segments);
+      if (result.ok === false) {
+        return res.status(result.error.status).json({ error: result.error.error });
+      }
+      res.json({ segments: result.segments.map(mapStaffFolioSegment) });
     },
   );
 
@@ -3504,7 +3838,11 @@ export function registerStaffPortalRoutes(
         const status = await getRegistrationWaiverStatus(pool, registration.id as number);
         waiver_outdated = status.outdated;
       }
-      res.json({ registration: { ...registration, waiver_outdated } });
+      const purchased_extras = await fetchRegistrationPurchasedExtras(
+        pool,
+        registration.id as number,
+      );
+      res.json({ registration: { ...registration, waiver_outdated, purchased_extras } });
     },
   );
 
@@ -3521,7 +3859,7 @@ export function registerStaffPortalRoutes(
         `SELECT id, email, first_name, last_name, phone, role, status, invited_at, last_login_at, created_at
          FROM organizer_members
          WHERE organizer_id = ? AND deleted_at IS NULL
-         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor'), created_at ASC`,
+         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor','seller'), created_at ASC`,
         [organizerId],
       );
       res.json({ members: rows });
@@ -3559,6 +3897,7 @@ export function registerStaffPortalRoutes(
         "timing",
         "operations",
         "sponsor",
+        "seller",
       ]);
       if (!email || !first_name || !last_name) {
         return res.status(400).json({ error: "email, first_name, last_name required" });
@@ -3661,6 +4000,7 @@ export function registerStaffPortalRoutes(
           "timing",
           "operations",
           "sponsor",
+          "seller",
         ]);
         if (!validRoles.has(role)) {
           return res.status(400).json({ error: "invalid role" });
@@ -3718,22 +4058,51 @@ export function registerStaffPortalRoutes(
       return res.status(403).json({ error: "Organizer context missing" });
     }
     const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!memberRole || !["owner", "finance", "organizer"].includes(memberRole)) {
+    if (!memberRole || !canOrganizerViewPayments(memberRole)) {
       return res.status(403).json({ error: "Insufficient permissions for payments" });
     }
 
     const q = String(req.query.q ?? "").trim();
     const status = String(req.query.status ?? "").trim();
+    const provider = String(req.query.provider ?? "").trim();
     const eventIdRaw = req.query.eventId;
     const eventId =
       eventIdRaw != null && String(eventIdRaw).trim() !== ""
         ? Number(eventIdRaw)
         : undefined;
+
+    let recordedByMemberId: number | undefined;
+    let recordedByMemberOnline = false;
+    if (canOrganizerViewAllPayments(memberRole)) {
+      const sellerFilter = String(req.query.sellerFilter ?? "").trim();
+      if (sellerFilter === "online") {
+        recordedByMemberOnline = true;
+      } else if (sellerFilter && sellerFilter !== "all") {
+        const parsed = Number(sellerFilter);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          recordedByMemberId = parsed;
+        }
+      } else {
+        const legacyRaw = req.query.recordedByMemberId;
+        if (legacyRaw != null && String(legacyRaw).trim() !== "") {
+          const parsed = Number(legacyRaw);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            recordedByMemberId = parsed;
+          }
+        }
+      }
+    } else {
+      recordedByMemberId = req.auth!.id;
+    }
+
     const result = await listAdminPayments(pool, {
       q: q || undefined,
       status: status || undefined,
+      provider: provider || undefined,
       organizerId,
       eventId: Number.isFinite(eventId!) ? eventId : undefined,
+      recordedByMemberId,
+      recordedByMemberOnline,
       page: req.query.page,
       limit: req.query.limit,
       sortBy: req.query.sortBy,
@@ -3741,6 +4110,23 @@ export function registerStaffPortalRoutes(
     });
     res.json(result);
   });
+
+  app.get(
+    "/api/organizer/payments/seller-summary",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
+      if (!memberRole || !canOrganizerViewSellerSalesSummary(memberRole)) {
+        return res.status(403).json({ error: "Insufficient permissions" });
+      }
+      const summary = await listOrganizerSellerSalesSummary(pool, organizerId);
+      res.json(summary);
+    },
+  );
 
   app.get(
     "/api/organizer/payments/:paymentId",
@@ -3751,7 +4137,7 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-      if (!memberRole || !["owner", "finance", "organizer"].includes(memberRole)) {
+      if (!memberRole || !canOrganizerViewPayments(memberRole)) {
         return res.status(403).json({ error: "Insufficient permissions for payments" });
       }
 
@@ -3901,6 +4287,7 @@ export function registerStaffPortalRoutes(
       res.json({
         event: { ...event, ...paymentAvailability },
         categories,
+        extras: await fetchAllEventExtras(pool, eventId),
       });
     },
   );
@@ -4031,6 +4418,7 @@ export function registerStaffPortalRoutes(
           eventId,
         }),
       );
+      void sendPayoutSetupNudgeIfNeeded(organizerId, eventTitle);
 
       res.json({
         event: await fetchStaffEventDetail(pool, eventId),
@@ -5088,6 +5476,58 @@ export function registerStaffPortalRoutes(
     },
   );
 
+  app.post("/api/admin/events/:eventId/extras", requireAdmin, async (req, res) => {
+    const eventId = Number(req.params.eventId);
+    if (!(await adminEventExists(eventId))) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    const err = await createEventExtraRecord(
+      pool,
+      newPublicUuid,
+      eventId,
+      (req.body ?? {}) as Record<string, unknown>,
+      getStripeClient?.() ?? null,
+    );
+    if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+    res.status(201).json({ extras: await fetchAllEventExtras(pool, eventId) });
+  });
+
+  app.patch(
+    "/api/admin/events/:eventId/extras/:extraId",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      const extraId = Number(req.params.extraId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const err = await patchEventExtraRecord(
+        pool,
+        eventId,
+        extraId,
+        (req.body ?? {}) as Record<string, unknown>,
+        getStripeClient?.() ?? null,
+      );
+      if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+      res.json({ extras: await fetchAllEventExtras(pool, eventId) });
+    },
+  );
+
+  app.delete(
+    "/api/admin/events/:eventId/extras/:extraId",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      const extraId = Number(req.params.extraId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const err = await deleteEventExtraRecord(pool, eventId, extraId);
+      if (err) return res.status(err.status).json({ error: err.error });
+      res.json({ extras: await fetchAllEventExtras(pool, eventId) });
+    },
+  );
+
   app.get("/api/admin/events/:eventId/media", requireAdmin, async (req, res) => {
     const eventId = Number(req.params.eventId);
     if (!(await adminEventExists(eventId))) {
@@ -5205,12 +5645,7 @@ export function registerStaffPortalRoutes(
     if (!(await adminEventExists(eventId))) {
       return res.status(404).json({ error: "Event not found" });
     }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, field_key, label, field_type, options_json, is_required, sort_order, is_active
-       FROM event_registration_fields WHERE event_id = ? ORDER BY sort_order ASC, id ASC`,
-      [eventId],
-    );
-    res.json({ fields: rows });
+    res.json({ fields: await fetchStaffRegistrationFields(pool, eventId) });
   });
 
   app.put("/api/admin/events/:eventId/registration-fields", requireAdmin, async (req, res) => {
@@ -5218,85 +5653,32 @@ export function registerStaffPortalRoutes(
     if (!(await adminEventExists(eventId))) {
       return res.status(404).json({ error: "Event not found" });
     }
-    const raw = req.body?.fields;
-    if (!Array.isArray(raw)) {
-      return res.status(400).json({ error: "fields array required" });
+    const result = await replaceEventRegistrationFields(pool, eventId, req.body?.fields);
+    if (result.ok === false) {
+      return res.status(result.error.status).json({ error: result.error.error });
     }
-    const validTypes = new Set([
-      "text",
-      "textarea",
-      "select",
-      "checkbox",
-      "number",
-      "date",
-      "file",
-    ]);
-    const fields = raw
-      .map((f: Record<string, unknown>, index: number) => {
-        const label = String(f.label ?? "").trim();
-        if (!label) return null;
-        const field_type = String(f.field_type ?? "text");
-        if (!validTypes.has(field_type)) return null;
-        const field_key =
-          String(f.field_key ?? "").trim() || fieldKeyFromLabel(label);
-        const options = Array.isArray(f.options)
-          ? f.options.map((o) => String(o).trim()).filter(Boolean)
-          : null;
-        return {
-          field_key: field_key.slice(0, 80),
-          label: label.slice(0, 200),
-          field_type,
-          options_json: options?.length ? JSON.stringify(options) : null,
-          is_required: f.is_required ? 1 : 0,
-          sort_order: Number(f.sort_order) || index,
-          is_active: f.is_active === false ? 0 : 1,
-        };
-      })
-      .filter(Boolean) as Array<{
-      field_key: string;
-      label: string;
-      field_type: string;
-      options_json: string | null;
-      is_required: number;
-      sort_order: number;
-      is_active: number;
-    }>;
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      await conn.query("DELETE FROM event_registration_fields WHERE event_id = ?", [
-        eventId,
-      ]);
-      for (const f of fields) {
-        await conn.query<ResultSetHeader>(
-          `INSERT INTO event_registration_fields (
-             event_id, field_key, label, field_type, options_json, is_required, sort_order, is_active
-           ) VALUES (?,?,?,?,?,?,?,?)`,
-          [
-            eventId,
-            f.field_key,
-            f.label,
-            f.field_type,
-            f.options_json,
-            f.is_required,
-            f.sort_order,
-            f.is_active,
-          ],
-        );
-      }
-      await conn.commit();
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
+    res.json({ fields: result.fields });
+  });
+
+  app.get("/api/admin/events/:eventId/folio-segments", requireAdmin, async (req, res) => {
+    const eventId = Number(req.params.eventId);
+    if (!(await adminEventExists(eventId))) {
+      return res.status(404).json({ error: "Event not found" });
     }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, field_key, label, field_type, options_json, is_required, sort_order, is_active
-       FROM event_registration_fields WHERE event_id = ? ORDER BY sort_order ASC, id ASC`,
-      [eventId],
-    );
-    res.json({ fields: rows });
+    const rows = await fetchStaffFolioSegments(pool, eventId);
+    res.json({ segments: rows.map(mapStaffFolioSegment) });
+  });
+
+  app.put("/api/admin/events/:eventId/folio-segments", requireAdmin, async (req, res) => {
+    const eventId = Number(req.params.eventId);
+    if (!(await adminEventExists(eventId))) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    const result = await replaceEventFolioSegments(pool, eventId, req.body?.segments);
+    if (result.ok === false) {
+      return res.status(result.error.status).json({ error: result.error.error });
+    }
+    res.json({ segments: result.segments.map(mapStaffFolioSegment) });
   });
 
   app.get("/api/admin/events/:eventId/waivers", requireAdmin, async (req, res) => {
@@ -5495,8 +5877,8 @@ export function registerStaffPortalRoutes(
            status, visibility, featured, start_date, end_date, registration_opens_at,
            registration_closes_at, check_in_opens_at, check_in_closes_at,
            location_name, location_city, location_state, location_lat, location_lng,
-           hero_image_url, banner_image_url, max_registrations, requires_waiver
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, requires_waiver
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizer_id,
@@ -5709,12 +6091,13 @@ export function registerStaffPortalRoutes(
     if (!organizer) {
       return res.status(404).json({ error: "Organizer not found" });
     }
+    const onboardingIntake = await fetchOrganizerOnboardingIntake(pool, organizerId);
     const [members] = await pool.query<RowDataPacket[]>(
       `SELECT id, email, first_name, last_name, phone, role, event_access_scope, status,
               invited_at, last_login_at, created_at
        FROM organizer_members
        WHERE organizer_id = ? AND deleted_at IS NULL
-       ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor'), created_at ASC`,
+       ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor','seller'), created_at ASC`,
       [organizerId],
     );
     const memberIds = members.map((m) => Number(m.id));
@@ -5735,7 +6118,7 @@ export function registerStaffPortalRoutes(
     }
     const events = await fetchOrganizerLinkedEvents(pool, organizerId);
     res.json({
-      organizer,
+      organizer: { ...organizer, onboarding_intake: onboardingIntake },
       members: members.map((m) => ({
         ...m,
         assigned_event_ids: assignedByMember.get(Number(m.id)) ?? [],
@@ -5835,7 +6218,7 @@ export function registerStaffPortalRoutes(
         `SELECT id, email, first_name, last_name, phone, role, event_access_scope, status,
                 invited_at, last_login_at, created_at
          FROM organizer_members WHERE organizer_id = ? AND deleted_at IS NULL
-         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor'), created_at ASC`,
+         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor','seller'), created_at ASC`,
         [organizerId],
       );
       const assignedByMember = new Map<number, number[]>();
@@ -6021,6 +6404,7 @@ export function registerStaffPortalRoutes(
         "timing",
         "operations",
         "sponsor",
+        "seller",
       ]);
       if (!email || !first_name || !last_name) {
         return res.status(400).json({ error: "email, first_name, last_name required" });
@@ -6062,7 +6446,7 @@ export function registerStaffPortalRoutes(
       const [members] = await pool.query<RowDataPacket[]>(
         `SELECT id, email, first_name, last_name, phone, role, status, invited_at, last_login_at, created_at
          FROM organizer_members WHERE organizer_id = ? AND deleted_at IS NULL
-         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor'), created_at ASC`,
+         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor','seller'), created_at ASC`,
         [organizerId],
       );
       res.status(201).json({ members });
@@ -6105,7 +6489,7 @@ export function registerStaffPortalRoutes(
       const [members] = await pool.query<RowDataPacket[]>(
         `SELECT id, email, first_name, last_name, phone, role, status, invited_at, last_login_at, created_at
          FROM organizer_members WHERE organizer_id = ? AND deleted_at IS NULL
-         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor'), created_at ASC`,
+         ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor','seller'), created_at ASC`,
         [organizerId],
       );
       res.json({ members });

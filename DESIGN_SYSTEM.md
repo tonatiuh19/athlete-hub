@@ -12,6 +12,15 @@ Brand reference: **Manual de Marca — Triboo Sport**
 | Triboo Red | `#F23C35` | Secondary accent, gradient end |
 | Triboo Gradient | `#FF5A1F → #F23C35` | Buttons, stats banners, hero emphasis |
 
+## Light / dark theme
+
+- **Toggle:** `ThemeToggle` in home navbar (desktop), site footer, and staff mobile header. Preference stored in `localStorage` key `triboo-theme` via `next-themes`.
+- **Default:** `system` — follows the browser/OS `prefers-color-scheme`. User override via toggle (footer, staff portal) stored in `localStorage` (`triboo-theme`: `light` | `dark` | `system`).
+- **Tokens:** `:root` = light palette; `.dark` = Triboo dark palette. Use semantic utilities (`bg-background`, `text-foreground`, `bg-card`, `text-muted-foreground`, `border-border`, `primary`, `accent`) — never hardcode `text-white` / `gray-*` on standard page surfaces.
+- **Staff sidebar:** follows theme via `sidebar-*` tokens (`bg-sidebar`, `text-sidebar-foreground`, etc.).
+- **Hero / video overlays:** may keep light text on cinematic media; page content below hero must follow tokens.
+- **Logos:** `TribooLogo` with `surface="auto"` swaps orange wordmark (light) vs white wordmark (dark).
+
 ## Semantic tokens (Tailwind / CSS variables)
 
 Use design-system tokens in UI — **not** arbitrary Tailwind colors:
@@ -57,9 +66,12 @@ Source URLs documented in `client/constants/tribooBrand.ts`.
 - **Flex layouts:** always set `min-w-0` on flex children that should shrink; use `max-w-full` on roots instead of `100vw` (avoids scrollbar width overflow).
 - **Tables:** `DataGrid` scrolls inside `overflow-x-auto` (default `noBleeding`); prefer `mobileCard` for small screens.
 - **Intentional horizontal scroll:** only inside components (tab bars, hero carousels, filter chips) with `overflow-x-auto scrollbar-hide` and `overscroll-x-contain`.
-- **Events browse (`/events`) mobile:** compact header (title only — hide eyebrow/subtitle); **`SportTypesCardCarousel`** sport picker cards; icon-only filter button; default **grid** view below `lg`; view toggles icon-only until `sm`.
-- **Home mobile:** hide featured **Events** `SectionHeader`; show **`HomeSportTypesSection`** with navigate-mode sport cards linking to `/events?sport=…`.
+- **Events browse (`/events`) mobile:** theme-aware hero backdrop (light gradients in light mode, triboo-black glow in dark — same as home); search-only header; **`SportTypesChipCarousel`** filter chips; bottom **`HeroMobileFiltersSheet`**; icon-only view toggles until `sm`; default **grid** view below `lg`.
+- **Marketplace search inputs:** inner shell is always `bg-card` — input text and placeholders use `text-foreground` / `placeholder:text-muted-foreground` only (never hardcoded white), so light and dark themes stay readable.
+- **Home mobile:** hide featured **Events** `SectionHeader`; show **`HomeSportTypesSection`** with navigate-mode sport chips linking to `/events?sport=…`.
 - **Home map:** **`HomeEventsMapSection`** — after featured events grid; lazy-loaded Leaflet map with `EventsMap` + `MapEventPreview`; mobile horizontal compact cards + map; desktop list + map split; links to `/events`.
+- **Home FAQ:** **`HomeFaqSection`** — before final CTA; 6 curated athlete questions via **`FaqAccordion`** + sticky help card linking to `/help`. Copy in i18n (`faq.items.*`); structure in `client/constants/faqStructure.ts`.
+- **Help center (`/help`):** Full FAQ by category (registration, payments, account, Triboos, organizers, support) + support CTA block (contact, email, WhatsApp from site profile). Reuse **`FaqAccordion`** with `type="multiple"`.
 - **Dialogs:** base `DialogContent` caps width at `min(calc(100vw - 2rem), …)` with vertical scroll only.
 
 ## Staff — Payouts & Connect (MX)
@@ -73,6 +85,8 @@ Source URLs documented in `client/constants/tribooBrand.ts`.
 - **EventEdit publish gate:** Destructive banner when paid categories exist and `payoutReady` is false (organizer → `/staff/payouts`; admin → `/staff/people?tab=organizers`).
 - **Event approval workflow:** Organizer **Submit for approval** sets `status: pending_approval` (not public). Admin **Publish** only from `pending_approval` → `published`. Admin **Reject** returns to `draft` and stores `approval_rejection_reason`. Use `StaffStatusBadge` / `pending_approval` token in lists and event edit banners.
 - **Live event alert:** `StaffPaidEventPayoutAlert` on dashboard, events list, and event hub when `payments_available === false` on a published paid event.
+- **Organizer payout nudge:** `StaffOrganizerPayoutSetupBanner` in `StaffLayout` when `payoutReady` is false (hidden on `/staff/payouts`). Proactive `primary` tone — not destructive. Rendered inside the shared `max-w-6xl` staff content shell so it aligns with dashboard headings and cards. **Desktop:** inline card with icon tile, text left, CTA right (`lg:flex-row`). **Mobile:** fixed sticky bar at bottom with matching `max-w-6xl` inner width.
+- **Athlete event page:** `GET /api/events/:slug` returns `payments_available` + `has_paid_categories`. Paid categories show `primary` info banner and disabled purchase UI when `payments_available === false`; free categories remain registerable.
 - **Semantic tokens only** — no arbitrary Tailwind colors on payout/checklist UI.
 
 ## Staff — Event image crop & previews

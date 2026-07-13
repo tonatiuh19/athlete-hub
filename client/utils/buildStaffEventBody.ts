@@ -26,6 +26,7 @@ export type EventEditFormValues = {
   hero_image_url: string;
   banner_image_url: string;
   max_registrations: string;
+  max_registrations_per_order: string;
   fee_presentation: "inherit" | FeePresentation;
 };
 
@@ -63,6 +64,8 @@ export function buildEventEditFormValues(
     hero_image_url: event?.hero_image_url ?? "",
     banner_image_url: event?.banner_image_url ?? "",
     max_registrations: event?.max_registrations?.toString() ?? "",
+    max_registrations_per_order:
+      event?.max_registrations_per_order?.toString() ?? "10",
     fee_presentation: event?.fee_presentation ?? "inherit",
   };
 }
@@ -100,6 +103,9 @@ export function buildStaffEventBody(
     max_registrations: values.max_registrations
       ? Number(values.max_registrations)
       : null,
+    max_registrations_per_order: values.max_registrations_per_order
+      ? Number(values.max_registrations_per_order)
+      : 10,
     fee_presentation:
       values.fee_presentation === "inherit" ? null : values.fee_presentation,
     ...overrides,

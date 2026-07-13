@@ -36,6 +36,7 @@ const baseFormValues = {
   hero_image_url: "",
   banner_image_url: "",
   max_registrations: "",
+  max_registrations_per_order: "10",
   fee_presentation: "pass_through" as const,
 };
 

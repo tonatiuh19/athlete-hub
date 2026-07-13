@@ -346,6 +346,14 @@ paths:
         "200":
           description: Platform stats, published events, top athletes and teams
 
+  /public/site-profile:
+    get:
+      tags: [Marketplace]
+      summary: Public site profile (legal entity and contact page config)
+      responses:
+        "200":
+          description: Merged site public profile with empty fields omitted in UI
+
   /public/teams:
     get:
       tags: [Marketplace]
@@ -387,6 +395,70 @@ paths:
           description: Team profile with member preview
         "404":
           description: Not found
+
+  /public/organizers/register:
+    post:
+      tags: [Staff]
+      summary: Self-service organizer registration (public)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - owner_first_name
+                - owner_last_name
+                - owner_email
+                - name
+                - city
+              properties:
+                owner_first_name:
+                  type: string
+                owner_last_name:
+                  type: string
+                owner_email:
+                  type: string
+                  format: email
+                owner_phone:
+                  type: string
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                city:
+                  type: string
+                country:
+                  type: string
+                  default: MX
+                locale:
+                  type: string
+                intake:
+                  type: object
+                  properties:
+                    sport_type_id:
+                      type: integer
+                      nullable: true
+                    rough_date:
+                      type: string
+                      format: date
+                      nullable: true
+                    expected_size:
+                      type: string
+                      enum: ["<100", "100-500", "500+"]
+                      nullable: true
+      responses:
+        "201":
+          description: Organizer created; verify email with staff OTP next
+        "400":
+          description: Validation error
+        "409":
+          description: Email already registered
+        "429":
+          description: Rate limited
 
   /public/blog:
     get:
@@ -582,6 +654,11 @@ paths:
                 properties:
                   feePresentation:
                     $ref: "#/components/schemas/FeePresentation"
+                  payments_available:
+                    type: boolean
+                    description: False when published paid categories exist but organizer Connect payout is not ready
+                  has_paid_categories:
+                    type: boolean
                   categories:
                     type: array
                     items:
@@ -677,6 +754,56 @@ paths:
       responses:
         "200":
           description: Registrations list
+
+  /athlete/registrations/claim-guest:
+    post:
+      tags: [Athlete]
+      summary: Claim a guest registration into the signed-in athlete account
+      description: |
+        Links a guest registration (purchased by someone else) to the authenticated athlete
+        when the claim token email matches the athlete login email.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claimToken]
+              properties:
+                claimToken:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Registration claimed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  registration:
+                    type: object
+                    properties:
+                      public_uuid:
+                        type: string
+                      registration_number:
+                        type: string
+                      event_slug:
+                        type: string
+                      event_title:
+                        type: string
+                      category_name:
+                        type: string
+        "403":
+          description: Claim email does not match signed-in athlete
+        "404":
+          description: Invalid or expired claim token
+        "409":
+          description: Athlete already registered for this event
 
   /athlete/waitlist:
     get:
@@ -969,6 +1096,12 @@ paths:
       description: |
         Creates a Stripe checkout (payment record only). Registration is created
         when payment succeeds via /register/confirm or payment_intent.succeeded webhook.
+
+        **Single ticket:** send `categoryId` (required) plus optional fields.
+
+        **Group / family order:** send `lineItems` (1..max_per_order participants) instead of
+        `categoryId`. Each line item includes participant type (self, account, guest), category,
+        waivers, and extras. One discount code applies to the whole order.
       security:
         - bearerAuth: []
       parameters:
@@ -983,10 +1116,62 @@ paths:
           application/json:
             schema:
               type: object
-              required: [categoryId, idempotencyKey]
+              required: [idempotencyKey]
               properties:
                 categoryId:
                   type: integer
+                  description: Required for single-ticket checkout (omit when using lineItems)
+                lineItems:
+                  type: array
+                  description: Group checkout participants (omit categoryId when present)
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [lineId, participantType, categoryId]
+                    properties:
+                      lineId:
+                        type: string
+                        format: uuid
+                      participantType:
+                        type: string
+                        enum: [self, account, guest]
+                      accountEmail:
+                        type: string
+                        format: email
+                      guest:
+                        type: object
+                        properties:
+                          firstName:
+                            type: string
+                          lastName:
+                            type: string
+                          email:
+                            type: string
+                            format: email
+                          dateOfBirth:
+                            type: string
+                            format: date
+                          gender:
+                            type: string
+                      guardianRelationship:
+                        type: string
+                      categoryId:
+                        type: integer
+                      fieldValues:
+                        type: object
+                        additionalProperties: true
+                      waiverSignatures:
+                        type: array
+                        items:
+                          type: object
+                      selectedExtras:
+                        type: array
+                        items:
+                          type: object
+                      extraFieldAnswers:
+                        type: array
+                        items:
+                          type: object
                 fieldValues:
                   type: object
                   additionalProperties: true
@@ -1001,6 +1186,24 @@ paths:
                 discountCode:
                   type: string
                   description: Optional discount code to apply at checkout
+                selectedExtras:
+                  type: array
+                  description: Optional add-on lines (extraId + quantity)
+                  items:
+                    type: object
+                    required: [extraId, quantity]
+                    properties:
+                      extraId:
+                        type: integer
+                      quantity:
+                        type: integer
+                        minimum: 1
+                        maximum: 99
+                extraFieldAnswers:
+                  type: array
+                  description: Per-add-on answers for custom athlete questions
+                  items:
+                    $ref: "#/components/schemas/ExtraFieldAnswersInput"
       responses:
         "200":
           description: Checkout session with client secret
@@ -1352,6 +1555,9 @@ paths:
     put:
       tags: [Organizer]
       summary: Replace custom registration fields
+      description: >
+        Each field may use scope_type all_categories (default) or selected_categories
+        with category_ids. Selected scope requires at least one valid event category id.
       security:
         - bearerAuth: []
       parameters:
@@ -1363,6 +1569,131 @@ paths:
       responses:
         "200":
           description: Fields updated
+
+  /organizer/events/{eventId}/folio-segments:
+    get:
+      tags: [Organizer]
+      summary: List custom folio segment rules
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Folio segment rules for the event
+    put:
+      tags: [Organizer]
+      summary: Replace custom folio segment rules
+      description: >
+        Rules are evaluated top to bottom by sort_order. Each rule may filter by
+        category scope and coupon scope, define a pattern (tokens + literals),
+        and choose counter scope (segment, event, or category). Unmatched
+        registrations keep the legacy REG-{eventId}-{sequence} format.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Folio rules updated
+        "400":
+          description: Validation error
+        "409":
+          description: Cannot remove a segment that already issued folios
+
+  /organizer/events/{eventId}/extras:
+    post:
+      tags: [Organizer]
+      summary: Create event add-on (extra)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffEventExtraInput"
+      responses:
+        "201":
+          description: Add-on created; returns full extras list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  extras:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StaffEventExtra"
+        "400":
+          description: Validation error (scope, sales window, fields)
+        "409":
+          description: Payout setup required for paid add-ons
+
+  /organizer/events/{eventId}/extras/{extraId}:
+    patch:
+      tags: [Organizer]
+      summary: Update event add-on
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: extraId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffEventExtraPatch"
+      responses:
+        "200":
+          description: Updated extras list
+        "409":
+          description: Field definitions locked after first sale
+    delete:
+      tags: [Organizer]
+      summary: Remove or deactivate add-on
+      description: >
+        Hard-deletes when sold_count is 0. Soft-deletes (is_active=0) when the add-on
+        has purchases, preserving registration history. Idempotent when already removed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: extraId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated extras list
 
   /organizer/events/{eventId}/waivers:
     get:
@@ -1832,9 +2163,56 @@ paths:
             type: string
       responses:
         "200":
-          description: Registration found
+          description: Registration found (includes purchased_extras when add-ons were bought)
         "404":
           description: Not found
+
+  /organizer/events/{eventId}/registrations:
+    post:
+      tags: [Organizer]
+      summary: Create manual registration or manual sale (seller/operations/finance)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_category_id]
+              properties:
+                athlete_id:
+                  type: integer
+                athlete_email:
+                  type: string
+                  format: email
+                event_category_id:
+                  type: integer
+                comp:
+                  type: boolean
+                  description: Complimentary registration (mock provider)
+                manual_sale:
+                  type: boolean
+                  description: Paid in-person sale at category price with provider manual and zero platform commission
+                waiver_waived:
+                  type: boolean
+                bib_number:
+                  type: string
+      responses:
+        "201":
+          description: Registration created
+        "400":
+          description: Validation error (e.g. manual_sale combined with comp)
+        "403":
+          description: Insufficient permissions
+        "409":
+          description: Duplicate registration or sold out
 
   /organizer/events/{eventId}/registrations/lookup:
     get:
@@ -2199,6 +2577,33 @@ paths:
       responses:
         "200":
           description: Dashboard stats
+
+  /admin/site-profile:
+    get:
+      tags: [Admin]
+      summary: Get platform site public profile (legal entity + contact)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Site public profile
+    patch:
+      tags: [Admin]
+      summary: Update platform site public profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: SitePublicProfile payload (legalEntity + contact)
+      responses:
+        "200":
+          description: Updated profile
+        "400":
+          description: Invalid payload
 
   /admin/registrations/{registrationId}/resend-confirmation:
     post:
@@ -2736,7 +3141,7 @@ paths:
         "200":
           description: Account link URL and status payload
         "503":
-          description: Stripe unavailable
+          description: Stripe unavailable or Connect not enabled on platform account (code connect_not_enabled)
 
   /organizer/payouts/sync:
     post:
@@ -2747,6 +3152,133 @@ paths:
       responses:
         "200":
           description: Refreshed payout status payload
+
+  /organizer/payments:
+    get:
+      tags: [Organizer]
+      summary: List organizer payments (finance/owner see all; sellers see own manual sales)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, succeeded, failed, refunded, partially_refunded]
+        - name: provider
+          in: query
+          schema:
+            type: string
+            enum: [stripe, mock, manual]
+        - name: eventId
+          in: query
+          schema:
+            type: integer
+        - name: recordedByMemberId
+          in: query
+          description: Filter by seller who recorded a manual sale (owner/finance only). Prefer sellerFilter.
+          schema:
+            type: integer
+        - name: sellerFilter
+          in: query
+          description: "all (default), online (checkout without seller), or organizer member id"
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+        - name: sortDir
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Paginated payments list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        provider:
+                          type: string
+                          enum: [stripe, mock, manual]
+                        recorded_by_member_id:
+                          type: integer
+                          nullable: true
+                        seller_first_name:
+                          type: string
+                          nullable: true
+                        seller_last_name:
+                          type: string
+                          nullable: true
+                        seller_email:
+                          type: string
+                          nullable: true
+                        service_fee_cents:
+                          type: integer
+                  pagination:
+                    type: object
+        "403":
+          description: Insufficient permissions
+
+  /organizer/payments/seller-summary:
+    get:
+      tags: [Organizer]
+      summary: Manual sales totals grouped by seller (owner/organizer/finance)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Seller sales summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manual_sale_count:
+                    type: integer
+                  manual_sale_total_cents:
+                    type: integer
+                  sellers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        member_id:
+                          type: integer
+                        first_name:
+                          type: string
+                        last_name:
+                          type: string
+                        email:
+                          type: string
+                        sale_count:
+                          type: integer
+                        total_cents:
+                          type: integer
+        "403":
+          description: Insufficient permissions
 
   /organizer/payments/{paymentId}/refund:
     post:
@@ -3449,6 +3981,181 @@ components:
     FeePresentation:
       type: string
       enum: [pass_through, absorb_all]
+    RegistrationPurchasedExtra:
+      type: object
+      description: Add-on line purchased with a registration (snapshot at checkout time)
+      properties:
+        event_extra_id:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: integer
+        unit_price_cents:
+          type: integer
+        total_cents:
+          type: integer
+        field_answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RegistrationPurchasedExtraFieldAnswer"
+    RegistrationPurchasedExtraFieldAnswer:
+      type: object
+      properties:
+        field_key:
+          type: string
+        label:
+          type: string
+        value_text:
+          type: string
+          nullable: true
+        value_json:
+          type: object
+          nullable: true
+        field_kind:
+          type: string
+          enum: [standard, mx_shipping_block]
+        field_type:
+          type: string
+    EventExtraField:
+      type: object
+      properties:
+        id:
+          type: integer
+        field_key:
+          type: string
+        label:
+          type: string
+        field_type:
+          type: string
+          enum: [text, textarea, select, checkbox, number, date]
+        field_kind:
+          type: string
+          enum: [standard, mx_shipping_block]
+        options_json:
+          type: array
+          items:
+            type: string
+          nullable: true
+        is_required:
+          type: boolean
+        sort_order:
+          type: integer
+    EventExtra:
+      type: object
+      properties:
+        id:
+          type: integer
+        public_uuid:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price_cents:
+          type: integer
+        currency:
+          type: string
+        image_url:
+          type: string
+          nullable: true
+        extra_type:
+          type: string
+        max_per_athlete:
+          type: integer
+        capacity:
+          type: integer
+          nullable: true
+        sold_count:
+          type: integer
+        sort_order:
+          type: integer
+        scope_type:
+          type: string
+          enum: [all_categories, selected_categories]
+        sales_opens_at:
+          type: string
+          format: date-time
+          nullable: true
+        sales_closes_at:
+          type: string
+          format: date-time
+          nullable: true
+        category_ids:
+          type: array
+          items:
+            type: integer
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventExtraField"
+        sales_status:
+          type: string
+          enum: [open, scheduled, ended]
+    StaffEventExtra:
+      allOf:
+        - $ref: "#/components/schemas/EventExtra"
+        - type: object
+          properties:
+            fields_locked:
+              type: boolean
+    StaffEventExtraInput:
+      type: object
+      required: [name, price_cents]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price_cents:
+          type: integer
+        is_free:
+          type: boolean
+        currency:
+          type: string
+        image_url:
+          type: string
+        extra_type:
+          type: string
+        max_per_athlete:
+          type: integer
+        capacity:
+          type: integer
+          nullable: true
+        sort_order:
+          type: integer
+        scope_type:
+          type: string
+          enum: [all_categories, selected_categories]
+        category_ids:
+          type: array
+          items:
+            type: integer
+        sales_opens_at:
+          type: string
+          format: date-time
+          nullable: true
+        sales_closes_at:
+          type: string
+          format: date-time
+          nullable: true
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventExtraField"
+    StaffEventExtraPatch:
+      allOf:
+        - $ref: "#/components/schemas/StaffEventExtraInput"
+    ExtraFieldAnswersInput:
+      type: object
+      required: [extraId, values]
+      properties:
+        extraId:
+          type: integer
+        values:
+          type: object
+          additionalProperties: true
     RegistrationCheckoutResponse:
       type: object
       properties:
@@ -3481,6 +4188,23 @@ components:
           type: string
         discountAmountCents:
           type: integer
+        extrasSubtotalCents:
+          type: integer
+        extras:
+          type: array
+          items:
+            type: object
+            properties:
+              extraId:
+                type: integer
+              name:
+                type: string
+              quantity:
+                type: integer
+              unitPriceCents:
+                type: integer
+              totalCents:
+                type: integer
     EventCategoryPricing:
       type: object
       properties:

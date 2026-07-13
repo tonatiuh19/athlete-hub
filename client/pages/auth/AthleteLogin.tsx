@@ -45,6 +45,8 @@ import {
   clearAthleteIntentionalLogout,
   shouldSkipClerkAthleteResume,
 } from "@/utils/athleteSessionLogout";
+import LegalConsentNotice from "@/components/legal/LegalConsentNotice";
+import { legalTermsAcceptanceSchema } from "@/validation/legalConsentSchema";
 import { resumeClerkAthleteSession } from "@/utils/clerkAthleteSync";
 import { isAthleteOauthCompleting } from "@/utils/athleteSsoUx";
 
@@ -185,6 +187,7 @@ export default function AthleteLogin() {
       gender: "" as "" | "male" | "female" | "other" | "prefer_not_to_say",
       password: "",
       confirmPassword: "",
+      acceptedTerms: false,
     },
     validateOnBlur: false,
     validateOnChange: false,
@@ -194,6 +197,7 @@ export default function AthleteLogin() {
       dateOfBirth: athleteDateOfBirthSchema(t),
       gender: athleteGenderSchema(t),
       ...athletePasswordConfirmSchema(t).fields,
+      acceptedTerms: legalTermsAcceptanceSchema(t),
     }),
     onSubmit: async (values) => {
       const result = await dispatch(
@@ -398,11 +402,11 @@ export default function AthleteLogin() {
                     setStep("forgot");
                     dispatch(clearAthleteError());
                   }}
-                  className="w-full text-sm text-cyan hover:underline"
+                  className="w-full text-sm text-primary hover:underline"
                 >
                   {t("auth.password.forgotLink")}
                 </button>
-                <button type="button" onClick={goIdentify} className="w-full text-sm text-muted-foreground hover:text-cyan py-1 flex items-center justify-center gap-1">
+                <button type="button" onClick={goIdentify} className="w-full text-sm text-muted-foreground hover:text-primary py-1 flex items-center justify-center gap-1">
                   <ArrowLeft className="w-3.5 h-3.5" />
                   {t("registrationWizard.auth.changeEmail")}
                 </button>
@@ -501,6 +505,18 @@ export default function AthleteLogin() {
                     </p>
                   )}
                 </div>
+                <LegalConsentNotice
+                  variant="athleteRegister"
+                  showCheckbox
+                  id="athlete-register-legal"
+                  checked={registerForm.values.acceptedTerms}
+                  onCheckedChange={(v) => registerForm.setFieldValue("acceptedTerms", v)}
+                  error={
+                    registerForm.submitCount > 0 && registerForm.errors.acceptedTerms
+                      ? String(registerForm.errors.acceptedTerms)
+                      : null
+                  }
+                />
                 <AuthFormError error={error} />
                 <button
                   type="submit"
@@ -516,7 +532,7 @@ export default function AthleteLogin() {
                     t("auth.athlete.createAccount")
                   )}
                 </button>
-                <button type="button" onClick={goIdentify} className="w-full text-sm text-muted-foreground hover:text-cyan py-1">
+                <button type="button" onClick={goIdentify} className="w-full text-sm text-muted-foreground hover:text-primary py-1">
                   ← {t("registrationWizard.auth.changeEmail")}
                 </button>
               </form>
@@ -527,6 +543,7 @@ export default function AthleteLogin() {
                 <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-xs text-muted-foreground truncate">
                   {email}
                 </div>
+                <LegalConsentNotice variant="athleteRegister" />
                 <ClerkOAuthButtons />
                 <button
                   type="button"
@@ -534,14 +551,14 @@ export default function AthleteLogin() {
                     setStep("forgot");
                     dispatch(clearAthleteError());
                   }}
-                  className="w-full text-sm text-cyan hover:underline"
+                  className="w-full text-sm text-primary hover:underline"
                 >
                   {t("auth.athlete.setPasswordViaEmail")}
                 </button>
                 <button
                   type="button"
                   onClick={goIdentify}
-                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1 flex items-center justify-center gap-1"
+                  className="w-full text-sm text-muted-foreground hover:text-primary py-1 flex items-center justify-center gap-1"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   {t("registrationWizard.auth.changeEmail")}
@@ -587,7 +604,7 @@ export default function AthleteLogin() {
                 <button
                   type="button"
                   onClick={() => setStep(email ? "login" : "identify")}
-                  className="w-full text-sm text-muted-foreground hover:text-cyan py-1 flex items-center justify-center gap-1"
+                  className="w-full text-sm text-muted-foreground hover:text-primary py-1 flex items-center justify-center gap-1"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   {t("common.back")}
@@ -600,11 +617,11 @@ export default function AthleteLogin() {
         <div className="px-6 pb-6 shrink-0">
           <div className="flex justify-center gap-4 text-xs text-muted-foreground mb-3">
             <span className="flex items-center gap-1">
-              <CheckCircle className="w-3.5 h-3.5 text-cyan" />
+              <CheckCircle className="w-3.5 h-3.5 text-primary" />
               {t("auth.athlete.trustSecure")}
             </span>
             <span className="flex items-center gap-1">
-              <CheckCircle className="w-3.5 h-3.5 text-cyan" />
+              <CheckCircle className="w-3.5 h-3.5 text-primary" />
               {t("common.instantQr")}
             </span>
           </div>

@@ -215,7 +215,7 @@ export default function StaffGlobalRegistrationsPanel({
         sortable: true,
         shrink: true,
         render: (r) => (
-          <span className="font-semibold text-cyan">
+          <span className="font-semibold text-primary">
             ${(r.total_cents / 100).toLocaleString(numLocale)}
           </span>
         ),

@@ -72,12 +72,12 @@ export default function StaffProfileAvatarUpload({
           {avatarUrl ? (
             <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
           ) : (
-            <span className="text-2xl font-bold text-cyan">{initials}</span>
+            <span className="text-2xl font-bold text-primary">{initials}</span>
           )}
         </div>
         {uploadingAvatar ? (
           <div className="absolute inset-0 bg-background/70 rounded-2xl flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
           </div>
         ) : null}
       </div>
@@ -116,7 +116,7 @@ export default function StaffProfileAvatarUpload({
           ) : null}
         </div>
         {saved ? (
-          <p className="text-xs text-cyan">{t("staffPortal.profile.photoSaved")}</p>
+          <p className="text-xs text-primary">{t("staffPortal.profile.photoSaved")}</p>
         ) : null}
         {localError ? <p className="text-xs text-destructive">{localError}</p> : null}
       </div>

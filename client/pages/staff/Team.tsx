@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { Navigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { Loader2, UserPlus, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import {
 } from "@/store/slices/staffPortalSlice";
 import { getDateFnsLocale } from "@/utils/dateLocale";
 import { canOrganizerManageTeam } from "@/utils/staffNav";
+import { getFormikMissingItems } from "@/utils/staffFormMissing";
 
 const inviteSchema = Yup.object({
   email: Yup.string().email("Invalid email").required("Required"),
@@ -41,7 +43,17 @@ const MEMBER_ROLES = [
   "finance",
   "timing",
   "sponsor",
+  "seller",
 ] as const;
+
+function memberRoleLabel(
+  role: string,
+  t: (key: string) => string,
+): string {
+  const key = `staffPortal.team.roles.${role}`;
+  const translated = t(key);
+  return translated === key ? role : translated;
+}
 
 export default function StaffTeam() {
   const { t, i18n } = useTranslation();
@@ -82,6 +94,17 @@ export default function StaffTeam() {
     },
   });
 
+  const inviteMissing = useMemo(
+    () =>
+      getFormikMissingItems(formik.values, inviteSchema, {
+        email: "staffPortal.team.fieldEmail",
+        first_name: "staffPortal.team.fieldFirst",
+        last_name: "staffPortal.team.fieldLast",
+        role: "staffPortal.team.fieldRole",
+      }),
+    [formik.values],
+  );
+
   if (role !== "organizer") {
     return <Navigate to="/staff" replace />;
   }
@@ -100,7 +123,7 @@ export default function StaffTeam() {
       />
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Users className="w-7 h-7 text-cyan" />
+          <Users className="w-7 h-7 text-primary" />
           {t("staffPortal.team.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">{t("staffPortal.team.subtitle")}</p>
@@ -111,7 +134,7 @@ export default function StaffTeam() {
       {isOwner ? (
         <form onSubmit={formik.handleSubmit} className="card-sport p-6 space-y-4">
           <h2 className="font-semibold flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-cyan" />
+            <UserPlus className="w-5 h-5 text-primary" />
             {t("staffPortal.team.inviteTitle")}
           </h2>
           <div className="grid sm:grid-cols-2 gap-4">
@@ -131,7 +154,7 @@ export default function StaffTeam() {
                 <SelectContent>
                   {MEMBER_ROLES.map((r) => (
                     <SelectItem key={r} value={r}>
-                      {r}
+                      {memberRoleLabel(r, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -146,6 +169,10 @@ export default function StaffTeam() {
               <Input id="last_name" {...formik.getFieldProps("last_name")} />
             </div>
           </div>
+          <StaffFormMissingChips
+            items={inviteMissing}
+            showCompleteState={inviteMissing.length === 0}
+          />
           <Button type="submit" disabled={invitingMember}>
             {invitingMember ? (
               <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -183,7 +210,7 @@ export default function StaffTeam() {
                       {m.first_name} {m.last_name}
                     </td>
                     <td className="p-4 text-muted-foreground">{m.email}</td>
-                    <td className="p-4 capitalize">{m.role}</td>
+                    <td className="p-4">{memberRoleLabel(m.role, t)}</td>
                     <td className="p-4">
                       {isOwner && m.role !== "owner" ? (
                         <Select

@@ -110,7 +110,7 @@ export default function StaffAnalytics() {
       />
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BarChart3 className="w-7 h-7 text-cyan" />
+          <BarChart3 className="w-7 h-7 text-primary" />
           {t("staffPortal.analytics.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -129,7 +129,7 @@ export default function StaffAnalytics() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {statCards.map(({ label, value, icon: Icon }) => (
               <div key={label} className="card-sport p-5">
-                <Icon className="w-5 h-5 text-cyan mb-3" />
+                <Icon className="w-5 h-5 text-primary mb-3" />
                 <div className="text-2xl font-bold">{value}</div>
                 <div className="text-sm text-muted-foreground">{label}</div>
               </div>
@@ -141,7 +141,7 @@ export default function StaffAnalytics() {
           {isAdmin ? (
             <div className="grid md:grid-cols-2 gap-4">
               <div className="card-sport p-6">
-                <h2 className="text-sm font-semibold text-cyan uppercase tracking-wider mb-4">
+                <h2 className="text-sm font-semibold text-primary uppercase tracking-wider mb-4">
                   {t("staffPortal.analytics.last30Title")}
                 </h2>
                 <div className="space-y-4">
@@ -155,7 +155,7 @@ export default function StaffAnalytics() {
                     <p className="text-xs text-muted-foreground">
                       {t("staffPortal.analytics.revenue30")}
                     </p>
-                    <p className="text-3xl font-bold text-cyan">
+                    <p className="text-3xl font-bold text-primary">
                       ${((last30?.revenue_cents ?? 0) / 100).toLocaleString(numLocale)}
                     </p>
                   </div>
@@ -163,7 +163,7 @@ export default function StaffAnalytics() {
               </div>
 
               <div className="card-sport p-6">
-                <h2 className="text-sm font-semibold text-cyan uppercase tracking-wider mb-4">
+                <h2 className="text-sm font-semibold text-primary uppercase tracking-wider mb-4">
                   {t("staffPortal.analytics.topEvents")}
                 </h2>
                 {(analytics?.top_events?.length ?? 0) === 0 ? (
@@ -178,13 +178,13 @@ export default function StaffAnalytics() {
                         className="flex items-center justify-between gap-3 text-sm border-b border-border/50 pb-3 last:border-0 last:pb-0"
                       >
                         <div className="min-w-0">
-                          <span className="text-cyan font-bold mr-2">#{i + 1}</span>
+                          <span className="text-primary font-bold mr-2">#{i + 1}</span>
                           <span className="font-medium truncate">{ev.title}</span>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {ev.registration_count} {t("staffPortal.dashboard.registered")}
                           </p>
                         </div>
-                        <div className="font-bold text-cyan shrink-0">
+                        <div className="font-bold text-primary shrink-0">
                           ${(ev.revenue_cents / 100).toLocaleString(numLocale)}
                         </div>
                       </div>

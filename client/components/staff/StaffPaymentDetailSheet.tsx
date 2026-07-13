@@ -78,7 +78,7 @@ export default function StaffPaymentDetailSheet({
 
         {loadingStaffPaymentDetail ? (
           <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-cyan" />
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
         ) : staffPaymentDetailError ? (
           <p className="text-sm text-destructive py-6">{staffPaymentDetailError}</p>
@@ -86,7 +86,7 @@ export default function StaffPaymentDetailSheet({
           <div className="space-y-6 py-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-2xl font-bold text-cyan">
+                <p className="text-2xl font-bold text-primary">
                   ${(payment.amount_cents / 100).toLocaleString(numLocale)} {payment.currency}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -98,7 +98,7 @@ export default function StaffPaymentDetailSheet({
 
             <section className="card-sport p-4 space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
-                <User className="w-4 h-4 text-cyan" />
+                <User className="w-4 h-4 text-primary" />
                 {t("staffPortal.people.colAthlete")}
               </h3>
               <div>
@@ -123,7 +123,7 @@ export default function StaffPaymentDetailSheet({
             {payment.event_id ? (
               <section className="card-sport p-4 space-y-3">
                 <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4 text-cyan" />
+                  <CalendarDays className="w-4 h-4 text-primary" />
                   {t("staffPortal.people.colEvent")}
                 </h3>
                 <p className="font-medium">{payment.event_title}</p>
@@ -166,14 +166,40 @@ export default function StaffPaymentDetailSheet({
               </section>
             ) : null}
 
+            {payment.seller_first_name || payment.provider === "manual" ? (
+              <section className="card-sport p-4 space-y-2">
+                <h3 className="text-sm font-semibold">{t("staffPortal.finance.colSeller")}</h3>
+                {payment.seller_first_name ? (
+                  <>
+                    <p className="font-medium">
+                      {payment.seller_first_name} {payment.seller_last_name ?? ""}
+                    </p>
+                    {payment.seller_email ? (
+                      <p className="text-sm text-muted-foreground">{payment.seller_email}</p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {t("staffPortal.finance.sellerOnline")}
+                  </p>
+                )}
+              </section>
+            ) : null}
+
             <section className="card-sport p-4 space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-cyan" />
+                <CreditCard className="w-4 h-4 text-primary" />
                 {t("staffPortal.finance.paymentSection")}
               </h3>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <dt className="text-muted-foreground">{t("staffPortal.finance.colProvider")}</dt>
-                <dd className="capitalize">{payment.provider}</dd>
+                <dd className="capitalize">
+                  {payment.provider === "manual"
+                    ? t("staffPortal.finance.providerManual")
+                    : payment.provider === "mock"
+                      ? t("staffPortal.finance.providerMock")
+                      : payment.provider}
+                </dd>
                 {payment.fee_presentation ? (
                   <>
                     <dt className="text-muted-foreground">{t("staffPortal.finance.feePresentation")}</dt>

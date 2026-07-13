@@ -49,15 +49,15 @@ function SponsorChip({
     <div
       title={title}
       className={cn(
-        "flex items-center justify-center rounded-md border bg-bg-dark/50 backdrop-blur-sm transition-colors shrink-0",
+        "flex items-center justify-center rounded-md border bg-background/50 backdrop-blur-sm transition-colors shrink-0",
         variant === "inline"
           ? cn(
               "h-8 px-3",
-              isTitle ? "border-cyan/35 min-w-[72px]" : "border-gray-700/40 min-w-[56px]",
+              isTitle ? "border-cyan/35 min-w-[72px]" : "border-border/60 min-w-[56px]",
             )
           : cn(
               "h-10 px-3.5 w-full",
-              isTitle ? "border-cyan/30" : "border-gray-700/45",
+              isTitle ? "border-cyan/30" : "border-border/45",
             ),
       )}
     >
@@ -77,9 +77,9 @@ function SponsorChip({
       ) : (
         <span
           className={cn(
-            "font-bold text-gray-400",
+            "font-bold text-muted-foreground",
             variant === "inline" ? "text-[10px]" : "text-xs",
-            isTitle && "text-gray-200",
+            isTitle && "text-muted-foreground",
           )}
         >
           {initials || sponsor.name.slice(0, 3)}
@@ -163,12 +163,12 @@ export default function EventSponsorsCarousel({
     return (
       <div
         className={cn(
-          "p-4 rounded-xl border border-gray-700/50 bg-surface-dark/50 space-y-3",
+          "p-4 rounded-xl border border-border bg-card/60 space-y-3",
           className,
         )}
         aria-label={t("eventDetail.strategicSponsors")}
       >
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           {t("eventDetail.strategicSponsorsEyebrow")}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -192,12 +192,12 @@ export default function EventSponsorsCarousel({
       className={cn("flex items-center gap-2.5 min-w-0", className)}
       aria-label={t("eventDetail.strategicSponsors")}
     >
-      <span className="hidden lg:block text-[9px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap shrink-0">
+      <span className="hidden lg:block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap shrink-0">
         {t("eventDetail.strategicSponsorsEyebrow")}
       </span>
       <div className="relative flex-1 min-w-0">
-        <div className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-bg-dark/90 to-transparent z-10" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-bg-dark/90 to-transparent z-10" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-background/90 to-transparent z-10" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-background/90 to-transparent z-10" />
         <div ref={emblaRef} className="overflow-hidden">
           <div className="flex gap-2">
             {displaySponsors.map((sponsor) => (

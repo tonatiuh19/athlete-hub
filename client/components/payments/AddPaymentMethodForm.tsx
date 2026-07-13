@@ -6,10 +6,12 @@ import {
   useElements,
   useStripe,
 } from "@stripe/react-stripe-js";
+import { useTheme } from "next-themes";
 import { Loader2, Lock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { stripePaymentElementOptions } from "@/lib/stripePaymentElementOptions";
+import { buildStripeAppearance } from "@/lib/stripeAppearance";
 
 interface AddPaymentMethodFormInnerProps {
   loading: boolean;
@@ -67,7 +69,7 @@ function AddPaymentMethodFormInner({
         <Button
           type="submit"
           disabled={!stripe || !elements || busy}
-          className="flex-1 bg-gradient-to-r from-cyan to-blue-electric text-navy-deep font-bold"
+          className="flex-1 bg-triboo-gradient text-primary-foreground font-bold"
         >
           {busy ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -95,6 +97,8 @@ interface AddPaymentMethodFormProps {
 export default function AddPaymentMethodForm(props: AddPaymentMethodFormProps) {
   const { clientSecret, publishableKey, ...rest } = props;
   const [stripePromise] = useState(() => loadStripe(publishableKey));
+  const { resolvedTheme } = useTheme();
+  const isDark = (resolvedTheme ?? "dark") !== "light";
 
   if (!stripePromise) return null;
 
@@ -103,17 +107,7 @@ export default function AddPaymentMethodForm(props: AddPaymentMethodFormProps) {
       stripe={stripePromise}
       options={{
         clientSecret,
-        appearance: {
-          theme: "night",
-          variables: {
-            colorPrimary: "#00E5FF",
-            colorBackground: "#0A0F1F",
-            colorText: "#E2E8F0",
-            colorDanger: "#FF5252",
-            borderRadius: "10px",
-            fontFamily: "Inter, system-ui, sans-serif",
-          },
-        },
+        appearance: buildStripeAppearance(isDark),
       }}
     >
       <AddPaymentMethodFormInner {...rest} />

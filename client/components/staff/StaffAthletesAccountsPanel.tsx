@@ -77,7 +77,7 @@ export default function StaffAthletesAccountsPanel() {
         label: t("staffPortal.athletes.colRegs"),
         sortable: true,
         shrink: true,
-        render: (a) => <span className="font-semibold text-cyan">{a.registration_count}</span>,
+        render: (a) => <span className="font-semibold text-primary">{a.registration_count}</span>,
       },
       {
         key: "status",

@@ -154,7 +154,7 @@ export default function HeroEventCard({
         <div className="flex items-start justify-between gap-2 shrink-0">
           <div className="min-w-0 flex-1">
             <h3
-              className={`font-bold text-white leading-snug group-hover:text-primary transition-colors ${
+              className={`font-bold text-foreground leading-snug group-hover:text-primary transition-colors ${
                 isPoster ? "text-base line-clamp-2" : "text-[13px] sm:text-sm line-clamp-2"
               }`}
             >

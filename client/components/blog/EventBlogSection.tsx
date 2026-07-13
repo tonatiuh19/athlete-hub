@@ -47,11 +47,11 @@ export default function EventBlogSection({
     <section className={`space-y-4 ${className}`}>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
             <FileText className="w-5 h-5 text-primary" />
             {t("eventDetail.blogSectionTitle")}
           </h2>
-          <p className="text-sm text-gray-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {organizerName
               ? t("eventDetail.blogSectionSubtitleOrganizer", { organizer: organizerName })
               : t("eventDetail.blogSectionSubtitle")}
@@ -71,7 +71,7 @@ export default function EventBlogSection({
       {eventPostsLoading ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {[1, 2].map((i) => (
-            <div key={i} className="h-32 rounded-xl bg-surface-dark/40 animate-pulse" />
+            <div key={i} className="h-32 rounded-xl bg-card/40 animate-pulse" />
           ))}
         </div>
       ) : (
@@ -79,7 +79,7 @@ export default function EventBlogSection({
           {posts.map((post) => (
             <article
               key={post.id}
-              className="rounded-xl border border-gray-700/50 bg-surface-dark/40 p-4 hover:border-primary/40 transition-colors group"
+              className="rounded-xl border border-border bg-card/40 p-4 hover:border-primary/40 transition-colors group"
             >
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <BlogOriginBadge origin={getBlogOrigin(post)} />
@@ -90,13 +90,13 @@ export default function EventBlogSection({
                   </span>
                 ) : null}
               </div>
-              <h3 className="font-semibold text-white group-hover:text-primary transition-colors line-clamp-2">
+              <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-2">
                 <Link to={`/blog/${post.slug}`}>{post.title}</Link>
               </h3>
               {post.excerpt ? (
-                <p className="text-sm text-gray-400 mt-2 line-clamp-2">{post.excerpt}</p>
+                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{post.excerpt}</p>
               ) : null}
-              <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
+              <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-primary" />
                   {t("blog.index.readTime", { count: post.readTimeMinutes })}

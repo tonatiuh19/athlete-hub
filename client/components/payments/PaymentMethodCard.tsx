@@ -49,7 +49,7 @@ export default function PaymentMethodCard({
       tabIndex={selectable ? 0 : undefined}
     >
       <div className="w-10 h-10 rounded-lg bg-cyan/10 border border-cyan/25 flex items-center justify-center shrink-0">
-        <CreditCard className="w-5 h-5 text-cyan" />
+        <CreditCard className="w-5 h-5 text-primary" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold truncate">{label}</p>
@@ -60,7 +60,7 @@ export default function PaymentMethodCard({
         </p>
       </div>
       {method.isDefault ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan/15 text-cyan text-[10px] font-bold uppercase shrink-0">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan/15 text-primary text-[10px] font-bold uppercase shrink-0">
           <Star className="w-3 h-3" />
           {t("athletePortal.paymentMethods.default")}
         </span>

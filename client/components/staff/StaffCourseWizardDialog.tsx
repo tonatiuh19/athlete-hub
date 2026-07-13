@@ -131,7 +131,7 @@ export default function StaffCourseWizardDialog({
                   <div
                     className={cn(
                       "flex items-center justify-center w-8 h-8 rounded-full border shrink-0 transition-colors",
-                      done && "bg-cyan/20 border-cyan/50 text-cyan",
+                      done && "bg-cyan/20 border-cyan/50 text-primary",
                       active && "bg-cyan text-primary-foreground border-cyan shadow-lg shadow-cyan/25",
                       !done && !active && "border-border text-muted-foreground",
                     )}
@@ -139,7 +139,7 @@ export default function StaffCourseWizardDialog({
                     {done ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
                   </div>
                   <div className="min-w-0 hidden sm:block">
-                    <p className={cn("text-xs font-semibold truncate", active ? "text-cyan" : "text-muted-foreground")}>
+                    <p className={cn("text-xs font-semibold truncate", active ? "text-primary" : "text-muted-foreground")}>
                       {t(`staffPortal.courseEditor.wizardStep_${s}`)}
                     </p>
                   </div>

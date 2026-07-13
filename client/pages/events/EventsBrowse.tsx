@@ -13,12 +13,15 @@ import MetaHelmet, { DEFAULT_OG_IMAGE } from "@/components/MetaHelmet";
 import EventsCalendarView from "@/components/events/EventsCalendarView";
 import EventsFiltersSidebar from "@/components/events/EventsFiltersSidebar";
 import MarketplaceSearchBar from "@/components/events/MarketplaceSearchBar";
-import SportTypesCardCarousel from "@/components/events/SportTypesCardCarousel";
+import SportTypesChipCarousel from "@/components/events/SportTypesChipCarousel";
 import EventsMap from "@/components/events/EventsMap";
 import MapEventPreview from "@/components/events/MapEventPreview";
 import MarketplaceEventCard from "@/components/events/MarketplaceEventCard";
+import HeroMobileFiltersSheet from "@/components/home/HeroMobileFiltersSheet";
+import { SportChipsSkeleton } from "@/components/home/homeSkeletonPrimitives";
+import MarketplaceBrowseHeroBackdrop from "@/components/events/MarketplaceBrowseHeroBackdrop";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useIsDarkTheme } from "@/hooks/use-is-dark-theme";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchFilterCities,
@@ -39,6 +42,7 @@ import {
 
 export default function EventsBrowse() {
   const { t } = useTranslation();
+  const isDark = useIsDarkTheme();
   const dispatch = useAppDispatch();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -50,6 +54,7 @@ export default function EventsBrowse() {
     sportTypes,
     cities,
     loadingEvents,
+    loadingMeta,
     error,
   } = useAppSelector((s) => s.marketplace);
 
@@ -157,16 +162,22 @@ export default function EventsBrowse() {
         keywords={["Triboo Sport", "sports events", "race calendar", "triathlon", "marathon", "Mexico events"]}
       />
 
-      <section className="relative overflow-hidden border-b border-gray-800/60">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,229,255,0.1),transparent_60%)]" />
-        <div className="relative max-w-[min(100%,1920px)] mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-12">
-          <p className="hidden md:block text-cyan text-xs font-semibold uppercase tracking-widest mb-2">
+      <section
+        className={cn(
+          "relative overflow-hidden border-b border-border",
+          !isDark && "bg-background",
+        )}
+      >
+        <MarketplaceBrowseHeroBackdrop isDark={isDark} />
+
+        <div className="relative max-w-[min(100%,1920px)] mx-auto px-4 md:px-6 lg:px-8 py-3 md:py-12">
+          <p className="hidden md:block text-primary text-xs font-semibold uppercase tracking-widest mb-2">
             {t("eventsBrowse.eyebrow")}
           </p>
-          <h1 className="text-xl sm:text-2xl md:text-4xl font-bold text-white mb-3 md:mb-2">
+          <h1 className="hidden md:block text-2xl md:text-4xl font-bold text-foreground mb-2 md:mb-2">
             {t("eventsBrowse.pageTitle")}
           </h1>
-          <p className="hidden md:block text-gray-400 max-w-2xl mb-6 text-sm md:text-base">
+          <p className="hidden md:block text-muted-foreground max-w-2xl mb-6 text-sm md:text-base">
             {t("eventsBrowse.pageSubtitle")}
           </p>
 
@@ -184,54 +195,53 @@ export default function EventsBrowse() {
               }
               placeholder={t("eventsBrowse.searchPlaceholder")}
               listboxId="events-browse-search-listbox"
-              tone="hero"
               showFilters
               filtersOpen={mobileFiltersOpen}
               onFiltersClick={() => setMobileFiltersOpen(true)}
             />
 
-            <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
-              <SheetContent
-                side="left"
-                className="w-[min(320px,100vw)] bg-background border-border overflow-y-auto p-0 lg:hidden"
-              >
-                <div className="p-4">
-                  <EventsFiltersSidebar
-                    filters={filters}
-                    sportTypes={sportTypes}
-                    cities={cities}
-                    onChange={applyFiltersPatch}
-                    onReset={resetAllFilters}
-                  />
-                </div>
-              </SheetContent>
-            </Sheet>
+            <HeroMobileFiltersSheet
+              open={mobileFiltersOpen}
+              onOpenChange={setMobileFiltersOpen}
+              searchQuery={searchInput}
+              initialFilters={{
+                sport: filters.sport,
+                geoCityId: filters.geoCityId,
+                city: filters.city,
+                dateFrom: filters.dateFrom,
+                dateTo: filters.dateTo,
+              }}
+              onApplyFilters={(patch) => applyFiltersPatch(patch)}
+            />
+          </div>
 
+          <div className="md:hidden mt-3 -mx-1 min-w-0">
             {sportTypes.length > 0 ? (
-              <SportTypesCardCarousel
-                className="lg:hidden"
+              <SportTypesChipCarousel
                 mode="filter"
                 sportTypes={sportTypes}
-                selectedSlug={filters.sport}
-                onSelect={(sport) => applyFiltersPatch({ sport })}
+                activeSlug={filters.sport}
                 showAll
+                onSelect={(sport) => applyFiltersPatch({ sport })}
               />
+            ) : loadingMeta ? (
+              <SportChipsSkeleton />
             ) : null}
           </div>
 
-          <div className="flex items-center justify-between gap-2 mt-4 md:mt-6">
+          <div className="flex items-center justify-between gap-2 mt-3 md:mt-6">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="text-xs md:text-sm text-gray-400 tabular-nums">
+              <span className="text-xs md:text-sm text-muted-foreground tabular-nums">
                 {t("eventsBrowse.resultsCount", { count: total })}
               </span>
               {(viewMode === "map" || viewMode === "split") && mappableCount > 0 && (
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-gray-500">
-                  <MapPin className="w-3.5 h-3.5 text-cyan shrink-0" />
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
                   {t("eventsBrowse.onMap", { count: mappableCount })}
                 </span>
               )}
             </div>
-            <div className="flex shrink-0 gap-0.5 p-0.5 rounded-xl bg-surface-dark/80 border border-gray-700/50">
+            <div className="flex shrink-0 gap-0.5 p-0.5 rounded-xl bg-card/90 border border-border/70 backdrop-blur-sm">
               {viewButtons.map(({ mode, icon: Icon, label }) => (
                 <button
                   key={mode}
@@ -241,8 +251,8 @@ export default function EventsBrowse() {
                     "inline-flex items-center justify-center gap-1.5 rounded-lg transition-all duration-200",
                     "h-9 w-9 sm:h-auto sm:w-auto sm:px-3 sm:py-2 text-xs font-semibold",
                     viewMode === mode
-                      ? "bg-cyan/15 text-cyan shadow-sm"
-                      : "text-gray-400 hover:text-white hover:bg-white/5",
+                      ? "bg-primary/15 text-primary shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted",
                   )}
                   title={label}
                   aria-label={label}
@@ -282,24 +292,20 @@ export default function EventsBrowse() {
 
           <div className="min-w-0 w-full">
             {isInitialLoad && (
-              <div className="flex items-center justify-center gap-2 py-24 text-gray-400">
-                <Loader2 className="w-5 h-5 animate-spin text-cyan" />
+              <div className="flex items-center justify-center gap-2 py-24 text-muted-foreground">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
                 {t("eventsBrowse.loading")}
               </div>
             )}
 
             {error && !isInitialLoad && (
-              <p className="text-center text-red-400 py-12">{error}</p>
+              <p className="text-center text-destructive py-12">{error}</p>
             )}
 
             {!isInitialLoad && !error && !hasEvents && (
-              <div className="text-center py-24 rounded-2xl border border-gray-800/60 bg-surface-dark/30">
-                <p className="text-gray-400 mb-4">{t("eventsBrowse.empty")}</p>
-                <Button
-                  variant="outline"
-                  className="border-gray-700"
-                  onClick={resetAllFilters}
-                >
+              <div className="text-center py-24 rounded-2xl border border-border bg-card/60">
+                <p className="text-muted-foreground mb-4">{t("eventsBrowse.empty")}</p>
+                <Button variant="outline" onClick={resetAllFilters}>
                   {t("eventsBrowse.reset")}
                 </Button>
               </div>
@@ -312,15 +318,15 @@ export default function EventsBrowse() {
                     className="absolute inset-0 z-20 flex items-start justify-center pt-16 rounded-2xl bg-background/50 backdrop-blur-[2px] pointer-events-none"
                     aria-hidden
                   >
-                    <div className="inline-flex items-center gap-2 rounded-full border border-gray-700/60 bg-surface-dark/90 px-4 py-2 text-sm text-gray-300 shadow-lg">
-                      <Loader2 className="w-4 h-4 animate-spin text-cyan" />
+                    <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/90 px-4 py-2 text-sm text-muted-foreground shadow-lg">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       {t("eventsBrowse.updating")}
                     </div>
                   </div>
                 )}
 
                 {viewMode === "grid" && (
-                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-5">
                     {events.map((ev) => (
                       <MarketplaceEventCard key={ev.slug} event={ev} />
                     ))}
@@ -330,7 +336,7 @@ export default function EventsBrowse() {
                 {viewMode === "calendar" && <EventsCalendarView events={events} />}
 
                 {viewMode === "map" && (
-                  <div className="relative w-full rounded-2xl overflow-hidden border border-gray-700/50 bg-surface-dark/30">
+                  <div className="relative w-full rounded-2xl overflow-hidden border border-border bg-card/60">
                     <EventsMap
                       events={events}
                       selectedSlug={selectedEventSlug}
@@ -356,7 +362,7 @@ export default function EventsBrowse() {
                       ))}
                     </div>
 
-                    <div className="relative min-w-0 w-full rounded-2xl overflow-hidden border border-gray-700/50 bg-surface-dark/30 shadow-[inset_0_0_0_1px_rgba(0,229,255,0.04)]">
+                    <div className="relative min-w-0 w-full rounded-2xl overflow-hidden border border-border bg-card/60 shadow-sm">
                       <EventsMap
                         events={events}
                         selectedSlug={selectedEventSlug}

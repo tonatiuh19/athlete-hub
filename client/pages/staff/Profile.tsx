@@ -98,7 +98,7 @@ export default function StaffProfile() {
   if (loading && !user) {
     return (
       <div className="flex justify-center py-24">
-        <Loader2 className="w-10 h-10 animate-spin text-cyan" />
+        <Loader2 className="w-10 h-10 animate-spin text-primary" />
       </div>
     );
   }
@@ -112,7 +112,7 @@ export default function StaffProfile() {
 
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <User className="w-7 h-7 text-cyan" />
+          <User className="w-7 h-7 text-primary" />
           {t("staffPortal.profile.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">{t("staffPortal.profile.subtitle")}</p>
@@ -129,9 +129,9 @@ export default function StaffProfile() {
 
         <div className="flex items-center gap-3 pt-2 border-t border-border text-sm">
           {isAdmin ? (
-            <ShieldCheck className="w-5 h-5 text-cyan shrink-0" />
+            <ShieldCheck className="w-5 h-5 text-primary shrink-0" />
           ) : (
-            <Building2 className="w-5 h-5 text-cyan shrink-0" />
+            <Building2 className="w-5 h-5 text-primary shrink-0" />
           )}
           <div>
             <p className="font-medium capitalize">
@@ -167,7 +167,7 @@ export default function StaffProfile() {
 
         <div className="space-y-2">
           <Label htmlFor="staff-phone" className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-cyan" />
+            <Phone className="w-4 h-4 text-primary" />
             {t("staffPortal.profile.phone")}
           </Label>
           <Input id="staff-phone" type="tel" placeholder="+52 …" {...formik.getFieldProps("phone")} />
@@ -175,7 +175,7 @@ export default function StaffProfile() {
 
         <div className="space-y-2">
           <Label className="flex items-center gap-2">
-            <Mail className="w-4 h-4 text-cyan" />
+            <Mail className="w-4 h-4 text-primary" />
             {t("staffPortal.team.fieldEmail")}
           </Label>
           <Input value={user?.email ?? ""} disabled className="bg-muted/30" />
@@ -211,7 +211,7 @@ export default function StaffProfile() {
           ))}
         </div>
         {languageSaved ? (
-          <p className="text-xs text-cyan">{t("staffPortal.settings.languageSaved")}</p>
+          <p className="text-xs text-primary">{t("staffPortal.settings.languageSaved")}</p>
         ) : null}
       </div>
 

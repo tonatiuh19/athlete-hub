@@ -153,7 +153,7 @@ export default function AthleteRegistrations() {
                       <Button
                         type="button"
                         size="sm"
-                        className="bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+                        className="bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
                         disabled={claimingId === entry.id}
                         onClick={() => handleClaimSpot(entry)}
                       >
@@ -208,7 +208,7 @@ export default function AthleteRegistrations() {
                 className="w-14 h-14 rounded-xl bg-cyan/10 border border-cyan/20 flex items-center justify-center shrink-0 hover:bg-cyan/20 hover:border-cyan/40 transition-colors"
                 aria-label={t("athletePortal.registrations.viewQr")}
               >
-                <QrCode className="w-7 h-7 text-cyan" />
+                <QrCode className="w-7 h-7 text-primary" />
               </button>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -240,7 +240,7 @@ export default function AthleteRegistrations() {
                 </p>
               </div>
               <div className="flex flex-col items-stretch sm:items-end gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-border/60">
-                <div className="text-lg font-bold text-cyan sm:text-right">
+                <div className="text-lg font-bold text-primary sm:text-right">
                   ${(r.total_cents / 100).toLocaleString(numLocale)} MXN
                 </div>
                 <div className="flex flex-wrap gap-2 justify-end">
@@ -273,7 +273,7 @@ export default function AthleteRegistrations() {
                     size="sm"
                     variant="outline"
                     onClick={() => setQrRegistration(r)}
-                    className="border-cyan/30 text-cyan hover:bg-cyan/10"
+                    className="border-cyan/30 text-primary hover:bg-cyan/10"
                   >
                     <QrCode className="w-3.5 h-3.5 mr-1.5" />
                     {t("athletePortal.registrations.viewQr")}

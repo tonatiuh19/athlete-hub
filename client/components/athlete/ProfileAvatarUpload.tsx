@@ -84,7 +84,7 @@ export default function ProfileAvatarUpload({
         )}
         {uploadingAvatar ? (
           <div className="absolute inset-0 rounded-2xl bg-background/70 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
           </div>
         ) : null}
       </div>
@@ -131,7 +131,7 @@ export default function ProfileAvatarUpload({
           <p className="text-xs text-destructive">{localError}</p>
         ) : null}
         {saved ? (
-          <p className="text-xs text-cyan">{t("athletePortal.profile.avatarSaved")}</p>
+          <p className="text-xs text-primary">{t("athletePortal.profile.avatarSaved")}</p>
         ) : null}
       </div>
     </div>

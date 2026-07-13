@@ -9,9 +9,14 @@ import {
   Building2,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import ThemeToggle from "@/components/ThemeToggle";
+import StaffOrganizerPayoutSetupBanner, {
+  useOrganizerPayoutSetupBannerVisible,
+} from "@/components/staff/StaffOrganizerPayoutSetupBanner";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { staffLogout, fetchStaffMe } from "@/store/slices/staffAuthSlice";
 import { getStaffNav } from "@/utils/staffNav";
+import { cn } from "@/lib/utils";
 
 function StaffPageFallback() {
   return (
@@ -32,6 +37,9 @@ export default function StaffLayout() {
     if (token && role && !user) dispatch(fetchStaffMe(role));
   }, [token, role, user, dispatch]);
 
+  const organizerRole = user?.type === "organizer" ? user.role : undefined;
+  const showPayoutSticky = useOrganizerPayoutSetupBannerVisible(organizerRole);
+
   if (!token) {
     return <Navigate to="/staff/login" replace />;
   }
@@ -39,13 +47,12 @@ export default function StaffLayout() {
   if ((loading && !user) || !role) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 border-2 border-cyan border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   const isAdmin = role === "admin";
-  const organizerRole = user?.type === "organizer" ? user.role : undefined;
   const NAV = getStaffNav(isAdmin, organizerRole).map((item) => ({
     ...item,
     label: t(item.labelKey),
@@ -61,6 +68,14 @@ export default function StaffLayout() {
       ? `${user.firstName} ${user.lastName}`
       : "Staff";
 
+  const navLinkClass = (isActive: boolean) =>
+    cn(
+      "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
+      isActive
+        ? "bg-primary/10 text-primary border border-primary/20"
+        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+    );
+
   const NavItems = ({ mobile = false }: { mobile?: boolean }) => (
     <>
       {NAV.map(({ to, end, label, icon: Icon }) => (
@@ -69,13 +84,7 @@ export default function StaffLayout() {
           to={to}
           end={end}
           onClick={() => mobile && setMobileOpen(false)}
-          className={({ isActive }) =>
-            `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-              isActive
-                ? "bg-cyan/10 text-cyan border border-cyan/20"
-                : "text-muted-foreground hover:bg-card"
-            }`
-          }
+          className={({ isActive }) => navLinkClass(isActive)}
         >
           <Icon className="w-5 h-5 shrink-0" />
           {label}
@@ -86,17 +95,17 @@ export default function StaffLayout() {
 
   return (
     <div className="min-h-screen bg-background flex overflow-x-clip w-full max-w-full">
-      <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-surface-dark/80 fixed inset-y-0">
-        <div className="p-6 border-b border-border">
+      <aside className="hidden lg:flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground fixed inset-y-0">
+        <div className="p-6 border-b border-sidebar-border">
           <div className="flex items-center gap-2">
             {isAdmin ? (
-              <ShieldCheck className="w-7 h-7 text-cyan" />
+              <ShieldCheck className="w-7 h-7 text-primary" />
             ) : (
-              <Building2 className="w-7 h-7 text-cyan" />
+              <Building2 className="w-7 h-7 text-primary" />
             )}
             <div>
-              <div className="font-bold text-sm">{t("staffPortal.nav.console")}</div>
-              <div className="text-[10px] text-muted-foreground uppercase">
+              <div className="font-bold text-sm text-sidebar-foreground">{t("staffPortal.nav.console")}</div>
+              <div className="text-[10px] text-sidebar-foreground/60 uppercase">
                 {isAdmin ? t("staffPortal.nav.admin") : t("staffPortal.nav.organizer")}
               </div>
             </div>
@@ -108,29 +117,23 @@ export default function StaffLayout() {
               key={to}
               to={to}
               end={end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                  isActive
-                    ? "bg-cyan/10 text-cyan border border-cyan/20"
-                    : "text-muted-foreground hover:bg-card"
-                }`
-              }
+              className={({ isActive }) => navLinkClass(isActive)}
             >
               <Icon className="w-5 h-5" />
               {label}
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t border-border">
+        <div className="p-4 border-t border-sidebar-border">
           <Link
             to="/staff/profile"
-            className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-card transition-colors mb-2 group"
+            className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-sidebar-accent transition-colors mb-2 group"
           >
-            <div className="w-9 h-9 rounded-xl overflow-hidden bg-cyan/10 border border-cyan/20 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl overflow-hidden bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
               {user?.avatarUrl ? (
                 <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
               ) : (
-                <span className="text-xs font-bold text-cyan">
+                <span className="text-xs font-bold text-primary">
                   {displayName
                     .split(" ")
                     .map((p) => p[0])
@@ -141,16 +144,16 @@ export default function StaffLayout() {
               )}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium truncate group-hover:text-cyan transition-colors">
+              <p className="text-sm font-medium truncate text-sidebar-foreground group-hover:text-primary transition-colors">
                 {displayName}
               </p>
-              <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
+              <p className="text-[10px] text-sidebar-foreground/60 truncate">{user?.email}</p>
             </div>
           </Link>
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-muted-foreground hover:text-destructive"
+            className="w-full flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-sidebar-foreground/70 hover:text-destructive"
           >
             <LogOut className="w-4 h-4" /> {t("staffPortal.nav.exit")}
           </button>
@@ -162,6 +165,7 @@ export default function StaffLayout() {
           <span className="font-bold text-sm truncate">{t("staffPortal.nav.console")}</span>
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSwitcher variant="compact" />
+            <ThemeToggle variant="compact" />
             <button
               type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
@@ -182,11 +186,11 @@ export default function StaffLayout() {
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-card"
                 >
-                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-cyan/10 border border-cyan/20 flex items-center justify-center shrink-0">
+                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                     {user?.avatarUrl ? (
                       <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-xs font-bold text-cyan">
+                      <span className="text-xs font-bold text-primary">
                         {displayName
                           .split(" ")
                           .map((p) => p[0])
@@ -216,14 +220,35 @@ export default function StaffLayout() {
           </div>
         )}
 
-        <main className="flex-1 p-4 md:p-8 min-w-0 w-full max-w-full overflow-x-clip">
-          <div className="hidden lg:flex justify-end mb-4">
-            <LanguageSwitcher variant="ghost" />
+        <main
+          className={cn(
+            "flex-1 p-4 md:p-8 min-w-0 w-full max-w-full overflow-x-clip",
+            !isAdmin && showPayoutSticky && "pb-24 lg:pb-8",
+          )}
+        >
+          <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6">
+            <div className="hidden lg:flex justify-end gap-2">
+              <ThemeToggle variant="ghost" />
+              <LanguageSwitcher variant="ghost" />
+            </div>
+            {!isAdmin ? (
+              <StaffOrganizerPayoutSetupBanner
+                organizerRole={organizerRole}
+                className="hidden lg:block"
+              />
+            ) : null}
+            <Suspense fallback={<StaffPageFallback />}>
+              <Outlet />
+            </Suspense>
           </div>
-          <Suspense fallback={<StaffPageFallback />}>
-            <Outlet />
-          </Suspense>
         </main>
+        {!isAdmin ? (
+          <StaffOrganizerPayoutSetupBanner
+            organizerRole={organizerRole}
+            variant="sticky"
+            className="lg:hidden"
+          />
+        ) : null}
       </div>
     </div>
   );

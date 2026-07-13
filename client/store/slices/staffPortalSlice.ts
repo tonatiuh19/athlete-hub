@@ -26,9 +26,14 @@ import type {
   StaffDiscountCodeInput,
   StaffDiscountCodePatch,
   StaffDiscountCodeRow,
+  StaffFolioSegmentInput,
+  StaffFolioSegmentRow,
   StaffEventCategory,
   StaffEventCategoryInput,
   StaffEventCategoryPatch,
+  StaffEventExtra,
+  StaffEventExtraInput,
+  StaffEventExtraPatch,
   StaffEventCoursePayload,
   StaffEventDetailResponse,
   StaffEventHubSummary,
@@ -59,6 +64,7 @@ import type {
   OrganizerPayoutOnboardResponse,
   OrganizerPayoutProfileUpdateRequest,
   OrganizerPayoutStatusResponse,
+  OrganizerSellerSalesSummaryResponse,
   AdminStaffRow,
   AdminStaffCreateRequest,
   AdminStaffUpdateRequest,
@@ -89,6 +95,7 @@ interface StaffPortalState {
   scheduleWaves: StaffScheduleWaveRow[];
   eventCourse: StaffEventCoursePayload | null;
   discountCodes: StaffDiscountCodeRow[];
+  folioSegments: StaffFolioSegmentRow[];
   eventResults: StaffEventResultRow[];
   athleteDetail: AdminAthleteDetailResponse | null;
   lookupRegistration: RegistrationLookupResponse["registration"] | null;
@@ -105,6 +112,7 @@ interface StaffPortalState {
   publishingEvent: boolean;
   rejectingEventApproval: boolean;
   savingCategory: boolean;
+  savingExtra: boolean;
   savingSponsors: boolean;
   savingFields: boolean;
   savingWaiver: boolean;
@@ -114,6 +122,8 @@ interface StaffPortalState {
   savingCourse: boolean;
   loadingDiscountCodes: boolean;
   savingDiscountCode: boolean;
+  loadingFolioSegments: boolean;
+  savingFolioSegments: boolean;
   cancellingRegistration: boolean;
   loadingResults: boolean;
   savingResults: boolean;
@@ -177,6 +187,9 @@ interface StaffPortalState {
   staffPaymentDetail: AdminPaymentDetail | null;
   loadingStaffPaymentDetail: boolean;
   staffPaymentDetailError: string | null;
+  sellerSalesSummary: OrganizerSellerSalesSummaryResponse | null;
+  loadingSellerSalesSummary: boolean;
+  sellerSalesSummaryError: string | null;
   sponsorAnalytics: SponsorAnalyticsResponse | null;
   loadingSponsorAnalytics: boolean;
   sponsorAnalyticsError: string | null;
@@ -191,12 +204,14 @@ interface StaffPortalState {
   saveEventError: string | null;
   publishError: string | null;
   categoryError: string | null;
+  extraError: string | null;
   sponsorsError: string | null;
   fieldsError: string | null;
   waiverError: string | null;
   wavesError: string | null;
   courseError: string | null;
   discountCodesError: string | null;
+  folioSegmentsError: string | null;
   cancelRegistrationError: string | null;
   resultsError: string | null;
   bibError: string | null;
@@ -211,7 +226,9 @@ interface StaffPortalState {
   loadingPayoutStatus: boolean;
   payoutStatusError: string | null;
   savingPayoutProfile: boolean;
+  acceptingPayoutTerms: boolean;
   onboardingPayouts: boolean;
+  payoutOnboardError: string | null;
   syncingPayouts: boolean;
   adminOrganizerConnect: OrganizerPayoutStatusResponse | null;
   loadingAdminOrganizerConnect: boolean;
@@ -240,6 +257,7 @@ const initialState: StaffPortalState = {
   scheduleWaves: [],
   eventCourse: null,
   discountCodes: [],
+  folioSegments: [],
   eventResults: [],
   athleteDetail: null,
   lookupRegistration: null,
@@ -256,6 +274,7 @@ const initialState: StaffPortalState = {
   publishingEvent: false,
   rejectingEventApproval: false,
   savingCategory: false,
+  savingExtra: false,
   savingSponsors: false,
   savingFields: false,
   savingWaiver: false,
@@ -265,6 +284,8 @@ const initialState: StaffPortalState = {
   savingCourse: false,
   loadingDiscountCodes: false,
   savingDiscountCode: false,
+  loadingFolioSegments: false,
+  savingFolioSegments: false,
   cancellingRegistration: false,
   loadingResults: false,
   savingResults: false,
@@ -328,6 +349,9 @@ const initialState: StaffPortalState = {
   staffPaymentDetail: null,
   loadingStaffPaymentDetail: false,
   staffPaymentDetailError: null,
+  sellerSalesSummary: null,
+  loadingSellerSalesSummary: false,
+  sellerSalesSummaryError: null,
   sponsorAnalytics: null,
   loadingSponsorAnalytics: false,
   sponsorAnalyticsError: null,
@@ -342,12 +366,14 @@ const initialState: StaffPortalState = {
   saveEventError: null,
   publishError: null,
   categoryError: null,
+  extraError: null,
   sponsorsError: null,
   fieldsError: null,
   waiverError: null,
   wavesError: null,
   courseError: null,
   discountCodesError: null,
+  folioSegmentsError: null,
   cancelRegistrationError: null,
   resultsError: null,
   bibError: null,
@@ -362,7 +388,9 @@ const initialState: StaffPortalState = {
   loadingPayoutStatus: false,
   payoutStatusError: null,
   savingPayoutProfile: false,
+  acceptingPayoutTerms: false,
   onboardingPayouts: false,
+  payoutOnboardError: null,
   syncingPayouts: false,
   adminOrganizerConnect: null,
   loadingAdminOrganizerConnect: false,
@@ -371,8 +399,16 @@ const initialState: StaffPortalState = {
   teamError: null,
 };
 
-function rejectMessage(e: unknown, fallbackKey: string): string {
-  const err = e as { response?: { data?: { error?: string } } };
+function rejectMessage(
+  e: unknown,
+  fallbackKey: string,
+  codeKeys?: Record<string, string>,
+): string {
+  const err = e as { response?: { data?: { error?: string; code?: string } } };
+  const code = err?.response?.data?.code;
+  if (code && codeKeys?.[code]) {
+    return i18n.t(codeKeys[code]);
+  }
   return err?.response?.data?.error || i18n.t(fallbackKey);
 }
 
@@ -762,7 +798,15 @@ export const createStaffRegistration = createAsyncThunk<
 
 export const fetchStaffPayments = createAsyncThunk<
   PaginatedAdminPaymentsResponse,
-  GridListParams & { status?: string; organizerId?: number; eventId?: number; role?: "admin" | "organizer" },
+  GridListParams & {
+    status?: string;
+    provider?: string;
+    organizerId?: number;
+    eventId?: number;
+    sellerFilter?: string;
+    recordedByMemberId?: number;
+    role?: "admin" | "organizer";
+  },
   { rejectValue: string }
 >("staffPortal/fetchStaffPayments", async (params, { rejectWithValue }) => {
   try {
@@ -771,8 +815,14 @@ export const fetchStaffPayments = createAsyncThunk<
       params: {
         q: params.q || undefined,
         status: params.status || undefined,
+        provider: params.provider || undefined,
         organizerId: params.organizerId,
         eventId: params.eventId,
+        sellerFilter:
+          params.sellerFilter && params.sellerFilter !== "all"
+            ? params.sellerFilter
+            : undefined,
+        recordedByMemberId: params.recordedByMemberId,
         page: params.page,
         limit: params.limit,
         sortBy: params.sortBy,
@@ -782,6 +832,21 @@ export const fetchStaffPayments = createAsyncThunk<
     return data;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadPayments"));
+  }
+});
+
+export const fetchSellerSalesSummary = createAsyncThunk<
+  OrganizerSellerSalesSummaryResponse,
+  void,
+  { rejectValue: string }
+>("staffPortal/fetchSellerSalesSummary", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get<OrganizerSellerSalesSummaryResponse>(
+      "/organizer/payments/seller-summary",
+    );
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadSellerSummary"));
   }
 });
 
@@ -1013,6 +1078,53 @@ export const deleteEventCategory = createAsyncThunk<
   }
 });
 
+export const addEventExtra = createAsyncThunk<
+  StaffEventExtra[],
+  { eventId: number; body: StaffEventExtraInput; role?: StaffRole },
+  { rejectValue: string }
+>("staffPortal/addExtra", async ({ eventId, body, role = "organizer" }, { rejectWithValue }) => {
+  try {
+    const base = role === "admin" ? "/admin/events" : "/organizer/events";
+    const { data } = await api.post(`${base}/${eventId}/extras`, body);
+    return data.extras as StaffEventExtra[];
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.addExtra"));
+  }
+});
+
+export const updateEventExtra = createAsyncThunk<
+  StaffEventExtra[],
+  {
+    eventId: number;
+    extraId: number;
+    body: StaffEventExtraPatch;
+    role?: StaffRole;
+  },
+  { rejectValue: string }
+>("staffPortal/updateExtra", async ({ eventId, extraId, body, role = "organizer" }, { rejectWithValue }) => {
+  try {
+    const base = role === "admin" ? "/admin/events" : "/organizer/events";
+    const { data } = await api.patch(`${base}/${eventId}/extras/${extraId}`, body);
+    return data.extras as StaffEventExtra[];
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.updateExtra"));
+  }
+});
+
+export const deleteEventExtra = createAsyncThunk<
+  StaffEventExtra[],
+  { eventId: number; extraId: number; role?: StaffRole },
+  { rejectValue: string }
+>("staffPortal/deleteExtra", async ({ eventId, extraId, role = "organizer" }, { rejectWithValue }) => {
+  try {
+    const base = role === "admin" ? "/admin/events" : "/organizer/events";
+    const { data } = await api.delete(`${base}/${eventId}/extras/${extraId}`);
+    return data.extras as StaffEventExtra[];
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.removeExtra"));
+  }
+});
+
 export const fetchEventSponsors = createAsyncThunk<
   EventSponsor[],
   { eventId: number; role?: StaffRole },
@@ -1218,7 +1330,12 @@ export const onboardOrganizerPayouts = createAsyncThunk<
     const { data } = await api.post<OrganizerPayoutOnboardResponse>("/organizer/payouts/onboard");
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "staffPortal.errors.startStripeOnboarding"));
+    return rejectWithValue(
+      rejectMessage(e, "staffPortal.errors.startPayoutVerification", {
+        connect_not_enabled: "staffPortal.errors.connectNotEnabled",
+        connect_onboard_failed: "staffPortal.errors.startPayoutVerification",
+      }),
+    );
   }
 });
 
@@ -1274,7 +1391,12 @@ export const adminOnboardOrganizerConnect = createAsyncThunk<
     );
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "staffPortal.errors.startAssistedOnboarding"));
+    return rejectWithValue(
+      rejectMessage(e, "staffPortal.errors.startAssistedOnboarding", {
+        connect_not_enabled: "staffPortal.errors.connectNotEnabled",
+        connect_onboard_failed: "staffPortal.errors.startAssistedOnboarding",
+      }),
+    );
   }
 });
 
@@ -1305,7 +1427,7 @@ export const adminLinkOrganizerConnectAccount = createAsyncThunk<
     );
     return data;
   } catch (e: unknown) {
-    return rejectWithValue(rejectMessage(e, "staffPortal.errors.linkStripeAccount"));
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.linkPayoutAccount"));
   }
 });
 
@@ -1565,6 +1687,34 @@ export const deleteDiscountCode = createAsyncThunk<
     return codeId;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "staffPortal.errors.deleteDiscountCode"));
+  }
+});
+
+export const fetchFolioSegments = createAsyncThunk<
+  StaffFolioSegmentRow[],
+  { eventId: number; role?: StaffRole },
+  { rejectValue: string }
+>("staffPortal/fetchFolioSegments", async ({ eventId, role = "organizer" }, { rejectWithValue }) => {
+  try {
+    const base = role === "admin" ? "/admin/events" : "/organizer/events";
+    const { data } = await api.get(`${base}/${eventId}/folio-segments`);
+    return data.segments as StaffFolioSegmentRow[];
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadFolioSegments"));
+  }
+});
+
+export const updateFolioSegments = createAsyncThunk<
+  StaffFolioSegmentRow[],
+  { eventId: number; segments: StaffFolioSegmentInput[]; role?: StaffRole },
+  { rejectValue: string }
+>("staffPortal/updateFolioSegments", async ({ eventId, segments, role = "organizer" }, { rejectWithValue }) => {
+  try {
+    const base = role === "admin" ? "/admin/events" : "/organizer/events";
+    const { data } = await api.put(`${base}/${eventId}/folio-segments`, { segments });
+    return data.segments as StaffFolioSegmentRow[];
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.saveFolioSegments"));
   }
 });
 
@@ -2006,6 +2156,43 @@ const slice = createSlice({
       if (s.eventDetail) s.eventDetail.categories = a.payload;
     });
 
+    b.addCase(addEventExtra.pending, (s) => {
+      s.savingExtra = true;
+      s.extraError = null;
+    });
+    b.addCase(addEventExtra.fulfilled, (s, a) => {
+      s.savingExtra = false;
+      if (s.eventDetail) s.eventDetail.extras = a.payload;
+    });
+    b.addCase(addEventExtra.rejected, (s, a) => {
+      s.savingExtra = false;
+      s.extraError = a.payload || "Error adding extra";
+    });
+    b.addCase(updateEventExtra.pending, (s) => {
+      s.savingExtra = true;
+      s.extraError = null;
+    });
+    b.addCase(updateEventExtra.fulfilled, (s, a) => {
+      s.savingExtra = false;
+      if (s.eventDetail) s.eventDetail.extras = a.payload;
+    });
+    b.addCase(updateEventExtra.rejected, (s, a) => {
+      s.savingExtra = false;
+      s.extraError = a.payload || "Error updating extra";
+    });
+    b.addCase(deleteEventExtra.pending, (s) => {
+      s.savingExtra = true;
+      s.extraError = null;
+    });
+    b.addCase(deleteEventExtra.fulfilled, (s, a) => {
+      s.savingExtra = false;
+      if (s.eventDetail) s.eventDetail.extras = a.payload;
+    });
+    b.addCase(deleteEventExtra.rejected, (s, a) => {
+      s.savingExtra = false;
+      s.extraError = a.payload || "Error removing extra";
+    });
+
     b.addCase(fetchEventSponsors.fulfilled, (s, a) => {
       s.eventSponsors = a.payload;
     });
@@ -2125,19 +2312,29 @@ const slice = createSlice({
       s.savingPayoutProfile = false;
     });
 
+    b.addCase(acceptOrganizerPayoutTerms.pending, (s) => {
+      s.acceptingPayoutTerms = true;
+    });
     b.addCase(acceptOrganizerPayoutTerms.fulfilled, (s, a) => {
+      s.acceptingPayoutTerms = false;
       s.payoutStatus = a.payload;
+    });
+    b.addCase(acceptOrganizerPayoutTerms.rejected, (s) => {
+      s.acceptingPayoutTerms = false;
     });
 
     b.addCase(onboardOrganizerPayouts.pending, (s) => {
       s.onboardingPayouts = true;
+      s.payoutOnboardError = null;
     });
     b.addCase(onboardOrganizerPayouts.fulfilled, (s, a) => {
       s.onboardingPayouts = false;
+      s.payoutOnboardError = null;
       s.payoutStatus = a.payload;
     });
-    b.addCase(onboardOrganizerPayouts.rejected, (s) => {
+    b.addCase(onboardOrganizerPayouts.rejected, (s, a) => {
       s.onboardingPayouts = false;
+      s.payoutOnboardError = a.payload || null;
     });
 
     b.addCase(syncOrganizerPayouts.pending, (s) => {
@@ -2358,6 +2555,31 @@ const slice = createSlice({
     });
     b.addCase(deleteDiscountCode.fulfilled, (s, a) => {
       s.discountCodes = s.discountCodes.filter((c) => c.id !== a.payload);
+    });
+
+    b.addCase(fetchFolioSegments.pending, (s) => {
+      s.loadingFolioSegments = true;
+      s.folioSegmentsError = null;
+    });
+    b.addCase(fetchFolioSegments.fulfilled, (s, a) => {
+      s.loadingFolioSegments = false;
+      s.folioSegments = a.payload;
+    });
+    b.addCase(fetchFolioSegments.rejected, (s, a) => {
+      s.loadingFolioSegments = false;
+      s.folioSegmentsError = a.payload || "Error loading folio segments";
+    });
+    b.addCase(updateFolioSegments.pending, (s) => {
+      s.savingFolioSegments = true;
+      s.folioSegmentsError = null;
+    });
+    b.addCase(updateFolioSegments.fulfilled, (s, a) => {
+      s.savingFolioSegments = false;
+      s.folioSegments = a.payload;
+    });
+    b.addCase(updateFolioSegments.rejected, (s, a) => {
+      s.savingFolioSegments = false;
+      s.folioSegmentsError = a.payload || "Error saving folio segments";
     });
 
     b.addCase(cancelRegistration.pending, (s) => {
@@ -2765,6 +2987,19 @@ const slice = createSlice({
     b.addCase(fetchStaffPayments.rejected, (s, a) => {
       s.loadingStaffPayments = false;
       s.staffPaymentsError = a.payload || "Error loading payments";
+    });
+
+    b.addCase(fetchSellerSalesSummary.pending, (s) => {
+      s.loadingSellerSalesSummary = true;
+      s.sellerSalesSummaryError = null;
+    });
+    b.addCase(fetchSellerSalesSummary.fulfilled, (s, a) => {
+      s.loadingSellerSalesSummary = false;
+      s.sellerSalesSummary = a.payload;
+    });
+    b.addCase(fetchSellerSalesSummary.rejected, (s, a) => {
+      s.loadingSellerSalesSummary = false;
+      s.sellerSalesSummaryError = a.payload || "Error loading seller summary";
     });
 
     b.addCase(fetchStaffPaymentDetail.pending, (s) => {

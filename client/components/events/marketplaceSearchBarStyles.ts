@@ -7,7 +7,7 @@ export function marketplaceSearchOuterClass(active: boolean, roundedClass = "rou
     roundedClass,
     active
       ? "bg-gradient-to-r from-primary/80 via-primary/50 to-accent/60 shadow-glow-triboo"
-      : "bg-gradient-to-r from-primary/45 via-primary/30 to-accent/35 shadow-[0_8px_32px_rgba(0,0,0,0.35)]",
+      : "bg-gradient-to-r from-primary/30 via-primary/20 to-accent/25 shadow-[0_8px_32px_hsl(var(--foreground)/0.08)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.35)]",
   );
 }
 
@@ -29,12 +29,15 @@ export function marketplaceSearchGlowClass(active: boolean, roundedClass = "roun
   );
 }
 
-export function marketplaceSearchInputClass(tone: "hero" | "default") {
+/**
+ * Input chrome for marketplace / hero search bars.
+ * Always uses semantic foreground tokens — the inner shell is `bg-card`, so
+ * placeholders must follow theme (never hardcoded white).
+ */
+export function marketplaceSearchInputClass() {
   return cn(
     "w-full min-w-0 flex-1 bg-transparent border-0 p-0 m-0 text-base outline-none shadow-none ring-0 appearance-none",
     "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 caret-primary",
-    tone === "hero"
-      ? "text-white placeholder:text-white/45"
-      : "text-foreground placeholder:text-muted-foreground",
+    "text-foreground placeholder:text-muted-foreground",
   );
 }

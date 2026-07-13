@@ -103,7 +103,7 @@ export default function StaffEvents() {
       />
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Calendar className="w-7 h-7 text-cyan" />
+          <Calendar className="w-7 h-7 text-primary" />
           {isAdmin ? t("staffPortal.events.titleAdmin") : t("staffPortal.events.titleOrganizer")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">{t("staffPortal.events.subtitle")}</p>
@@ -234,7 +234,7 @@ export default function StaffEvents() {
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 lg:flex-col lg:items-end lg:gap-3 shrink-0">
                 <div className="text-right">
-                  <div className="text-xl font-bold text-cyan">{ev.registration_count}</div>
+                  <div className="text-xl font-bold text-primary">{ev.registration_count}</div>
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
                     {t("staffPortal.dashboard.registered")}
                   </div>
@@ -244,7 +244,7 @@ export default function StaffEvents() {
                     to={`/events/${ev.slug}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-cyan hover:underline"
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
                   >
                     {t("staffPortal.events.viewPublic")}
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -252,14 +252,14 @@ export default function StaffEvents() {
                 ) : null}
                 <Link
                   to={`/staff/events/${ev.id}`}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan hover:underline"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" />
                   {t("staffPortal.events.manage")}
                 </Link>
                 <Link
                   to={`/staff/events/${ev.id}/edit`}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-cyan"
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   {t("staffPortal.events.edit")}
@@ -267,7 +267,7 @@ export default function StaffEvents() {
                 {!isAdmin ? (
                   <Link
                     to={`/staff/events/${ev.id}/results`}
-                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-cyan"
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary"
                   >
                     {t("staffPortal.results.manage")}
                   </Link>

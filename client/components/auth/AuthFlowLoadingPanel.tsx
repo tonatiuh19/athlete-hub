@@ -84,11 +84,11 @@ export default function AuthFlowLoadingPanel({
                 aria-hidden
               />
               <div className="relative w-16 h-16 rounded-full border border-cyan/30 bg-cyan/5 flex items-center justify-center">
-                <Loader2 className="w-7 h-7 animate-spin text-cyan" />
+                <Loader2 className="w-7 h-7 animate-spin text-primary" />
               </div>
             </div>
 
-            <TribooLogo surface="dark" className="h-9" />
+            <TribooLogo surface="auto" className="h-9" />
 
             <div className="space-y-1.5">
               <p className="text-sm font-semibold text-foreground">{statusMessage}</p>
@@ -112,7 +112,7 @@ export default function AuthFlowLoadingPanel({
                     <span
                       className={cn(
                         "text-[10px] uppercase tracking-wide truncate w-full text-center",
-                        active ? "text-cyan font-semibold" : "text-muted-foreground",
+                        active ? "text-primary font-semibold" : "text-muted-foreground",
                       )}
                     >
                       {s.label}

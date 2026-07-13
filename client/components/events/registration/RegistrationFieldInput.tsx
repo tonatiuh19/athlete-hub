@@ -43,7 +43,7 @@ export default function RegistrationFieldInput({
       return (
         <Input
           disabled={disabled}
-          className="bg-surface-dark border-gray-700"
+          className="bg-card border-border"
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onValueChange(field.field_key, e.target.value)}
           onBlur={() => onBlur?.(field.field_key)}
@@ -59,7 +59,7 @@ export default function RegistrationFieldInput({
         onValueChange={(v) => onValueChange(field.field_key, v)}
       >
         <SelectTrigger
-          className="bg-surface-dark border-gray-700"
+          className="bg-card border-border"
           onBlur={() => onBlur?.(field.field_key)}
         >
           <SelectValue placeholder={t("registrationWizard.checkout.selectOption")} />
@@ -87,7 +87,7 @@ export default function RegistrationFieldInput({
         />
         <Label
           htmlFor={`reg-field-${field.field_key}`}
-          className="text-sm text-gray-400 leading-snug cursor-pointer"
+          className="text-sm text-muted-foreground leading-snug cursor-pointer"
         >
           {field.label}
           {field.is_required ? " *" : ""}
@@ -100,7 +100,7 @@ export default function RegistrationFieldInput({
     return (
       <Textarea
         disabled={disabled}
-        className="bg-surface-dark border-gray-700 min-h-[80px]"
+        className="bg-card border-border min-h-[80px]"
         value={typeof value === "string" ? value : ""}
         onChange={(e) => onValueChange(field.field_key, e.target.value)}
         onBlur={() => onBlur?.(field.field_key)}
@@ -119,7 +119,7 @@ export default function RegistrationFieldInput({
     <Input
       disabled={disabled}
       type={inputType}
-      className="bg-surface-dark border-gray-700"
+      className="bg-card border-border"
       value={typeof value === "string" ? value : ""}
       onChange={(e) => onValueChange(field.field_key, e.target.value)}
       onBlur={() => onBlur?.(field.field_key)}

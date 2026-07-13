@@ -64,7 +64,7 @@ export default function TransferRegistrationDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ArrowRightLeft className="w-5 h-5 text-cyan" />
+            <ArrowRightLeft className="w-5 h-5 text-primary" />
             {t("athletePortal.transfer.title")}
           </DialogTitle>
         </DialogHeader>

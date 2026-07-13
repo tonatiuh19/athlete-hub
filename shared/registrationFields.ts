@@ -41,6 +41,22 @@ export function sortRegistrationFields<T extends { sort_order: number }>(
   return [...fields].sort((a, b) => a.sort_order - b.sort_order);
 }
 
+export function isRegistrationFieldVisibleForCategory(
+  field: Pick<EventRegistrationField, "scope_type" | "category_ids">,
+  categoryId: number,
+): boolean {
+  const scope = field.scope_type ?? "all_categories";
+  if (scope === "all_categories") return true;
+  return (field.category_ids ?? []).includes(categoryId);
+}
+
+export function filterRegistrationFieldsForCategory<T extends EventRegistrationField>(
+  fields: T[],
+  categoryId: number,
+): T[] {
+  return fields.filter((field) => isRegistrationFieldVisibleForCategory(field, categoryId));
+}
+
 export type NormalizedRegistrationField = EventRegistrationField & {
   is_required: boolean;
   options_json: string[];

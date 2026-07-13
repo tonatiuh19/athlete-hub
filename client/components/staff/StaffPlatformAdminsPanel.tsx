@@ -189,7 +189,7 @@ export default function StaffPlatformAdminsPanel({ active = true }: StaffPlatfor
       {currentAdmin ? (
         <div className="card-sport p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 border-cyan/20 bg-cyan/5">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cyan/15">
-            <Shield className="h-5 w-5 text-cyan" />
+            <Shield className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">

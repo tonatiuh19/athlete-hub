@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import WizardAuthStep from "@/components/events/registration/WizardAuthStep";
 import WizardCheckoutStep from "@/components/events/registration/WizardCheckoutStep";
+import WizardExtrasStep from "@/components/events/registration/WizardExtrasStep";
 import WizardResultStep from "@/components/events/registration/WizardResultStep";
 import WizardWaiverStep from "@/components/events/registration/WizardWaiverStep";
 import {
@@ -56,6 +57,7 @@ export default function EventRegistrationWizard() {
     waiverAcceptance,
     checkout,
     discountCode,
+    selectedExtras,
   } = useAppSelector((s) => s.registrationCheckout);
   const { token, user: athleteUser } = useAppSelector((s) => s.athleteAuth);
 
@@ -70,8 +72,31 @@ export default function EventRegistrationWizard() {
     [eventDetail],
   );
 
+  const registrationExtras = useMemo(() => {
+    const all = eventDetail?.extras ?? [];
+    if (!category?.id) return all;
+    return all.filter((extra) => {
+      const scope = extra.scope_type ?? "all_categories";
+      if (scope === "all_categories") return true;
+      return (extra.category_ids ?? []).includes(category.id);
+    });
+  }, [eventDetail?.extras, category?.id]);
+
+  const registrationFields = useMemo(() => {
+    const all = eventDetail?.registrationFields ?? [];
+    if (!category?.id) return all;
+    return all.filter((field) => {
+      const scope = field.scope_type ?? "all_categories";
+      if (scope === "all_categories") return true;
+      return (field.category_ids ?? []).includes(category.id);
+    });
+  }, [eventDetail?.registrationFields, category?.id]);
+
   const needsWaiver = eventRequiresWaiver(eventDetail) && registrationWaivers.length > 0;
   const waiverMisconfigured = isWaiverMisconfigured(eventDetail);
+  const hasExtras = registrationExtras.length > 0;
+  const stepAfterWaiver: "extras" | "checkout" = hasExtras ? "extras" : "checkout";
+  const stepAfterAuth = needsWaiver ? "waiver" : stepAfterWaiver;
 
   const resumeAttempted = useRef(false);
 
@@ -147,10 +172,13 @@ export default function EventRegistrationWizard() {
             needsWaiver
               ? { key: "waiver", label: t("registrationWizard.steps.waiver") }
               : null,
+            hasExtras
+              ? { key: "extras", label: t("registrationWizard.steps.extras") }
+              : null,
             { key: "checkout", label: t("registrationWizard.steps.checkout") },
             { key: "result", label: t("registrationWizard.steps.result") },
           ].filter(Boolean) as Array<{ key: string; label: string }>),
-    [t, needsWaiver, waitlistMode],
+    [t, needsWaiver, hasExtras, waitlistMode],
   );
 
   const progressSteps = stepsMeta.filter((s) => s.key !== "result");
@@ -170,8 +198,18 @@ export default function EventRegistrationWizard() {
   useEffect(() => {
     if (!open || !token || step !== "auth") return;
     if (waitlistMode) return;
-    dispatch(setWizardStep(needsWaiver ? "waiver" : "checkout"));
-  }, [open, token, step, needsWaiver, waitlistMode, dispatch]);
+    if (!eventDetail || eventDetail.event.slug !== eventSlug) return;
+    dispatch(setWizardStep(stepAfterAuth));
+  }, [
+    open,
+    token,
+    step,
+    waitlistMode,
+    dispatch,
+    eventDetail,
+    eventSlug,
+    stepAfterAuth,
+  ]);
 
   useEffect(() => {
     if (!open || !waitlistMode || !token || !eventSlug || !category) return;
@@ -203,8 +241,8 @@ export default function EventRegistrationWizard() {
   if (!eventDetail || eventDetail.event.slug !== eventSlug) {
     return (
       <Dialog open={open} onOpenChange={(v) => !v && dismissRegistrationWizard(dispatch)}>
-        <DialogContent className="max-w-sm bg-bg-dark border-gray-700/60">
-          <div className="py-8 text-center text-gray-400 text-sm">{t("common.loading")}</div>
+        <DialogContent className="max-w-sm bg-background border-border">
+          <div className="py-8 text-center text-muted-foreground text-sm">{t("common.loading")}</div>
         </DialogContent>
       </Dialog>
     );
@@ -218,20 +256,20 @@ export default function EventRegistrationWizard() {
     setIdempotencyKey(crypto.randomUUID());
     setCheckoutPaymentReady(false);
     setRestoredFieldValues(null);
-    dispatch(setWizardStep(needsWaiver ? "waiver" : "checkout"));
+    dispatch(setWizardStep(needsWaiver ? "waiver" : hasExtras ? "extras" : "checkout"));
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-lg w-[min(calc(100vw-2rem),32rem)] max-h-[min(90dvh,720px)] overflow-y-auto overflow-x-hidden bg-bg-dark border-gray-700/60 p-0 gap-0">
+      <DialogContent className="max-w-lg w-[min(calc(100vw-2rem),32rem)] max-h-[min(90dvh,720px)] overflow-y-auto overflow-x-hidden bg-background border-border p-0 gap-0">
         <DialogHeader className="p-5 pb-0 pr-12 space-y-4">
           <div className="min-w-0">
-            <DialogTitle className="text-base font-bold text-white truncate">
+            <DialogTitle className="text-base font-bold text-foreground truncate">
               {waitlistClaimMode
                 ? t("registrationWizard.claimTitle")
                 : t("registrationWizard.title")}
             </DialogTitle>
-            <p className="text-xs text-gray-500 truncate">{category.name}</p>
+            <p className="text-xs text-muted-foreground truncate">{category.name}</p>
           </div>
 
           {step !== "result" && !waiverMisconfigured && (
@@ -245,8 +283,8 @@ export default function EventRegistrationWizard() {
                     className={cn(
                       "w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 border",
                       i <= stepIndex
-                        ? "bg-cyan/15 border-cyan/50 text-cyan"
-                        : "border-gray-700 text-gray-600",
+                        ? "bg-cyan/15 border-cyan/50 text-primary"
+                        : "border-border text-muted-foreground",
                     )}
                   >
                     {i + 1}
@@ -255,13 +293,13 @@ export default function EventRegistrationWizard() {
                     className={cn(
                       "text-[10px] uppercase tracking-wider truncate",
                       i === stepIndex ? "inline" : "hidden sm:inline",
-                      i <= stepIndex ? "text-gray-300" : "text-gray-600",
+                      i <= stepIndex ? "text-muted-foreground" : "text-muted-foreground",
                     )}
                   >
                     {s.label}
                   </span>
                   {i < progressSteps.length - 1 && (
-                    <div className="flex-1 h-px bg-gray-800 min-w-[12px]" />
+                    <div className="flex-1 h-px bg-muted min-w-[12px]" />
                   )}
                 </div>
               ))}
@@ -273,7 +311,7 @@ export default function EventRegistrationWizard() {
           {waiverMisconfigured && step !== "result" ? (
             <div className="py-6 text-center space-y-3">
               <p className="text-sm text-destructive">{t("eventDetail.waiverNotConfigured")}</p>
-              <p className="text-xs text-gray-500">{t("eventDetail.waiverNotConfiguredHint")}</p>
+              <p className="text-xs text-muted-foreground">{t("eventDetail.waiverNotConfiguredHint")}</p>
             </div>
           ) : null}
 
@@ -281,13 +319,13 @@ export default function EventRegistrationWizard() {
             <WizardAuthStep
               onAuthed={() => {
                 if (waitlistMode) return;
-                dispatch(setWizardStep(needsWaiver ? "waiver" : "checkout"));
+                dispatch(setWizardStep(stepAfterAuth));
               }}
             />
           )}
 
           {!waiverMisconfigured && waitlistMode && step === "auth" && token && joiningWaitlist ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
+            <div className="py-8 text-center text-muted-foreground text-sm">
               {t("eventDetail.joiningWaitlist")}
             </div>
           ) : null}
@@ -295,7 +333,29 @@ export default function EventRegistrationWizard() {
           {!waiverMisconfigured && !waitlistMode && step === "waiver" && registrationWaivers.length > 0 ? (
             <WizardWaiverStep
               waivers={registrationWaivers}
-              onAccepted={(signatures) => dispatch(setWaiverAcceptance(signatures))}
+              onAccepted={(signatures) => {
+                dispatch(setWaiverAcceptance(signatures));
+                dispatch(setWizardStep(stepAfterWaiver));
+              }}
+            />
+          ) : null}
+
+          {!waiverMisconfigured && !waitlistMode && step === "extras" && hasExtras ? (
+            <WizardExtrasStep
+              extras={registrationExtras}
+              serviceFeePercent={eventDetail.serviceFeePercent}
+              feePresentation={eventDetail.feePresentation ?? "pass_through"}
+              initialSelection={Object.fromEntries(
+                selectedExtras.map((row) => [row.extraId, row.quantity]),
+              )}
+              profilePrefill={
+                athleteUser
+                  ? {
+                      shirt_size: athleteUser.shirtSize ?? null,
+                      city: athleteUser.city ?? null,
+                    }
+                  : undefined
+              }
             />
           ) : null}
 
@@ -304,13 +364,14 @@ export default function EventRegistrationWizard() {
               slug={eventSlug}
               eventTitle={eventDetail.event.title}
               category={category}
-              fields={eventDetail.registrationFields}
+              fields={registrationFields}
               serviceFeePercent={eventDetail.serviceFeePercent}
               feePresentation={eventDetail.feePresentation ?? "pass_through"}
               idempotencyKey={idempotencyKey}
               restoredFieldValues={restoredFieldValues ?? checkout?.fieldValues}
               checkoutPaymentReady={checkoutPaymentReady || Boolean(checkout)}
               onCheckoutPaymentReady={setCheckoutPaymentReady}
+              eventExtras={registrationExtras}
             />
           )}
 

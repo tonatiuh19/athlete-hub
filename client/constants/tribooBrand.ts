@@ -58,8 +58,8 @@ export const TRIBOO_LOGOS_CDN = {
  * - `horizontal-white` → white “TRIBOO” wordmark — use on **dark** surfaces (video panel, nav, footer)
  * - `symbol-orange` / `symbol-white` — same rule for icon-only marks
  *
- * Prefer `surface="dark"` on Triboo backgrounds (`bg-background`, video panel, nav).
- * Use `surface="light"` only on explicit light cards. App root uses `class="dark"` on `<html>`.
+ * Prefer `surface="auto"` on theme-aware pages. Use `surface="dark"` only on
+ * guaranteed dark surfaces (video panel, dark hero overlay).
  */
 export type TribooLogoVariant =
   | "horizontal-white"

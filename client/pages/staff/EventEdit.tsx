@@ -19,6 +19,10 @@ import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import StaffCourseSummaryCard from "@/components/staff/StaffCourseSummaryCard";
 import StaffCourseWizardDialog from "@/components/staff/StaffCourseWizardDialog";
 import StaffEventCategoriesSection from "@/components/staff/StaffEventCategoriesSection";
+import StaffEventExtrasSection from "@/components/staff/StaffEventExtrasSection";
+import StaffCategoryScopePicker from "@/components/staff/StaffCategoryScopePicker";
+import StaffCheckoutSectionLegend from "@/components/staff/StaffCheckoutSectionLegend";
+import StaffEventFolioSegmentsSection from "@/components/staff/StaffEventFolioSegmentsSection";
 import StaffEventWaiversSection from "@/components/staff/StaffEventWaiversSection";
 import EventAssetUpload from "@/components/staff/EventAssetUpload";
 import { resolveEventImageRole } from "@/constants/eventImageContexts";
@@ -29,6 +33,7 @@ import EventPublishPreviewDialog from "@/components/staff/EventPublishPreviewDia
 import StaffEventPublishChecklist, {
   computeEventPublishReadiness,
 } from "@/components/staff/StaffEventPublishChecklist";
+import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,6 +70,7 @@ import {
   createOrganizerEvent,
   deleteDiscountCode,
   fetchDiscountCodes,
+  fetchFolioSegments,
   fetchEventCourse,
   fetchEventMedia,
   fetchEventSponsors,
@@ -78,6 +84,7 @@ import {
   publishStaffEvent,
   rejectStaffEventApproval,
   updateDiscountCode,
+  updateFolioSegments,
   updateEventCourse,
   updateEventMedia,
   updateEventSponsors,
@@ -92,6 +99,7 @@ import type {
   EventSponsorInput,
   SponsorTier,
   StaffDiscountCodeInput,
+  StaffFolioSegmentInput,
   StaffEventCoursePayload,
   StaffEventDetail,
   StaffMediaAssetRow,
@@ -104,6 +112,7 @@ import {
   type EventEditFormValues,
 } from "@/utils/buildStaffEventBody";
 import { isStaffEventCreateRoute } from "@/utils/staffEventRoutes";
+import { getFormikMissingItems } from "@/utils/staffFormMissing";
 import { normalizeCoursePayloadForSave } from "@/utils/courseMapUtils";
 import { isEventEndBeforeStart } from "@/utils/staffEventDateValidation";
 import {
@@ -165,6 +174,7 @@ export default function StaffEventEdit() {
     scheduleWaves,
     eventCourse,
     discountCodes,
+    folioSegments,
     eventMedia,
     waitlistEntries,
     loadingEventMedia,
@@ -194,6 +204,8 @@ export default function StaffEventEdit() {
     courseError,
     savingDiscountCode,
     discountCodesError,
+    savingFolioSegments,
+    folioSegmentsError,
   } = useAppSelector((s) => s.staffPortal);
 
   const [tab, setTab] = useState("details");
@@ -331,6 +343,7 @@ export default function StaffEventEdit() {
       dispatch(fetchScheduleWaves({ eventId, role }));
       dispatch(fetchEventCourse({ eventId, role }));
       dispatch(fetchDiscountCodes({ eventId, role }));
+      dispatch(fetchFolioSegments({ eventId, role }));
       dispatch(fetchEventMedia({ eventId, role: staffRole }));
       dispatch(fetchEventWaitlist({ eventId, role: staffRole }));
     }
@@ -367,6 +380,8 @@ export default function StaffEventEdit() {
         is_required: Boolean(f.is_required),
         sort_order: f.sort_order ?? i,
         is_active: f.is_active !== 0 && f.is_active !== false,
+        scope_type: f.scope_type ?? "all_categories",
+        category_ids: f.category_ids ?? [],
         options: (() => {
           try {
             if (typeof f.options_json === "string") {
@@ -575,6 +590,19 @@ export default function StaffEventEdit() {
 
   formikRef.current = formik;
   formValuesRef.current = formik.values;
+
+  const eventDetailsMissing = useMemo(
+    () =>
+      getFormikMissingItems(formik.values, eventSchema, {
+        title: "staffPortal.eventEdit.fieldTitle",
+        sport_type_id: "staffPortal.eventEdit.fieldSport",
+        start_date: "staffPortal.eventEdit.fieldStart",
+        end_date: "staffPortal.eventEdit.fieldEnd",
+        check_in_opens_at: "staffPortal.eventEdit.fieldCheckInOpens",
+        check_in_closes_at: "staffPortal.eventEdit.fieldCheckInCloses",
+      }),
+    [eventSchema, formik.values],
+  );
 
   const applySavedEventToForm = useCallback(
     (savedEvent: StaffEventDetail) => {
@@ -1044,6 +1072,15 @@ export default function StaffEventEdit() {
     });
   };
 
+  const handleSaveFolioSegments = (segments: StaffFolioSegmentInput[]) => {
+    if (!eventId || !role) return;
+    dispatch(updateFolioSegments({ eventId, role: staffRole, segments })).then((result) => {
+      if (updateFolioSegments.fulfilled.match(result)) {
+        toast({ title: t("staffPortal.folioSegments.save") });
+      }
+    });
+  };
+
   const pageTitle = isNew
     ? t("staffPortal.eventEdit.createTitle")
     : t("staffPortal.eventEdit.editTitle");
@@ -1241,18 +1278,24 @@ export default function StaffEventEdit() {
         <Tabs value={tab} onValueChange={setTab} className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
           <div
             className={cn(
-              "w-full lg:w-56 shrink-0 flex flex-col gap-4 min-h-0",
-              "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100dvh-2rem)]",
+              "w-full lg:w-56 shrink-0 flex flex-col gap-4",
+              "lg:sticky lg:top-4 lg:self-start",
+              "lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:overscroll-y-contain",
             )}
           >
             <VerticalTabsList
               aria-label={t("staffPortal.eventEdit.sectionsLabel")}
-              className="max-h-[min(280px,45vh)] lg:max-h-none lg:flex-1 lg:min-h-0"
+              className="max-h-[min(360px,55vh)] lg:max-h-none shrink-0"
             >
             <VerticalTabsTrigger value="details">{t("staffPortal.eventEdit.tabDetails")}</VerticalTabsTrigger>
             {!isNew ? (
               <VerticalTabsTrigger value="categories">
                 {t("staffPortal.eventEdit.tabCategories")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {!isNew && canManageCategories ? (
+              <VerticalTabsTrigger value="extras">
+                {t("staffPortal.eventEdit.tabExtras")}
               </VerticalTabsTrigger>
             ) : null}
             {canManageSponsors ? (
@@ -1265,6 +1308,7 @@ export default function StaffEventEdit() {
                 <VerticalTabsTrigger value="waves">{t("staffPortal.eventEdit.tabWaves")}</VerticalTabsTrigger>
                 <VerticalTabsTrigger value="course">{t("staffPortal.eventEdit.tabCourse")}</VerticalTabsTrigger>
                 <VerticalTabsTrigger value="discounts">{t("staffPortal.eventEdit.tabDiscounts")}</VerticalTabsTrigger>
+                <VerticalTabsTrigger value="folios">{t("staffPortal.eventEdit.tabFolios")}</VerticalTabsTrigger>
                 <VerticalTabsTrigger value="waitlist">{t("staffPortal.eventEdit.tabWaitlist")}</VerticalTabsTrigger>
                 <VerticalTabsTrigger value="media">{t("staffPortal.eventEdit.tabMedia")}</VerticalTabsTrigger>
               </>
@@ -1591,6 +1635,22 @@ export default function StaffEventEdit() {
                   />
                 </div>
 
+                <div className="space-y-2">
+                  <Label htmlFor="max_registrations_per_order">
+                    {t("staffPortal.eventEdit.fieldMaxRegsPerOrder")}
+                  </Label>
+                  <Input
+                    id="max_registrations_per_order"
+                    type="number"
+                    min={1}
+                    max={20}
+                    {...formik.getFieldProps("max_registrations_per_order")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("staffPortal.eventEdit.fieldMaxRegsPerOrderHint")}
+                  </p>
+                </div>
+
                 <div className="sm:col-span-2 space-y-2">
                   <Label>{t("staffPortal.eventEdit.fieldHero")}</Label>
                   <EventAssetUpload
@@ -1703,6 +1763,11 @@ export default function StaffEventEdit() {
                 </div>
               </div>
 
+              <StaffFormMissingChips
+                items={eventDetailsMissing}
+                showCompleteState={eventDetailsMissing.length === 0}
+              />
+
               <Button
                 type="submit"
                 disabled={
@@ -1737,6 +1802,20 @@ export default function StaffEventEdit() {
                   staffRole={staffRole}
                   feePresentation={effectiveFeePresentation}
                   serviceFeePercent={staffServiceFeePercent}
+                />
+              ) : null}
+            </TabsContent>
+          ) : null}
+
+          {!isNew && canManageCategories ? (
+            <TabsContent value="extras" className="mt-0 space-y-4">
+              {eventId ? (
+                <StaffEventExtrasSection
+                  eventId={eventId}
+                  extras={eventDetail?.extras ?? []}
+                  categories={eventDetail?.categories ?? []}
+                  canManage={canManageCategories}
+                  staffRole={staffRole}
                 />
               ) : null}
             </TabsContent>
@@ -1874,11 +1953,12 @@ export default function StaffEventEdit() {
                 <p className="text-sm text-muted-foreground">
                   {t("staffPortal.eventEdit.fieldsSubtitle")}
                 </p>
+                <StaffCheckoutSectionLegend variant="fields" />
                 {fieldsError ? <p className="text-sm text-destructive">{fieldsError}</p> : null}
                 <div className="space-y-3">
                   {fieldDrafts.map((f, i) => (
-                    <div key={i} className="space-y-2 p-3 rounded-xl border border-gray-700/40">
-                      <div className="grid sm:grid-cols-12 gap-2 items-end">
+                    <div key={i} className="space-y-2 p-3 rounded-xl border border-border/70">
+                      <div className="grid sm:grid-cols-12 gap-2 items-center">
                         <Input
                           className="sm:col-span-4"
                           placeholder={t("staffPortal.eventEdit.fieldLabel")}
@@ -1914,23 +1994,28 @@ export default function StaffEventEdit() {
                             )}
                           </SelectContent>
                         </Select>
-                        <label className="sm:col-span-2 flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
+                        <div className="sm:col-span-2 flex items-center gap-2 min-h-10">
+                          <Checkbox
+                            id={`field-required-${i}`}
                             checked={Boolean(f.is_required)}
-                            onChange={(e) => {
+                            onCheckedChange={(checked) => {
                               const next = [...fieldDrafts];
-                              next[i] = { ...next[i], is_required: e.target.checked };
+                              next[i] = { ...next[i], is_required: checked === true };
                               setFieldDrafts(next);
                             }}
                           />
-                          {t("staffPortal.eventEdit.fieldRequired")}
-                        </label>
+                          <Label
+                            htmlFor={`field-required-${i}`}
+                            className="text-sm font-normal cursor-pointer leading-none"
+                          >
+                            {t("staffPortal.eventEdit.fieldRequired")}
+                          </Label>
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="text-destructive sm:col-span-1"
+                          className="text-destructive sm:col-span-1 shrink-0"
                           onClick={() => setFieldDrafts(fieldDrafts.filter((_, idx) => idx !== i))}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1991,6 +2076,17 @@ export default function StaffEventEdit() {
                           </Button>
                         </div>
                       ) : null}
+                      <StaffCategoryScopePicker
+                        scopeType={f.scope_type ?? "all_categories"}
+                        categoryIds={f.category_ids ?? []}
+                        categories={eventDetail?.categories ?? []}
+                        t={t}
+                        onChange={(patch) => {
+                          const next = [...fieldDrafts];
+                          next[i] = { ...next[i], ...patch };
+                          setFieldDrafts(next);
+                        }}
+                      />
                     </div>
                   ))}
                 </div>
@@ -2006,6 +2102,8 @@ export default function StaffEventEdit() {
                           field_type: "text",
                           is_required: false,
                           sort_order: fieldDrafts.length,
+                          scope_type: "all_categories",
+                          category_ids: [],
                         },
                       ])
                     }
@@ -2247,7 +2345,7 @@ export default function StaffEventEdit() {
                     {discountCodes.map((dc) => (
                       <div
                         key={dc.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-gray-700/40"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-border/60"
                       >
                         <div>
                           <p className="font-mono font-semibold">{dc.code}</p>
@@ -2301,6 +2399,20 @@ export default function StaffEventEdit() {
                   </div>
                 )}
               </div>
+            </TabsContent>
+          ) : null}
+
+          {canManageCategories ? (
+            <TabsContent value="folios" className="mt-0 space-y-4">
+              <StaffEventFolioSegmentsSection
+                segments={folioSegments}
+                categories={eventDetail?.categories ?? []}
+                discountCodes={discountCodes}
+                saving={savingFolioSegments}
+                error={folioSegmentsError}
+                onSave={handleSaveFolioSegments}
+                t={t}
+              />
             </TabsContent>
           ) : null}
 

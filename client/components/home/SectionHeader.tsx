@@ -40,12 +40,12 @@ export default function SectionHeader({
     >
       <div className="max-w-2xl min-w-0">
         <div className="w-12 h-1 bg-triboo-gradient rounded-full mb-3 md:mb-4" />
-        <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white tracking-tight break-words">
+        <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-foreground tracking-tight break-words">
           {title}
         </h2>
         <p
           className={cn(
-            "text-gray-400 mt-2 md:mt-3 text-base md:text-lg leading-relaxed",
+            "text-muted-foreground mt-2 md:mt-3 text-base md:text-lg leading-relaxed",
             hideSubtitleOnMobile && "hidden md:block",
           )}
         >
@@ -55,7 +55,7 @@ export default function SectionHeader({
       {actionLabel && actionHref && (
         <Link
           to={actionHref}
-          className="hidden md:inline-flex items-center gap-2 text-primary hover:text-white font-semibold text-sm shrink-0 group"
+          className="hidden md:inline-flex items-center gap-2 text-primary hover:text-foreground font-semibold text-sm shrink-0 group"
         >
           {actionLabel}
           <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

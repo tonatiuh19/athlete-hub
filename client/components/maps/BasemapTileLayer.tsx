@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 import { TileLayer, useMap } from "react-leaflet";
 import { logger } from "@/utils/logger";
 import {
+  CARTO_DARK_TILE_URL,
   CARTO_TILE_ATTRIBUTION,
   CARTO_VOYAGER_TILE_URL,
   OSM_TILE_ATTRIBUTION,
@@ -13,15 +15,28 @@ interface BasemapTileLayerProps {
   traceLabel?: string;
 }
 
-/** Carto Voyager with OpenStreetMap fallback if tiles fail. */
+/** Theme-aware Carto basemap with OpenStreetMap fallback if tiles fail. */
 export default function BasemapTileLayer({ traceLabel = "map" }: BasemapTileLayerProps) {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [useFallback, setUseFallback] = useState(false);
-  const url = useFallback ? OSM_TILE_URL : CARTO_VOYAGER_TILE_URL;
+
+  useEffect(() => setMounted(true), []);
+
+  const isDark =
+    !mounted ||
+    resolvedTheme === "dark" ||
+    (resolvedTheme == null &&
+      typeof document !== "undefined" &&
+      document.documentElement.classList.contains("dark"));
+
+  const primaryUrl = isDark ? CARTO_DARK_TILE_URL : CARTO_VOYAGER_TILE_URL;
+  const url = useFallback ? OSM_TILE_URL : primaryUrl;
   const attribution = useFallback ? OSM_TILE_ATTRIBUTION : CARTO_TILE_ATTRIBUTION;
 
   return (
     <TileLayer
-      key={url}
+      key={`${url}-${isDark ? "dark" : "light"}`}
       attribution={attribution}
       url={url}
       subdomains={useFallback ? "abc" : "abcd"}

@@ -18,6 +18,7 @@ import ScrollToTop from "@/components/ScrollToTop";
 import AppMobileTabBar from "@/components/layouts/AppMobileTabBar";
 import RegistrationPaymentReturnHandler from "@/components/events/registration/RegistrationPaymentReturnHandler";
 import StaffLayout from "@/components/layouts/StaffLayout";
+import ThemeProvider from "@/components/ThemeProvider";
 import AthleteLayout from "@/components/layouts/AthleteLayout";
 
 const Index = lazy(() => import("./pages/Index"));
@@ -56,6 +57,14 @@ const EventsBrowse = lazy(() => import("./pages/events/EventsBrowse"));
 const EventDetail = lazy(() => import("./pages/events/EventDetail"));
 const CommunitiesBrowse = lazy(() => import("./pages/communities/CommunitiesBrowse"));
 const CommunityDetail = lazy(() => import("./pages/communities/CommunityDetail"));
+const OrganizerStart = lazy(() => import("./pages/organizers/OrganizerStart"));
+const OrganizerSignupWizard = lazy(() => import("./pages/organizers/OrganizerSignupWizard"));
+const StaffOnboarding = lazy(() => import("./pages/staff/StaffOnboarding"));
+const StaffSiteSettings = lazy(() => import("./pages/staff/StaffSiteSettings"));
+const LegalDocumentPage = lazy(() => import("./pages/legal/LegalDocumentPage"));
+const ContactPage = lazy(() => import("./pages/Contact"));
+const HelpPage = lazy(() => import("./pages/Help"));
+const AboutPage = lazy(() => import("./pages/About"));
 const BlogIndex = lazy(() => import("./pages/blog/BlogIndex"));
 const BlogPost = lazy(() => import("./pages/blog/BlogPost"));
 const PublicSiteLayout = lazy(
@@ -85,6 +94,12 @@ function AppRoutes() {
             <Route path="/communities/:slug" element={<CommunityDetail />} />
             <Route path="/blog" element={<BlogIndex />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
+            <Route path="/organizers/start" element={<OrganizerStart />} />
+            <Route path="/organizers/signup" element={<OrganizerSignupWizard />} />
+            <Route path="/legal/:documentId" element={<LegalDocumentPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/help" element={<HelpPage />} />
+            <Route path="/about" element={<AboutPage />} />
           </Route>
 
           <Route path="/login" element={<AthleteLogin />} />
@@ -125,6 +140,8 @@ function AppRoutes() {
             <Route path="profile" element={<StaffProfile />} />
             <Route path="settings" element={<StaffProfile />} />
             <Route path="messaging" element={<StaffMessaging />} />
+            <Route path="onboarding" element={<StaffOnboarding />} />
+            <Route path="site-settings" element={<StaffSiteSettings />} />
           </Route>
 
           <Route path="/admin/login" element={<Navigate to="/staff/login" replace />} />
@@ -162,12 +179,14 @@ const App = () => (
   <HelmetProvider>
     <Provider store={store}>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <I18nSync />
-          <AppRoutes />
-        </TooltipProvider>
+        <ThemeProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <I18nSync />
+            <AppRoutes />
+          </TooltipProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </Provider>
   </HelmetProvider>

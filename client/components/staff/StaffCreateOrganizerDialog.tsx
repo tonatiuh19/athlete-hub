@@ -23,9 +23,11 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchGeoStates } from "@/store/slices/geoSlice";
 import { createStaffOrganizer, fetchAdminEvents } from "@/store/slices/staffPortalSlice";
 import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
+import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
 import { getDateFnsLocale } from "@/utils/dateLocale";
 import { isCatalogCitySelectionValid } from "@/utils/geoCityValidation";
 import { ORGANIZER_SLUG_MAX } from "@/utils/organizerForm";
+import { getFormikMissingItems } from "@/utils/staffFormMissing";
 
 const schema = Yup.object({
   name: Yup.string().trim().required("Required"),
@@ -135,6 +137,31 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
       }
     },
   });
+
+  const organizerMissing = useMemo(
+    () =>
+      getFormikMissingItems(
+        formik.values,
+        schema,
+        {
+          name: "staffPortal.staffManagement.fieldOrgName",
+          email: "staffPortal.staffManagement.fieldOrgEmail",
+          owner_email: "staffPortal.team.fieldEmail",
+          owner_first_name: "staffPortal.team.fieldFirst",
+          owner_last_name: "staffPortal.team.fieldLast",
+        },
+        {
+          focusTargets: {
+            name: "org-name",
+            email: "org-email",
+            owner_email: "owner-email",
+            owner_first_name: "owner-first",
+            owner_last_name: "owner-last",
+          },
+        },
+      ),
+    [formik.values],
+  );
 
   const handleNameChange = (name: string) => {
     void formik.setFieldValue("name", name);
@@ -317,6 +344,11 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
           {staffOrganizerSaveError ? (
             <p className="text-sm text-destructive">{staffOrganizerSaveError}</p>
           ) : null}
+
+          <StaffFormMissingChips
+            items={organizerMissing}
+            showCompleteState={organizerMissing.length === 0}
+          />
 
           <Button type="submit" disabled={savingStaffOrganizer} className="w-full">
             {savingStaffOrganizer ? (

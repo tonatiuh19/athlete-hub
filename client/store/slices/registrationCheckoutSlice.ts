@@ -14,13 +14,18 @@ import type {
   WaiverSignatureInput,
 } from "@shared/api";
 
-export type RegistrationWizardStep = "auth" | "waiver" | "checkout" | "result";
+export type RegistrationWizardStep = "auth" | "waiver" | "extras" | "checkout" | "result";
 
 interface RegistrationCheckoutState {
   open: boolean;
   step: RegistrationWizardStep;
   eventSlug: string | null;
   category: EventCategory | null;
+  selectedExtras: Array<{ extraId: number; quantity: number }>;
+  extraFieldAnswers: Array<{
+    extraId: number;
+    values: Record<string, string | boolean | Record<string, unknown>>;
+  }>;
   waiverAcceptance: WaiverSignatureInput[] | null;
   paymentConfig: PaymentConfigResponse | null;
   checkout: RegistrationCheckoutResponse | null;
@@ -50,6 +55,8 @@ const initialState: RegistrationCheckoutState = {
   step: "auth",
   eventSlug: null,
   category: null,
+  selectedExtras: [],
+  extraFieldAnswers: [],
   waiverAcceptance: null,
   paymentConfig: null,
   checkout: null,
@@ -133,6 +140,11 @@ export const createRegistrationCheckout = createAsyncThunk<
     waiverSignature?: string;
     discountCode?: string;
     waitlistEntryId?: number;
+    selectedExtras?: Array<{ extraId: number; quantity: number }>;
+    extraFieldAnswers?: Array<{
+      extraId: number;
+      values: Record<string, string | boolean | Record<string, unknown>>;
+    }>;
   },
   { rejectValue: string | { code?: string; message: string } }
 >("registrationCheckout/createCheckout", async (payload, { rejectWithValue }) => {
@@ -148,6 +160,8 @@ export const createRegistrationCheckout = createAsyncThunk<
         waiverSignature: payload.waiverSignature,
         discountCode: payload.discountCode,
         waitlistEntryId: payload.waitlistEntryId,
+        selectedExtras: payload.selectedExtras,
+        extraFieldAnswers: payload.extraFieldAnswers,
       },
       athleteRequest,
     );
@@ -286,6 +300,8 @@ const slice = createSlice({
       state.waitlistJoined = null;
       state.confirmResult = null;
       state.waiverAcceptance = null;
+      state.selectedExtras = [];
+      state.extraFieldAnswers = [];
       state.paymentFailed = false;
       state.failureMessage = null;
       state.error = null;
@@ -324,7 +340,27 @@ const slice = createSlice({
     },
     setWaiverAcceptance(state, action: PayloadAction<WaiverSignatureInput[]>) {
       state.waiverAcceptance = action.payload;
-      state.step = "checkout";
+      state.error = null;
+    },
+    setSelectedExtras(
+      state,
+      action: PayloadAction<Array<{ extraId: number; quantity: number }>>,
+    ) {
+      state.selectedExtras = action.payload;
+      state.checkout = null;
+      state.error = null;
+    },
+    setExtraFieldAnswers(
+      state,
+      action: PayloadAction<
+        Array<{
+          extraId: number;
+          values: Record<string, string | boolean | Record<string, unknown>>;
+        }>
+      >,
+    ) {
+      state.extraFieldAnswers = action.payload;
+      state.checkout = null;
       state.error = null;
     },
     setCheckoutError(state, action: PayloadAction<string | null>) {
@@ -500,6 +536,8 @@ export const {
   clearPending3ds,
   setWizardStep,
   setWaiverAcceptance,
+  setSelectedExtras,
+  setExtraFieldAnswers,
   setCheckoutError,
   setDiscountCodeInput,
   clearDiscountPreview,

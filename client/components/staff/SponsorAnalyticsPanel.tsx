@@ -44,17 +44,17 @@ export default function SponsorAnalyticsPanel({ eventId, role }: SponsorAnalytic
     <div className="space-y-6">
       <div className="grid sm:grid-cols-3 gap-3">
         <div className="rounded-xl border border-border p-4">
-          <Eye className="w-5 h-5 text-cyan mb-2" />
+          <Eye className="w-5 h-5 text-primary mb-2" />
           <p className="text-2xl font-bold">{sponsorAnalytics.totals.impressions}</p>
           <p className="text-xs text-muted-foreground">{t("staffPortal.sponsorAnalytics.impressions")}</p>
         </div>
         <div className="rounded-xl border border-border p-4">
-          <MousePointerClick className="w-5 h-5 text-cyan mb-2" />
+          <MousePointerClick className="w-5 h-5 text-primary mb-2" />
           <p className="text-2xl font-bold">{sponsorAnalytics.totals.clicks}</p>
           <p className="text-xs text-muted-foreground">{t("staffPortal.sponsorAnalytics.clicks")}</p>
         </div>
         <div className="rounded-xl border border-border p-4">
-          <TrendingUp className="w-5 h-5 text-cyan mb-2" />
+          <TrendingUp className="w-5 h-5 text-primary mb-2" />
           <p className="text-2xl font-bold">{sponsorAnalytics.totals.ctr}%</p>
           <p className="text-xs text-muted-foreground">{t("staffPortal.sponsorAnalytics.ctr")}</p>
         </div>

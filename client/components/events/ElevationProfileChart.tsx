@@ -26,8 +26,8 @@ export default function ElevationProfileChart({
   if (!profile || profile.length < 2) return null;
 
   return (
-    <div className={cn("rounded-xl border border-gray-700/50 bg-surface-dark/40 p-4", className)}>
-      <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">
+    <div className={cn("rounded-xl border border-border bg-card/40 p-4", className)}>
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
         {t("eventDetail.elevationProfile")}
       </p>
       <div style={{ height }}>

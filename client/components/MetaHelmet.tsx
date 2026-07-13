@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { Helmet } from "react-helmet-async";
+import { useTheme } from "next-themes";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import {
@@ -11,7 +12,8 @@ import {
   DEFAULT_OG_IMAGE_WIDTH,
   SITE_NAME,
   SITE_TWITTER_HANDLE,
-  THEME_COLOR,
+  THEME_COLOR_DARK,
+  THEME_COLOR_LIGHT,
   buildPublicAlternateUrl,
   formatDocumentTitle,
   getHtmlLangFromAppLocale,
@@ -145,7 +147,10 @@ export default function MetaHelmet({
   children,
 }: MetaHelmetProps) {
   const { i18n } = useTranslation();
+  const { resolvedTheme } = useTheme();
   const { pathname, search } = useLocation();
+  const isDarkTheme = resolvedTheme === "dark" || (resolvedTheme == null && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const themeColor = isDarkTheme ? THEME_COLOR_DARK : THEME_COLOR_LIGHT;
 
   const locale = localeProp ?? normalizeLocale(i18n.language);
   const htmlLang = getHtmlLangFromAppLocale(locale);
@@ -250,8 +255,8 @@ export default function MetaHelmet({
       <meta name="googlebot" content={meta.robotsContent} />
       <meta name="author" content={SITE_NAME} />
       <meta name="application-name" content={SITE_NAME} />
-      <meta name="theme-color" content={THEME_COLOR} />
-      <meta name="color-scheme" content="dark" />
+      <meta name="theme-color" content={themeColor} />
+      <meta name="color-scheme" content="light dark" />
       <meta name="format-detection" content="telephone=no" />
 
       <meta itemProp="name" content={meta.socialTitle} />

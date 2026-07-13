@@ -82,7 +82,7 @@ export default function StaffOrganizerEventsSection({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <h4 className="font-semibold flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-cyan" />
+          <CalendarDays className="w-4 h-4 text-primary" />
           {t("staffPortal.staffManagement.eventsSection")}
         </h4>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -105,7 +105,7 @@ export default function StaffOrganizerEventsSection({
             />
             {loadingEvents ? (
               <div className="flex justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
               </div>
             ) : linkableEvents.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
@@ -167,7 +167,7 @@ export default function StaffOrganizerEventsSection({
                   <td className="p-3">
                     <Link
                       to={`/staff/events/${e.id}`}
-                      className="font-medium hover:text-cyan transition-colors"
+                      className="font-medium hover:text-primary transition-colors"
                     >
                       {e.title}
                     </Link>

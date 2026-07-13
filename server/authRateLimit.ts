@@ -49,6 +49,8 @@ export type AthleteAuthRateLimitScope =
   | "forgot-password"
   | "reset-password";
 
+export type PublicOrganizerRateLimitScope = "organizer-register";
+
 const LIMITS: Record<
   AthleteAuthRateLimitScope,
   { limit: number; windowMs: number; emailKey?: boolean }
@@ -69,6 +71,41 @@ export function checkAthleteAuthRateLimit(
   const cfg = LIMITS[scope];
   const ip = clientIp(req);
   const email = String(req.body?.email ?? "")
+    .trim()
+    .toLowerCase();
+
+  const keys: string[] = [`${scope}:ip:${ip}`];
+  if (cfg.emailKey && email && /.+@.+\..+/.test(email)) {
+    keys.push(`${scope}:email:${email}`);
+  }
+
+  for (const key of keys) {
+    const result = consumeRateLimit(key, cfg.limit, cfg.windowMs);
+    if (result.allowed === false) {
+      return { ok: false, retryAfterSec: result.retryAfterSec };
+    }
+  }
+  return { ok: true };
+}
+
+const ORGANIZER_REGISTER_LIMITS: Record<
+  PublicOrganizerRateLimitScope,
+  { limit: number; windowMs: number; emailKey?: boolean }
+> = {
+  "organizer-register": { limit: 5, windowMs: 60 * 60 * 1000, emailKey: true },
+};
+
+export function checkPublicOrganizerRateLimit(
+  req: Request,
+  scope: PublicOrganizerRateLimitScope,
+): { ok: true } | { ok: false; retryAfterSec: number } {
+  if (isTestMode()) return { ok: true };
+
+  const cfg = ORGANIZER_REGISTER_LIMITS[scope];
+  const ip = clientIp(req);
+  const email = String(
+    req.body?.owner_email ?? req.body?.email ?? "",
+  )
     .trim()
     .toLowerCase();
 

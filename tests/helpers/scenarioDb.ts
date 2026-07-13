@@ -1,5 +1,23 @@
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { WAIVER_ACCEPTANCE_SIGNATURE } from "../../shared/waiverConstants";
+import {
+  applyExtraSeedEnhancements,
+  handleExtrasScenarioSql,
+  type ExtraSeedEnhancements,
+  type ExtrasSqlContext,
+} from "./extrasScenarioSql.js";
+import {
+  applyRegistrationFieldSeedEnhancements,
+  handleRegistrationFieldsScenarioSql,
+  type RegistrationFieldCategoryRow,
+  type RegistrationFieldRow,
+} from "./registrationFieldsScenarioSql.js";
+import {
+  handleFolioSegmentsScenarioSql,
+  type FolioCounterRow,
+  type FolioSegmentCategoryRow,
+  type FolioSegmentRow,
+} from "./folioSegmentsScenarioSql.js";
 
 export const SCENARIO = {
   athleteId: 1001,
@@ -49,6 +67,8 @@ type RegistrationRow = RowDataPacket & {
   currency: string;
   source: string;
   payment_id: number | null;
+  guest_claim_token?: string | null;
+  order_id?: number | null;
   deleted_at: string | null;
   waiver_signed_at: string | null;
 };
@@ -102,7 +122,15 @@ export interface ScenarioSeed {
   waivers?: Array<{ id: number; title: string; version: number }>;
   discountCodes?: DiscountCodeSeed[];
   organizer?: OrganizerConnectSeed;
-  event?: { fee_presentation?: "pass_through" | "absorb_all" | null };
+  event?: {
+    fee_presentation?: "pass_through" | "absorb_all" | null;
+    start_date?: string;
+    end_date?: string | null;
+    status?: string;
+    check_in_opens_at?: string | null;
+    check_in_closes_at?: string | null;
+    max_registrations_per_order?: number;
+  };
   category?: {
     name?: string;
     price_cents?: number;
@@ -112,6 +140,15 @@ export interface ScenarioSeed {
   confirmedRegistrationCount?: number;
   athleteAlreadyRegistered?: boolean;
   waitlistOffer?: { id: number; status: "offered" | "waiting" | "expired" };
+  extraAthletes?: Array<{
+    id: number;
+    email: string;
+    first_name: string;
+    last_name: string;
+    date_of_birth?: string;
+    gender?: string;
+  }>;
+  maxRegistrationsPerOrder?: number;
   fields?: Array<{
     id: number;
     field_key: string;
@@ -119,11 +156,43 @@ export interface ScenarioSeed {
     field_type: string;
     is_required: boolean;
     options_json?: string | null;
+    scope_type?: "all_categories" | "selected_categories";
+    category_ids?: number[];
   }>;
+  extras?: Array<{
+    id?: number;
+    name: string;
+    price_cents: number;
+    extra_type?: string;
+    max_per_athlete?: number;
+    capacity?: number | null;
+    sold_count?: number;
+    is_required?: boolean;
+    is_active?: boolean;
+    sort_order?: number;
+  } & ExtraSeedEnhancements>;
 }
 
 function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function eventDayOpenForCheckIn(): { start_date: string; end_date: string } {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayKey = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  // Span today → tomorrow so check-in stays open after typical event end times
+  // (custom check_in_closes_at is capped at event end_date).
+  return {
+    start_date: `${dayKey(now)} 00:00:00`,
+    end_date: `${dayKey(tomorrow)} 23:59:59`,
+  };
 }
 
 function header(insertId = 0, affectedRows = 1): ResultSetHeader {
@@ -133,7 +202,14 @@ function header(insertId = 0, affectedRows = 1): ResultSetHeader {
 export class RegistrationScenarioDb {
   readonly payments: PaymentRow[] = [];
   readonly registrations: RegistrationRow[] = [];
-  readonly waiverSignatures: RowDataPacket[] = [];
+  readonly registrationExtras: RowDataPacket[] = [];
+  readonly registrationExtraFieldValues: RowDataPacket[] = [];
+  readonly extraFields: RowDataPacket[] = [];
+  readonly extraCategories: RowDataPacket[] = [];
+  readonly registrationFieldCategories: RegistrationFieldCategoryRow[] = [];
+  readonly folioSegments: FolioSegmentRow[] = [];
+  readonly folioSegmentCategories: FolioSegmentCategoryRow[] = [];
+  readonly folioCounters: FolioCounterRow[] = [];
   readonly fieldValues: RowDataPacket[] = [];
   readonly waitlist: WaitlistRow[] = [];
   readonly webhookEvents = new Map<
@@ -146,6 +222,19 @@ export class RegistrationScenarioDb {
   private nextFieldValueId = 1;
   private txSnapshot: string | null = null;
 
+  readonly athleteProfiles = new Map<number, { date_of_birth: string; gender: string }>();
+  readonly extraAthletes = new Map<
+    number,
+    { id: number; email: string; first_name: string; last_name: string }
+  >();
+  readonly registrationOrders: RowDataPacket[] = [];
+  private nextAthleteId = 1100;
+  private nextOrderId = 1;
+
+  private nextFieldId = { current: 30001 };
+  private nextSegmentId = { current: 700 };
+  private nextFolioCounterId = { current: 1 };
+
   readonly requiresWaiver: boolean;
   readonly waivers: Array<{ id: number; title: string; version: number; is_active: number }>;
   readonly category: RowDataPacket;
@@ -156,7 +245,68 @@ export class RegistrationScenarioDb {
     DiscountCodeSeed & { is_active: number; organizer_id: number }
   >;
   readonly organizer: RowDataPacket;
+  readonly extras: RowDataPacket[];
   athleteStripeCustomerId: string | null = null;
+
+  private nextExtraId = 200;
+  private nextRegistrationExtraId = 1;
+  private nextExtraFieldId = { current: 1 };
+  private nextRegExtraFieldValueId = { current: 1 };
+
+  private extrasSqlContext(): ExtrasSqlContext {
+    return {
+      extras: this.extras,
+      extraFields: this.extraFields,
+      extraCategories: this.extraCategories,
+      registrationExtraFieldValues: this.registrationExtraFieldValues,
+      nextExtraFieldId: this.nextExtraFieldId,
+      nextRegExtraFieldValueId: this.nextRegExtraFieldValueId,
+      resolveCategoryIds: (eventId, categoryIds) => {
+        if (eventId !== SCENARIO.eventId) return [];
+        return categoryIds.filter((id) => id === SCENARIO.categoryId);
+      },
+      eventRegistrationWindow: () => ({
+        registration_opens_at: this.event.registration_opens_at as string | null,
+        registration_closes_at: this.event.registration_closes_at as string | null,
+      }),
+      categoryRegistrationWindows: (eventId) => {
+        if (eventId !== SCENARIO.eventId) return [];
+        return [
+          {
+            registration_opens_at: this.category.registration_opens_at as string | null,
+            registration_closes_at: this.category.registration_closes_at as string | null,
+          },
+        ];
+      },
+    };
+  }
+
+  private registrationFieldsSqlContext() {
+    return {
+      fields: this.fields as RegistrationFieldRow[],
+      fieldCategories: this.registrationFieldCategories,
+      nextFieldId: this.nextFieldId,
+      eventId: SCENARIO.eventId,
+      resolveCategoryIds: (eventId: number, categoryIds: number[]) => {
+        if (eventId !== SCENARIO.eventId) return [];
+        return categoryIds.filter((id) => id === SCENARIO.categoryId);
+      },
+    };
+  }
+
+  private folioSegmentsSqlContext() {
+    return {
+      segments: this.folioSegments,
+      segmentCategories: this.folioSegmentCategories,
+      counters: this.folioCounters,
+      nextSegmentId: this.nextSegmentId,
+      nextCounterId: this.nextFolioCounterId,
+      resolveCategoryIds: (eventId: number, categoryIds: number[]) => {
+        if (eventId !== SCENARIO.eventId) return [];
+        return categoryIds.filter((id) => id === SCENARIO.categoryId);
+      },
+    };
+  }
 
   constructor(seed: ScenarioSeed = {}) {
     this.requiresWaiver = seed.requiresWaiver ?? false;
@@ -184,8 +334,6 @@ export class RegistrationScenarioDb {
       id: SCENARIO.eventId,
       title: SCENARIO.eventTitle,
       slug: SCENARIO.slug,
-      status: "published",
-      start_date: "2026-09-15",
       organizer_id: SCENARIO.organizerId,
       service_fee_percent: 11,
       org_fee_percent: 11,
@@ -195,14 +343,90 @@ export class RegistrationScenarioDb {
       registration_opens_at: null,
       registration_closes_at: null,
       registration_count: 0,
+      ...eventDayOpenForCheckIn(),
+      ...(seed.event?.start_date
+        ? {
+            start_date: seed.event.start_date,
+            end_date: seed.event.end_date ?? seed.event.start_date,
+          }
+        : {}),
+      status: seed.event?.status ?? "published",
+      timezone: "America/Mexico_City",
+      check_in_opens_at: seed.event?.check_in_opens_at ?? "2020-01-01 00:00:00",
+      check_in_closes_at: seed.event?.check_in_closes_at ?? "2030-12-31 23:59:59",
+      max_registrations_per_order:
+        seed.maxRegistrationsPerOrder ?? seed.event?.max_registrations_per_order ?? 10,
     } as RowDataPacket;
+
+    this.athleteProfiles.set(SCENARIO.athleteId, { ...this.athleteProfile });
+    for (const a of seed.extraAthletes ?? []) {
+      this.extraAthletes.set(a.id, {
+        id: a.id,
+        email: a.email,
+        first_name: a.first_name,
+        last_name: a.last_name,
+      });
+      this.athleteProfiles.set(a.id, {
+        date_of_birth: a.date_of_birth ?? "1992-01-01",
+        gender: a.gender ?? "female",
+      });
+    }
 
     this.athleteProfile = {
       date_of_birth: "1990-01-15",
       gender: "male",
     };
 
-    this.fields = (seed.fields ?? []) as RowDataPacket[];
+    this.fields = (seed.fields ?? []).map((field, index) => ({
+      id: field.id,
+      event_id: SCENARIO.eventId,
+      field_key: field.field_key,
+      label: field.label,
+      field_type: field.field_type,
+      options_json: field.options_json ?? null,
+      is_required: field.is_required ? 1 : 0,
+      sort_order: index,
+      is_active: 1,
+      scope_type: field.scope_type ?? "all_categories",
+    })) as RegistrationFieldRow[];
+
+    for (const field of seed.fields ?? []) {
+      applyRegistrationFieldSeedEnhancements(this.registrationFieldsSqlContext(), field.id, {
+        scope_type: field.scope_type,
+        category_ids: field.category_ids,
+      });
+    }
+
+    this.extras = (seed.extras ?? []).map((extra, index) => {
+      const id = extra.id ?? this.nextExtraId++;
+      return {
+        id,
+        public_uuid: `extra-uuid-${id}`,
+        event_id: SCENARIO.eventId,
+        name: extra.name,
+        description: null,
+        price_cents: extra.price_cents,
+        currency: "MXN",
+        image_url: null,
+        extra_type: extra.extra_type ?? "custom",
+        max_per_athlete: extra.max_per_athlete ?? 1,
+        capacity: extra.capacity ?? null,
+        sold_count: extra.sold_count ?? 0,
+        is_required: extra.is_required ? 1 : 0,
+        sort_order: extra.sort_order ?? index,
+        is_active: extra.is_active === false ? 0 : 1,
+        scope_type: extra.scope_type ?? "all_categories",
+        sales_opens_at: extra.sales_opens_at ?? null,
+        sales_closes_at: extra.sales_closes_at ?? null,
+      } as RowDataPacket;
+    }) as RowDataPacket[];
+
+    for (const extra of seed.extras ?? []) {
+      const id = Number(extra.id ?? this.extras.find((row) => row.name === extra.name)?.id);
+      if (id > 0) {
+        applyExtraSeedEnhancements(this.extrasSqlContext(), id, extra);
+      }
+    }
 
     this.discountCodes = (seed.discountCodes ?? []).map((d) => ({
       ...d,
@@ -321,11 +545,53 @@ export class RegistrationScenarioDb {
     } as RowDataPacket;
   }
 
+  private registrationLookupRow(reg: RegistrationRow): RowDataPacket {
+    return {
+      id: reg.id,
+      registration_number: reg.registration_number,
+      bib_number: null,
+      status: reg.status,
+      qr_code_token: reg.qr_code_token,
+      checked_in_at: null,
+      waiver_signed_at: reg.waiver_signed_at,
+      total_cents: reg.total_cents,
+      created_at: new Date().toISOString(),
+      event_id: reg.event_id,
+      event_title: SCENARIO.eventTitle,
+      event_slug: SCENARIO.slug,
+      requires_waiver: this.requiresWaiver ? 1 : 0,
+      category_name: this.category.name ?? "General",
+      athlete_first_name: "Test",
+      athlete_last_name: "Athlete",
+      athlete_email: "athlete@test.local",
+    } as RowDataPacket;
+  }
+
   query = async (
     sql: string,
     params: unknown[] = [],
   ): Promise<[unknown, unknown]> => {
     const q = normalizeSql(sql);
+
+    const extrasHit = handleExtrasScenarioSql(q, params, this.extrasSqlContext());
+    if (extrasHit?.type === "rows") return [extrasHit.rows, []];
+    if (extrasHit?.type === "header") return [extrasHit.header, []];
+
+    const regFieldsHit = handleRegistrationFieldsScenarioSql(
+      q,
+      params,
+      this.registrationFieldsSqlContext(),
+    );
+    if (regFieldsHit?.type === "rows") return [regFieldsHit.rows, []];
+    if (regFieldsHit?.type === "header") return [regFieldsHit.header, []];
+
+    const folioHit = handleFolioSegmentsScenarioSql(
+      q,
+      params,
+      this.folioSegmentsSqlContext(),
+    );
+    if (folioHit?.type === "rows") return [folioHit.rows, []];
+    if (folioHit?.type === "header") return [folioHit.header, []];
 
     if (q.includes("update waitlist_entries set status = 'expired'")) {
       for (const w of this.waitlist) {
@@ -338,6 +604,235 @@ export class RegistrationScenarioDb {
 
     if (q.includes("from events e") && q.includes("join organizers o") && q.includes("slug")) {
       return [[this.eventWithOrganizer()], []];
+    }
+
+    if (
+      q.includes("from athletes where email = ?") &&
+      q.includes("deleted_at is null") &&
+      q.includes("status = 'active'")
+    ) {
+      const email = String(params[0] ?? "").toLowerCase();
+      if (email === "athlete@test.local") {
+        return [
+          [
+            {
+              id: SCENARIO.athleteId,
+              email: "athlete@test.local",
+              first_name: "Test",
+              last_name: "Athlete",
+              date_of_birth: this.athleteProfile.date_of_birth,
+              gender: this.athleteProfile.gender,
+            },
+          ],
+          [],
+        ];
+      }
+      for (const a of this.extraAthletes.values()) {
+        if (a.email.toLowerCase() === email) {
+          const profile = this.athleteProfiles.get(a.id);
+          return [
+            [
+              {
+                ...a,
+                date_of_birth: profile?.date_of_birth ?? "1992-01-01",
+                gender: profile?.gender ?? "female",
+              },
+            ],
+            [],
+          ];
+        }
+      }
+      return [[], []];
+    }
+
+    if (q.startsWith("insert into athletes")) {
+      const id = this.nextAthleteId++;
+      const email = String(params[1]).toLowerCase();
+      this.extraAthletes.set(id, {
+        id,
+        email,
+        first_name: String(params[2]),
+        last_name: String(params[3]),
+      });
+      this.athleteProfiles.set(id, {
+        date_of_birth: String(params[4]),
+        gender: String(params[5]),
+      });
+      return [header(id, 1), []];
+    }
+
+    if (
+      q.includes("from athletes where id = ?") &&
+      q.includes("deleted_at is null") &&
+      q.includes("status = 'active'") &&
+      q.includes("select id, email")
+    ) {
+      const athleteId = Number(params[0]);
+      if (athleteId === SCENARIO.athleteId) {
+        return [[{ id: SCENARIO.athleteId, email: "athlete@test.local" }], []];
+      }
+      const extra = this.extraAthletes.get(athleteId);
+      return extra ? [[{ id: extra.id, email: extra.email }], []] : [[], []];
+    }
+
+    if (
+      q.includes("from athletes where id = ?") &&
+      q.includes("first_name") &&
+      q.includes("deleted_at is null limit 1")
+    ) {
+      const athleteId = Number(params[0]);
+      if (athleteId === SCENARIO.athleteId) {
+        return [
+          [
+            {
+              id: SCENARIO.athleteId,
+              email: "athlete@test.local",
+              first_name: "Test",
+              last_name: "Athlete",
+              date_of_birth: this.athleteProfile.date_of_birth,
+              gender: this.athleteProfile.gender,
+            },
+          ],
+          [],
+        ];
+      }
+      const extra = this.extraAthletes.get(athleteId);
+      if (!extra) return [[], []];
+      const profile = this.athleteProfiles.get(athleteId);
+      return [
+        [
+          {
+            ...extra,
+            date_of_birth: profile?.date_of_birth ?? "1992-01-01",
+            gender: profile?.gender ?? "female",
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (q.includes("where r.guest_claim_token = ?")) {
+      const token = String(params[0] ?? "");
+      const reg = this.registrations.find(
+        (r) => r.guest_claim_token === token && r.status === "confirmed" && !r.deleted_at,
+      );
+      if (!reg) return [[], []];
+      const athlete =
+        reg.athlete_id === SCENARIO.athleteId
+          ? { email: "athlete@test.local", first_name: "Test", last_name: "Athlete" }
+          : this.extraAthletes.get(reg.athlete_id);
+      return [
+        [
+          {
+            ...reg,
+            guest_email: athlete?.email ?? "",
+            event_slug: SCENARIO.slug,
+            event_title: SCENARIO.eventTitle,
+            category_name: this.category.name,
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (q.startsWith("update registrations set athlete_id")) {
+      const athleteId = Number(params[0]);
+      const regId = Number(params[1]);
+      const reg = this.registrations.find((r) => r.id === regId);
+      if (reg) {
+        reg.athlete_id = athleteId;
+        reg.guest_claim_token = null;
+      }
+      return [header(0, reg ? 1 : 0), []];
+    }
+
+    if (q.startsWith("update registrations set guest_claim_token = null")) {
+      const regId = Number(params[0]);
+      const reg = this.registrations.find((r) => r.id === regId);
+      if (reg) reg.guest_claim_token = null;
+      return [header(0, reg ? 1 : 0), []];
+    }
+
+    if (q.includes("from registration_orders")) {
+      if (q.includes("public_uuid = ?")) {
+        const uuid = String(params[0]);
+        const hit = this.registrationOrders.find((o) => o.public_uuid === uuid);
+        if (!hit) return [[], []];
+        const row = {
+          id: hit.id,
+          public_uuid: hit.public_uuid,
+          status: hit.status ?? "confirmed",
+        } as RowDataPacket;
+        if (q.includes("item_count")) {
+          row.item_count = hit.item_count;
+          row.total_cents = hit.total_cents;
+          row.event_title = SCENARIO.eventTitle;
+          row.athlete_id = hit.purchaser_athlete_id;
+          row.athlete_email = "athlete@test.local";
+          row.athlete_first_name = "Test";
+          row.preferred_language = "en";
+        }
+        return [[row], []];
+      }
+      if (q.includes("ro.id = ?") && q.includes("purchaser_athlete_id = ?")) {
+        const orderId = Number(params[0]);
+        const purchaserId = Number(params[1]);
+        const hit = this.registrationOrders.find(
+          (o) => o.id === orderId && o.purchaser_athlete_id === purchaserId,
+        );
+        if (!hit) return [[], []];
+        return [
+          [
+            {
+              id: hit.id,
+              public_uuid: hit.public_uuid,
+              total_cents: hit.total_cents,
+              item_count: hit.item_count,
+              event_title: SCENARIO.eventTitle,
+              athlete_id: purchaserId,
+              athlete_email: "athlete@test.local",
+              athlete_first_name: "Test",
+              preferred_language: "en",
+            },
+          ],
+          [],
+        ];
+      }
+      const paymentId = Number(params[0]);
+      const hit = this.registrationOrders.find((o) => o.payment_id === paymentId);
+      return [hit ? [{ id: hit.id, public_uuid: hit.public_uuid }] : [], []];
+    }
+
+    if (q.startsWith("insert into registration_orders")) {
+      const order = {
+        id: this.nextOrderId++,
+        public_uuid: String(params[0]),
+        event_id: Number(params[1]),
+        purchaser_athlete_id: Number(params[2]),
+        payment_id: Number(params[3]),
+        status: "confirmed",
+        item_count: Number(params[4]),
+        subtotal_cents: Number(params[5]),
+        service_fee_cents: Number(params[6]),
+        discount_code_id: params[7] as number | null,
+        discount_amount_cents: Number(params[8]),
+        total_cents: Number(params[9]),
+        currency: String(params[10]),
+      } as RowDataPacket;
+      this.registrationOrders.push(order);
+      return [header(order.id as number, 1), []];
+    }
+
+    if (q.includes("from notification_queue")) {
+      return [[], []];
+    }
+
+    if (q.startsWith("insert into notification_queue")) {
+      return [header(1, 1), []];
+    }
+
+    if (q.includes("update notification_queue")) {
+      return [header(0, 1), []];
     }
 
     if (q.includes("select email from athletes") && q.includes("where id = ?") && q.includes("deleted_at is null")) {
@@ -493,9 +988,8 @@ export class RegistrationScenarioDb {
 
     if (q.includes("select date_of_birth, gender from athletes")) {
       const athleteId = Number(params[0]);
-      if (athleteId === SCENARIO.athleteId) {
-        return [[{ ...this.athleteProfile }], []];
-      }
+      const profile = this.athleteProfiles.get(athleteId);
+      if (profile) return [[{ ...profile }], []];
       return [[], []];
     }
 
@@ -510,17 +1004,33 @@ export class RegistrationScenarioDb {
     ) {
       const eventId = Number(params[0]);
       const athleteId = Number(params[1]);
+      const excludeId =
+        q.includes("id <>") && params[2] != null ? Number(params[2]) : null;
       const hit = this.registrations.find(
         (r) =>
           r.event_id === eventId &&
           r.athlete_id === athleteId &&
           r.status === "confirmed" &&
-          !r.deleted_at,
+          !r.deleted_at &&
+          (excludeId == null || r.id !== excludeId),
       );
       return [hit ? [{ id: hit.id }] : [], []];
     }
 
+    if (q.includes("select 1 from event_categories") && q.includes("price_cents > 0")) {
+      const eventId = Number(params[0]);
+      if (eventId !== SCENARIO.eventId || this.category.price_cents <= 0) {
+        return [[], []];
+      }
+      return [[{ 1: 1 }], []];
+    }
+
     if (q.includes("from event_categories") && q.includes("is_active = 1")) {
+      if (q.includes("where event_id = ?") && q.includes("order by sort_order")) {
+        const eventId = Number(params[0]);
+        if (eventId !== SCENARIO.eventId) return [[], []];
+        return [[this.categoryRow()], []];
+      }
       const catId = Number(params[0]);
       const eventId = Number(params[1]);
       if (catId !== SCENARIO.categoryId || eventId !== SCENARIO.eventId) {
@@ -562,8 +1072,164 @@ export class RegistrationScenarioDb {
       ];
     }
 
-    if (q.includes("from event_registration_fields")) {
-      return [this.fields.map((f) => ({ ...f })), []];
+
+    if (q.includes("from event_extras")) {
+      const eventId = Number(params[0]);
+      if (eventId !== SCENARIO.eventId) return [[], []];
+
+      let rows = this.extras.filter((e) => Number(e.event_id) === eventId);
+
+      if (q.includes("is_active = 1")) {
+        rows = rows.filter((e) => Number(e.is_active) === 1);
+      }
+
+      if (q.includes("is_required = 1")) {
+        rows = rows.filter((e) => Number(e.is_required) === 1);
+        if (q.includes("limit 1")) {
+          rows = rows.slice(0, 1);
+        }
+      }
+
+      if (q.includes("id in (")) {
+        const ids = params.slice(1).map((p) => Number(p));
+        rows = rows.filter(
+          (e) => ids.includes(Number(e.id)) && Number(e.is_active) === 1,
+        );
+      } else if (q.includes("where id = ? and event_id = ?")) {
+        const extraId = Number(params[0]);
+        rows = rows.filter((e) => Number(e.id) === extraId);
+      }
+
+      rows = [...rows].sort(
+        (a, b) =>
+          Number(a.sort_order) - Number(b.sort_order) ||
+          Number(a.id) - Number(b.id),
+      );
+
+      if (q.includes("public_uuid, name, description")) {
+        return [
+          rows.map((e) => ({
+            id: e.id,
+            public_uuid: e.public_uuid,
+            name: e.name,
+            description: e.description,
+            price_cents: e.price_cents,
+            currency: e.currency,
+            image_url: e.image_url,
+            extra_type: e.extra_type,
+            max_per_athlete: e.max_per_athlete,
+            capacity: e.capacity,
+            sold_count: e.sold_count,
+            is_required: e.is_required,
+            sort_order: e.sort_order,
+          })),
+          [],
+        ];
+      }
+
+      if (q.includes("id, price_cents, sold_count")) {
+        return [
+          rows.map((e) => ({
+            id: e.id,
+            price_cents: e.price_cents,
+            sold_count: e.sold_count,
+          })),
+          [],
+        ];
+      }
+
+      if (q.includes("id, name, price_cents, max_per_athlete")) {
+        return [
+          rows.map((e) => ({
+            id: e.id,
+            name: e.name,
+            price_cents: e.price_cents,
+            max_per_athlete: e.max_per_athlete,
+            capacity: e.capacity,
+            sold_count: e.sold_count,
+            is_required: e.is_required,
+          })),
+          [],
+        ];
+      }
+
+      if (q.includes("id, name")) {
+        return [rows.map((e) => ({ id: e.id, name: e.name })), []];
+      }
+
+      if (q.includes("sold_count from event_extras")) {
+        return [
+          rows.map((e) => ({ sold_count: e.sold_count })),
+          [],
+        ];
+      }
+
+      return [rows.map((e) => ({ ...e })), []];
+    }
+
+    if (q.includes("insert into registration_extras")) {
+      const row = {
+        id: this.nextRegistrationExtraId++,
+        registration_id: Number(params[0]),
+        event_extra_id: Number(params[1]),
+        name: String(params[2]),
+        quantity: Number(params[3]),
+        unit_price_cents: Number(params[4]),
+        total_cents: Number(params[5]),
+      };
+      this.registrationExtras.push(row as RowDataPacket);
+      return [header(row.id, 1), []];
+    }
+
+    if (q.includes("from registration_extras")) {
+      const regId = Number(params[0]);
+      const rows = this.registrationExtras
+        .filter((e) => Number(e.registration_id) === regId)
+        .map((e, index) => ({
+          id: e.id ?? index + 1,
+          event_extra_id: e.event_extra_id,
+          name: e.name,
+          quantity: e.quantity,
+          unit_price_cents: e.unit_price_cents,
+          total_cents: e.total_cents,
+        }))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      return [rows, []];
+    }
+
+    if (q.includes("update event_extras set sold_count = sold_count +")) {
+      const quantity = Number(params[0]);
+      const extraId = Number(params[1]);
+      const extra = this.extras.find((e) => Number(e.id) === extraId);
+      if (!extra) return [header(0, 0), []];
+      const capacity =
+        extra.capacity != null ? Number(extra.capacity) : null;
+      const sold = Number(extra.sold_count) || 0;
+      if (capacity != null && sold + quantity > capacity) {
+        return [header(0, 0), []];
+      }
+      extra.sold_count = sold + quantity;
+      return [header(0, 1), []];
+    }
+
+    if (q.includes("from event_sponsors")) {
+      return [[], []];
+    }
+
+    if (q.includes("from event_tags et")) {
+      return [[], []];
+    }
+
+    if (q.includes("from event_schedule_waves")) {
+      return [[], []];
+    }
+
+    if (q.includes("from event_courses")) {
+      return [[], []];
+    }
+
+    if (q.includes("from media_assets") && q.includes("entity_type = 'event'")) {
+      return [[], []];
     }
 
     if (q.includes("from event_waivers") && q.includes("is_active = 1")) {
@@ -659,7 +1325,8 @@ export class RegistrationScenarioDb {
     }
 
     if (
-      q.includes("select stripe_payment_intent_id, amount_cents from payments") &&
+      q.includes("select stripe_payment_intent_id, amount_cents") &&
+      q.includes("from payments") &&
       q.includes("public_uuid")
     ) {
       const uuid = String(params[0]);
@@ -670,6 +1337,7 @@ export class RegistrationScenarioDb {
               {
                 stripe_payment_intent_id: pay.stripe_payment_intent_id,
                 amount_cents: pay.amount_cents,
+                service_fee_cents: pay.service_fee_cents,
               },
             ]
           : [],
@@ -882,6 +1550,140 @@ export class RegistrationScenarioDb {
       return [[{ requires_waiver: this.requiresWaiver ? 1 : 0 }], []];
     }
 
+    if (q.includes("select slug, starts_at from events where id")) {
+      return [
+        [
+          {
+            slug: SCENARIO.slug,
+            starts_at: this.event.start_date ?? "2026-09-01T10:00:00.000Z",
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (
+      q.includes("from organizer_members") &&
+      q.includes("event_access_scope") &&
+      q.includes("status = 'active'")
+    ) {
+      return [[{ role: "owner", event_access_scope: "organization" }], []];
+    }
+
+    if (q.includes("select role from organizer_members") && q.includes("status = 'active'")) {
+      return [[{ role: "owner" }], []];
+    }
+
+    if (q.includes("select id from events where id = ? and organizer_id = ?")) {
+      const eventId = Number(params[0]);
+      const organizerId = Number(params[1]);
+      if (eventId === SCENARIO.eventId && organizerId === SCENARIO.organizerId) {
+        return [[{ id: eventId }], []];
+      }
+      return [[], []];
+    }
+
+    if (
+      q.includes("from events e") &&
+      q.includes("check_in_opens_at") &&
+      q.includes("deleted_at is null") &&
+      q.includes("where e.id = ?")
+    ) {
+      return [
+        [
+          {
+            event_id: SCENARIO.eventId,
+            title: SCENARIO.eventTitle,
+            status: String(this.event.status ?? "published"),
+            start_date: String(this.event.start_date),
+            end_date: this.event.end_date != null ? String(this.event.end_date) : null,
+            timezone: String(this.event.timezone ?? "America/Mexico_City"),
+            check_in_opens_at: this.event.check_in_opens_at ?? null,
+            check_in_closes_at: this.event.check_in_closes_at ?? null,
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (
+      q.includes("from registrations r") &&
+      q.includes("join events e on e.id = r.event_id and e.organizer_id = ?")
+    ) {
+      const organizerId = Number(params[0]);
+      const tokens = params.slice(1).map((value) => String(value));
+      const reg = this.registrations.find(
+        (row) =>
+          row.deleted_at == null &&
+          row.status === "confirmed" &&
+          tokens.some(
+            (token) =>
+              row.qr_code_token === token || row.registration_number === token,
+          ),
+      );
+      if (!reg || organizerId !== SCENARIO.organizerId) return [[], []];
+      return [[this.registrationLookupRow(reg)], []];
+    }
+
+    if (
+      q.includes("from registrations r") &&
+      q.includes("join events e on e.id = r.event_id") &&
+      q.includes("waiver_signed_at") &&
+      q.includes("where r.id = ?") &&
+      !q.includes("qr_code_token")
+    ) {
+      const regId = Number(params[0]);
+      const reg = this.registrations.find((row) => row.id === regId && row.deleted_at == null);
+      if (!reg) return [[], []];
+      return [
+        [
+          {
+            event_id: reg.event_id,
+            waiver_signed_at: reg.waiver_signed_at,
+            requires_waiver: this.requiresWaiver ? 1 : 0,
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (
+      q.includes("from registrations r") &&
+      q.includes("r.event_id = ?") &&
+      q.includes("qr_code_token = ?")
+    ) {
+      const eventId = Number(params[0]);
+      const tokens = params.slice(1).map((value) => String(value));
+      const reg = this.registrations.find(
+        (row) =>
+          row.event_id === eventId &&
+          row.deleted_at == null &&
+          row.status === "confirmed" &&
+          tokens.some(
+            (token) =>
+              row.qr_code_token === token || row.registration_number === token,
+          ),
+      );
+      if (!reg) return [[], []];
+      return [[this.registrationLookupRow(reg)], []];
+    }
+
+    if (q.includes("select count(*) as cnt from registrations") && q.includes("status = 'confirmed'")) {
+      const eventId = Number(params[0]);
+      const count = this.registrations.filter(
+        (r) => r.event_id === eventId && r.status === "confirmed",
+      ).length;
+      return [[{ cnt: count }], []];
+    }
+
+    if (q.includes("select count(*) as c from registrations where event_id = ? and folio_segment_id is null")) {
+      const eventId = Number(params[0]);
+      const count = this.registrations.filter(
+        (r) => r.event_id === eventId && (r as RegistrationRow & { folio_segment_id?: number | null }).folio_segment_id == null,
+      ).length;
+      return [[{ c: count }], []];
+    }
+
     if (q.includes("select count(*) as c from registrations where event_id")) {
       const eventId = Number(params[0]);
       const count = this.registrations.filter((r) => r.event_id === eventId).length;
@@ -896,18 +1698,25 @@ export class RegistrationScenarioDb {
         event_category_id: Number(params[2]),
         athlete_id: Number(params[3]),
         registration_number: String(params[4]),
-        qr_code_token: String(params[5]),
-        status: String(params[6]),
-        price_cents: Number(params[7]),
-        service_fee_cents: Number(params[8]),
-        total_cents: Number(params[9]),
-        discount_code_id: params[10] as number | null,
-        currency: String(params[11]),
-        source: String(params[12]),
-        payment_id: Number(params[13]),
+        qr_code_token: String(params[6]),
+        status: String(params[7]),
+        price_cents: Number(params[8]),
+        service_fee_cents: Number(params[9]),
+        total_cents: Number(params[10]),
+        discount_code_id: params[11] as number | null,
+        currency: String(params[12]),
+        source: String(params[13]),
+        payment_id: Number(params[14]),
+        order_id: params[15] != null ? Number(params[15]) : null,
+        guest_claim_token:
+          params[17] != null && String(params[17]).trim()
+            ? String(params[17])
+            : null,
         deleted_at: null,
         waiver_signed_at: null,
       } as RegistrationRow;
+      (reg as RegistrationRow & { folio_segment_id?: number | null }).folio_segment_id =
+        params[5] != null ? Number(params[5]) : null;
       this.registrations.push(reg);
       return [header(reg.id, 1), []];
     }
@@ -925,6 +1734,21 @@ export class RegistrationScenarioDb {
       const reg = this.registrations.find((r) => r.id === regId);
       if (reg) reg.waiver_signed_at = new Date().toISOString();
       return [header(0, reg ? 1 : 0), []];
+    }
+
+    if (q.startsWith("update payments set status = 'succeeded'") && q.includes("registration_id = null")) {
+      const payId = Number(params[params.length - 1]);
+      const pay = this.payments.find((p) => p.id === payId);
+      if (pay) {
+        pay.status = "succeeded";
+        pay.registration_id = null;
+        pay.paid_at = new Date().toISOString();
+        const chargeId = params[0] != null ? String(params[0]) : null;
+        const piId = params[1] != null ? String(params[1]) : null;
+        if (chargeId && chargeId !== "null") pay.stripe_charge_id = chargeId;
+        if (piId) pay.stripe_payment_intent_id = piId;
+      }
+      return [header(0, pay ? 1 : 0), []];
     }
 
     if (q.startsWith("update payments set status = 'succeeded'")) {
@@ -967,6 +1791,81 @@ export class RegistrationScenarioDb {
 
     if (q.includes("update events set registration_count")) {
       return [header(0, 1), []];
+    }
+
+    if (
+      q.includes("from registrations r") &&
+      q.includes("join event_categories ec") &&
+      q.includes("join athletes a") &&
+      q.includes("where r.order_id = ?")
+    ) {
+      const orderId = Number(params[0]);
+      const rows = this.registrations
+        .filter((r) => r.order_id === orderId && !r.deleted_at)
+        .map((reg) => {
+          const athlete =
+            reg.athlete_id === SCENARIO.athleteId
+              ? {
+                  first_name: "Test",
+                  last_name: "Athlete",
+                  email: "athlete@test.local",
+                }
+              : this.extraAthletes.get(reg.athlete_id);
+          return {
+            public_uuid: reg.public_uuid,
+            registration_number: reg.registration_number,
+            qr_code_token: reg.qr_code_token,
+            status: reg.status,
+            total_cents: reg.total_cents,
+            category_name: this.category.name,
+            event_title: SCENARIO.eventTitle,
+            event_slug: SCENARIO.slug,
+            participant_label: athlete
+              ? `${athlete.first_name} ${athlete.last_name}`.trim()
+              : "Participant",
+            participant_email: athlete?.email ?? "",
+            guest_claim_token: reg.guest_claim_token ?? null,
+          };
+        });
+      return [rows, []];
+    }
+
+    if (
+      q.includes("from registrations r") &&
+      q.includes("join athletes a") &&
+      q.includes("r.registration_number") &&
+      q.includes("guest_claim_token") &&
+      q.includes("where r.id = ?")
+    ) {
+      const regId = Number(params[0]);
+      const reg = this.registrations.find((r) => r.id === regId && !r.deleted_at);
+      if (!reg || reg.status !== "confirmed") return [[], []];
+      const athlete =
+        reg.athlete_id === SCENARIO.athleteId
+          ? {
+              id: SCENARIO.athleteId,
+              email: "athlete@test.local",
+              first_name: "Test",
+              preferred_language: "en",
+            }
+          : this.extraAthletes.get(reg.athlete_id);
+      if (!athlete) return [[], []];
+      return [
+        [
+          {
+            registration_number: reg.registration_number,
+            status: reg.status,
+            guest_claim_token: reg.guest_claim_token ?? null,
+            athlete_id: reg.athlete_id,
+            athlete_email: athlete.email,
+            athlete_first_name: athlete.first_name,
+            preferred_language: "en",
+            event_title: SCENARIO.eventTitle,
+            category_name: this.category.name,
+          },
+        ],
+        [],
+      ];
     }
 
     if (
@@ -1107,6 +2006,16 @@ export const seeds = {
     requiresWaiver: false,
     category: { price_cents: 0, capacity: 100 },
   }),
+  groupFreeMaxTwo: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    maxRegistrationsPerOrder: 2,
+  }),
+  groupFreeOpen: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    maxRegistrationsPerOrder: 10,
+  }),
   freeWithWaiver: (): ScenarioSeed => ({
     requiresWaiver: true,
     category: { price_cents: 0, capacity: 100 },
@@ -1223,5 +2132,223 @@ export const seeds = {
       stripe_charges_enabled: 0,
       stripe_payouts_enabled: 0,
     },
+  }),
+  withOptionalExtras: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 50_000, capacity: 100 },
+    extras: [
+      {
+        id: 201,
+        name: "Official Tee",
+        price_cents: 4_500,
+        extra_type: "merch",
+        max_per_athlete: 2,
+      },
+      {
+        id: 202,
+        name: "Gold Folio",
+        price_cents: 1_500,
+        extra_type: "folio",
+        max_per_athlete: 1,
+      },
+    ],
+  }),
+  withRequiredExtra: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 203,
+        name: "Chip Timing",
+        price_cents: 1_200,
+        is_required: true,
+        max_per_athlete: 1,
+      },
+    ],
+  }),
+  withLimitedExtra: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 204,
+        name: "VIP Parking",
+        price_cents: 2_500,
+        capacity: 2,
+        sold_count: 1,
+        max_per_athlete: 2,
+      },
+    ],
+  }),
+  withInactiveExtra: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      { id: 205, name: "Hidden Item", price_cents: 1_000, is_active: false },
+      { id: 206, name: "Visible Item", price_cents: 2_000, is_active: true },
+    ],
+  }),
+  paidWithExtrasAndDiscount: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 95_000, capacity: 100 },
+    discountCodes: [
+      {
+        id: 5,
+        code: "EARLY10",
+        discount_type: "percent",
+        discount_value: 10,
+        applies_to: "total",
+      },
+    ],
+    extras: [{ id: 207, name: "Meal Voucher", price_cents: 3_000, max_per_athlete: 1 }],
+  }),
+  paidConnectReadyWithExtras: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 80_000, capacity: 100 },
+    organizer: {
+      legal_name: "Trail MX SA",
+      rfc: "TRM123456ABC",
+      billing_email: "billing@trail.mx",
+      payout_terms_accepted_at: "2026-01-01 00:00:00",
+      payout_fee_acknowledged_at: "2026-01-01 00:00:00",
+      fee_presentation: "pass_through",
+      stripe_account_id: "acct_test_ready",
+      stripe_onboarding_complete: 1,
+      stripe_connect_status: "ready",
+      stripe_charges_enabled: 1,
+      stripe_payouts_enabled: 1,
+      stripe_details_submitted: 1,
+      stripe_connect_onboarded_at: "2026-01-01 00:00:00",
+    },
+    extras: [{ id: 208, name: "Recovery Kit", price_cents: 2_800, max_per_athlete: 1 }],
+  }),
+  withExtrasAndFields: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 210,
+        name: "Official Tee",
+        price_cents: 4_500,
+        max_per_athlete: 1,
+        fields: [
+          {
+            field_key: "shirt_size",
+            label: "T-shirt size",
+            field_type: "select",
+            options_json: ["S", "M", "L", "XL"],
+            is_required: true,
+          },
+        ],
+      },
+    ],
+  }),
+  withCategoryScopedExtras: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 211,
+        name: "Category Hoodie",
+        price_cents: 5_000,
+        scope_type: "selected_categories",
+        category_ids: [SCENARIO.categoryId],
+      },
+      {
+        id: 212,
+        name: "Wrong Category Item",
+        price_cents: 3_000,
+        scope_type: "selected_categories",
+        category_ids: [999],
+      },
+    ],
+  }),
+  withExpiredSalesExtra: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 213,
+        name: "Late Extra",
+        price_cents: 1_000,
+        sales_closes_at: new Date(Date.now() - 86_400_000).toISOString(),
+      },
+    ],
+  }),
+  withFutureSalesExtra: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 214,
+        name: "Early Bird Extra",
+        price_cents: 1_000,
+        sales_opens_at: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+    ],
+  }),
+  withFreeExtra: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [{ id: 215, name: "Free Sticker", price_cents: 0 }],
+  }),
+  withFreeExtraAndFields: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    extras: [
+      {
+        id: 216,
+        name: "Finisher Tee",
+        price_cents: 0,
+        max_per_athlete: 1,
+        fields: [
+          {
+            field_key: "shirt_size",
+            label: "T-shirt size",
+            field_type: "select",
+            options_json: ["S", "M", "L", "XL"],
+            is_required: true,
+          },
+        ],
+      },
+    ],
+  }),
+  withCategoryScopedRegistrationFields: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    fields: [
+      {
+        id: 30010,
+        field_key: "elite_bib_name",
+        label: "Elite bib name",
+        field_type: "text",
+        is_required: true,
+        scope_type: "selected_categories",
+        category_ids: [SCENARIO.categoryId],
+      },
+      {
+        id: 30011,
+        field_key: "other_distance_note",
+        label: "Other distance note",
+        field_type: "text",
+        is_required: true,
+        scope_type: "selected_categories",
+        category_ids: [999],
+      },
+    ],
+  }),
+  withRequiredRegistrationField: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    fields: [
+      {
+        id: 30020,
+        field_key: "emergency_contact",
+        label: "Emergency contact",
+        field_type: "text",
+        is_required: true,
+        scope_type: "all_categories",
+      },
+    ],
   }),
 };

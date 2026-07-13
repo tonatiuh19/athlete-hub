@@ -49,7 +49,7 @@ export default function AthleteResetPassword() {
       <MetaHelmet title={t("auth.password.resetTitle")} noindex />
       <div className="w-full max-w-[380px] space-y-6">
         <div className="text-center space-y-2">
-          <TribooLogo surface="dark" className="h-10 mx-auto" />
+          <TribooLogo surface="auto" className="h-10 mx-auto" />
           <h1 className="text-xl font-bold">{t("auth.password.resetTitle")}</h1>
           <p className="text-sm text-muted-foreground">{t("auth.password.resetSubtitleCode")}</p>
         </div>
@@ -127,7 +127,7 @@ export default function AthleteResetPassword() {
               t("auth.password.savePassword")
             )}
           </button>
-          <Link to="/login" className="block text-center text-sm text-cyan hover:underline">
+          <Link to="/login" className="block text-center text-sm text-primary hover:underline">
             {t("auth.sso.backToLogin")}
           </Link>
         </form>

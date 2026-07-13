@@ -2,6 +2,10 @@ import type { LucideIcon } from "lucide-react";
 import {
   canOrganizerCreateEvents as sharedCanOrganizerCreateEvents,
   canOrganizerEditEvents as sharedCanOrganizerEditEvents,
+  canOrganizerRecordManualSale as sharedCanOrganizerRecordManualSale,
+  canOrganizerViewAllPayments as sharedCanOrganizerViewAllPayments,
+  canOrganizerViewPayments as sharedCanOrganizerViewPayments,
+  canOrganizerViewSellerSalesSummary as sharedCanOrganizerViewSellerSalesSummary,
 } from "@shared/staffRoles";
 import {
   BarChart3,
@@ -9,6 +13,7 @@ import {
   Calendar,
   CreditCard,
   FileText,
+  Globe,
   LayoutDashboard,
   Mail,
   Settings,
@@ -56,6 +61,7 @@ const ADMIN_NAV: StaffNavItem[] = [
   BLOG_NAV,
   { to: "/staff/payments", labelKey: "staffPortal.nav.payments", icon: CreditCard },
   { to: "/staff/analytics", labelKey: "staffPortal.nav.analytics", icon: BarChart3 },
+  { to: "/staff/site-settings", labelKey: "staffPortal.nav.siteSettings", icon: Globe },
   { to: "/staff/profile", labelKey: "staffPortal.nav.profile", icon: Settings },
 ];
 
@@ -111,6 +117,8 @@ function organizerNav(role: string): StaffNavItem[] {
       return withMessagingNav([dashboard, events, BLOG_NAV, analytics, settings], role);
     case "finance":
       return withMessagingNav([dashboard, registrations, payments, payouts, analytics, settings], role);
+    case "seller":
+      return [dashboard, payments, settings];
     case "sponsor":
       return withMessagingNav([dashboard, events, settings], role);
     case "owner":
@@ -140,9 +148,23 @@ export function canOrganizerCreateEvents(role: string): boolean {
   return sharedCanOrganizerCreateEvents(role);
 }
 
+export function canOrganizerRecordManualSale(role: string): boolean {
+  return sharedCanOrganizerRecordManualSale(role);
+}
+
 export function canViewStaffPayments(isAdmin: boolean, organizerRole?: string): boolean {
   if (isAdmin) return true;
-  return ["owner", "organizer", "finance"].includes(organizerRole ?? "");
+  return sharedCanOrganizerViewPayments(organizerRole ?? "");
+}
+
+export function canViewAllStaffPayments(isAdmin: boolean, organizerRole?: string): boolean {
+  if (isAdmin) return true;
+  return sharedCanOrganizerViewAllPayments(organizerRole ?? "");
+}
+
+export function canViewSellerSalesSummary(isAdmin: boolean, organizerRole?: string): boolean {
+  if (isAdmin) return false;
+  return sharedCanOrganizerViewSellerSalesSummary(organizerRole ?? "");
 }
 
 /** Organizer self-serve payout setup (same roles as payments for finance/owner). */
@@ -151,7 +173,8 @@ export function canAccessStaffPayouts(isAdmin: boolean, organizerRole?: string):
   return ["owner", "organizer", "finance"].includes(organizerRole ?? "");
 }
 
-/** Refund permissions mirror payment visibility for organizers. */
+/** Refund permissions — sellers can record sales but not refund. */
 export function canRefundStaffPayments(isAdmin: boolean, organizerRole?: string): boolean {
-  return canViewStaffPayments(isAdmin, organizerRole);
+  if (isAdmin) return true;
+  return ["owner", "organizer", "finance"].includes(organizerRole ?? "");
 }

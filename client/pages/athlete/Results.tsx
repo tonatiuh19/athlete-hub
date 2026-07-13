@@ -50,7 +50,7 @@ export default function AthleteResults() {
       />
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Trophy className="w-7 h-7 text-cyan" />
+          <Trophy className="w-7 h-7 text-primary" />
           {t("athletePortal.results.title")}
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
@@ -73,7 +73,7 @@ export default function AthleteResults() {
       ) : resultsError ? null : results.length === 0 ? (
         <div className="card-sport p-10 text-center">
           <div className="w-16 h-16 rounded-2xl bg-cyan/10 flex items-center justify-center mx-auto mb-4">
-            <Trophy className="w-8 h-8 text-cyan" />
+            <Trophy className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground mb-4">{t("athletePortal.results.empty")}</p>
           <Link to="/portal/events" className="btn-primary rounded-xl inline-block">
@@ -115,7 +115,7 @@ export default function AthleteResults() {
                     </p>
                   </div>
                   {result.overall_rank ? (
-                    <div className="flex items-center gap-2 shrink-0 text-cyan">
+                    <div className="flex items-center gap-2 shrink-0 text-primary">
                       <Medal className="w-5 h-5" />
                       <span className="text-2xl font-bold">#{result.overall_rank}</span>
                     </div>
@@ -216,7 +216,7 @@ export default function AthleteResults() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          className="border-cyan/30 text-cyan"
+                          className="border-cyan/30 text-primary"
                           onClick={() => loadVisualization(result.id)}
                         >
                           <Map className="w-3.5 h-3.5 mr-1.5" />

@@ -176,13 +176,13 @@ export default function StaffEventResults() {
       <div>
         <Link
           to={`/staff/events/${eventId}/edit`}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-cyan mb-2"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary mb-2"
         >
           <ArrowLeft className="w-4 h-4" />
           {t("staffPortal.eventEdit.back")}
         </Link>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Trophy className="w-7 h-7 text-cyan" />
+          <Trophy className="w-7 h-7 text-primary" />
           {t("staffPortal.results.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -241,7 +241,7 @@ export default function StaffEventResults() {
         <h2 className="font-semibold">{t("staffPortal.results.listTitle")}</h2>
         <Button
           variant="outline"
-          className="border-cyan text-cyan"
+          className="border-cyan text-primary"
           onClick={handlePublish}
           disabled={publishingResults || eventResults.length === 0}
         >
@@ -277,7 +277,7 @@ export default function StaffEventResults() {
               <tbody>
                 {eventResults.map((r) => (
                   <tr key={r.id} className="border-b border-border/60">
-                    <td className="p-4 font-bold text-cyan">{r.overall_rank ?? "—"}</td>
+                    <td className="p-4 font-bold text-primary">{r.overall_rank ?? "—"}</td>
                     <td className="p-4">
                       {r.athlete_first_name} {r.athlete_last_name}
                       {r.category_name ? (

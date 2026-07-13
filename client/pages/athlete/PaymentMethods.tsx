@@ -82,7 +82,7 @@ export default function AthletePaymentMethods() {
 
       {loading && paymentMethods.length === 0 ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>
       ) : (
         <div className="space-y-3">
@@ -126,7 +126,7 @@ export default function AthletePaymentMethods() {
           type="button"
           onClick={startAddCard}
           disabled={loadingSetup || loadingAction}
-          className="w-full bg-cyan/10 text-cyan border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+          className="w-full bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
         >
           {loadingSetup ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -144,7 +144,7 @@ export default function AthletePaymentMethods() {
       </p>
 
       <div className="text-center">
-        <Link to="/portal/profile" className="text-xs text-cyan hover:underline">
+        <Link to="/portal/profile" className="text-xs text-primary hover:underline">
           {t("athletePortal.paymentMethods.backToProfile")}
         </Link>
       </div>

@@ -14,6 +14,7 @@ import {
   marketplaceSearchInputClass,
   marketplaceSearchOuterClass,
 } from "@/components/events/marketplaceSearchBarStyles";
+import { useIsDarkTheme } from "@/hooks/use-is-dark-theme";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -21,10 +22,9 @@ import {
   fetchSearchSuggestions,
 } from "@/store/slices/marketplaceSlice";
 
-const heroInputClass = marketplaceSearchInputClass("hero");
-
 export default function HeroSearchBar() {
   const { t } = useTranslation();
+  const isDark = useIsDarkTheme();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { searchSuggestions, searchSuggestionsLoading } = useAppSelector(
@@ -159,7 +159,7 @@ export default function HeroSearchBar() {
           <div
             className={cn(
               "flex flex-1 items-center gap-2.5 px-3 min-h-[52px] min-w-0 rounded-xl sm:rounded-l-xl sm:rounded-r-none transition-colors duration-200",
-              trimmed && !open && "bg-white/[0.04]",
+              trimmed && !open && (isDark ? "bg-white/[0.04]" : "bg-muted/50"),
             )}
           >
             <Search
@@ -181,7 +181,7 @@ export default function HeroSearchBar() {
               onFocus={() => trimmed.length >= 2 && setOpen(true)}
               onKeyDown={onKeyDown}
               placeholder={t("home.hero.searchEvents")}
-              className={heroInputClass}
+              className={marketplaceSearchInputClass()}
               autoComplete="off"
               enterKeyHint="search"
               role="combobox"
@@ -198,7 +198,12 @@ export default function HeroSearchBar() {
                   dispatch(clearSearchSuggestions());
                   inputRef.current?.focus();
                 }}
-                className="shrink-0 p-1 rounded-full text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                className={cn(
+                  "shrink-0 p-1 rounded-full transition-colors",
+                  isDark
+                    ? "text-white/40 hover:text-white hover:bg-white/10"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                )}
                 aria-label={t("home.hero.searchClear")}
               >
                 <X className="w-4 h-4" />
@@ -225,6 +230,7 @@ export default function HeroSearchBar() {
           flatItems={flatItems}
           onHighlight={setHighlightIndex}
           onSelect={goToItem}
+          variant={isDark ? "dark" : "light"}
         />
       </div>
     </div>

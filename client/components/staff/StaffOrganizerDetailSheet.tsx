@@ -234,7 +234,7 @@ export default function StaffOrganizerDetailSheet({
 
         {loadingStaffOrganizerDetail ? (
           <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-cyan" />
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
         ) : staffOrganizerDetailError ? (
           <p className="text-sm text-destructive mt-6">{staffOrganizerDetailError}</p>
@@ -252,13 +252,52 @@ export default function StaffOrganizerDetailSheet({
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="card-sport p-3">
                 <p className="text-muted-foreground">{t("staffPortal.staffManagement.colEvents")}</p>
-                <p className="text-xl font-bold text-cyan">{organizer.event_count ?? 0}</p>
+                <p className="text-xl font-bold text-primary">{organizer.event_count ?? 0}</p>
               </div>
               <div className="card-sport p-3">
                 <p className="text-muted-foreground">{t("staffPortal.staffManagement.colMembers")}</p>
-                <p className="text-xl font-bold text-cyan">{organizer.member_count ?? members.length}</p>
+                <p className="text-xl font-bold text-primary">{organizer.member_count ?? members.length}</p>
               </div>
             </div>
+
+            {organizer.onboarding_intake?.self_service_registered_at ? (
+              <div className="card-sport p-4 space-y-3">
+                <h4 className="font-semibold">{t("organizerSignup.adminIntake.title")}</h4>
+                <p className="text-xs text-muted-foreground">
+                  {t("organizerSignup.adminIntake.registeredAt", {
+                    date: format(
+                      new Date(organizer.onboarding_intake.self_service_registered_at),
+                      "PPp",
+                      { locale: dateLocale },
+                    ),
+                  })}
+                </p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">{t("organizerSignup.adminIntake.sport")}</dt>
+                    <dd className="font-medium">
+                      {organizer.onboarding_intake.sport_type_id != null
+                        ? `#${organizer.onboarding_intake.sport_type_id}`
+                        : t("organizerSignup.adminIntake.none")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t("organizerSignup.adminIntake.roughDate")}</dt>
+                    <dd className="font-medium">
+                      {organizer.onboarding_intake.rough_date ||
+                        t("organizerSignup.adminIntake.none")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t("organizerSignup.adminIntake.expectedSize")}</dt>
+                    <dd className="font-medium">
+                      {organizer.onboarding_intake.expected_size ||
+                        t("organizerSignup.adminIntake.none")}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
 
             <form onSubmit={profileForm.handleSubmit} className="card-sport p-4 space-y-4">
               <h4 className="font-semibold">{t("staffPortal.staffManagement.editOrganizerSection")}</h4>
@@ -535,7 +574,7 @@ export default function StaffOrganizerDetailSheet({
 
             <form onSubmit={inviteForm.handleSubmit} className="card-sport p-4 space-y-3">
               <h4 className="font-semibold flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-cyan" />
+                <UserPlus className="w-4 h-4 text-primary" />
                 {t("staffPortal.staffManagement.inviteMember")}
               </h4>
               <div className="grid sm:grid-cols-2 gap-3">

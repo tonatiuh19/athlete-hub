@@ -44,14 +44,14 @@ export default function StaffCourseSummaryCard({
               </div>
             ) : null}
             <div className="card-sport p-4 flex items-center gap-3">
-              <Route className="w-5 h-5 text-cyan shrink-0" />
+              <Route className="w-5 h-5 text-primary shrink-0" />
               <div>
                 <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.distance")}</p>
-                <p className="text-lg font-bold text-cyan">{course.distanceKm ?? "—"} km</p>
+                <p className="text-lg font-bold text-primary">{course.distanceKm ?? "—"} km</p>
               </div>
             </div>
             <div className="card-sport p-4 flex items-center gap-3">
-              <MapPin className="w-5 h-5 text-cyan shrink-0" />
+              <MapPin className="w-5 h-5 text-primary shrink-0" />
               <div>
                 <p className="text-[10px] uppercase text-muted-foreground">{t("staffPortal.courseEditor.poiList")}</p>
                 <p className="text-lg font-bold">{course.points?.length ?? 0}</p>

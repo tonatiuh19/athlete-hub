@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapContainer, Polyline, TileLayer, CircleMarker, useMap } from "react-leaflet";
+import { MapContainer, Polyline, CircleMarker, useMap } from "react-leaflet";
+import BasemapTileLayer from "@/components/maps/BasemapTileLayer";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "leaflet/dist/leaflet.css";
@@ -72,9 +73,9 @@ export default function CourseRouteReplay({
   if (positions.length < 2) return null;
 
   return (
-    <div className={cn("rounded-xl border border-gray-700/50 overflow-hidden bg-surface-dark/40", className)}>
-      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-700/40">
-        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+    <div className={cn("rounded-xl border border-border overflow-hidden bg-card/40", className)}>
+      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border/60">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t("eventDetail.routeReplay")}
         </p>
         <div className="flex gap-2">
@@ -82,7 +83,7 @@ export default function CourseRouteReplay({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 border-cyan/30 text-cyan"
+            className="h-8 border-cyan/30 text-primary"
             onClick={() => {
               if (playing) setPlaying(false);
               else setPlaying(true);
@@ -112,7 +113,7 @@ export default function CourseRouteReplay({
           scrollWheelZoom={false}
           zoomControl={false}
         >
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+          <BasemapTileLayer traceLabel="course-replay" />
           <FitRoute positions={positions} />
           <Polyline positions={positions} pathOptions={{ color: "#4b5563", weight: 4, opacity: 0.5 }} />
           <Polyline positions={trail} pathOptions={{ color: "#22d3ee", weight: 5, opacity: 0.95 }} />

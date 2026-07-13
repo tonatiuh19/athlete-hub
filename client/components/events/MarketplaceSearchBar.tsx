@@ -13,6 +13,7 @@ import {
   marketplaceSearchOuterClass,
 } from "@/components/events/marketplaceSearchBarStyles";
 import { cn } from "@/lib/utils";
+import { useIsDarkTheme } from "@/hooks/use-is-dark-theme";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   clearSearchSuggestions,
@@ -28,7 +29,6 @@ export interface MarketplaceSearchBarProps {
   placeholder?: string;
   listboxId?: string;
   className?: string;
-  tone?: "hero" | "default";
   showFilters?: boolean;
   filtersOpen?: boolean;
   onFiltersClick?: () => void;
@@ -43,12 +43,12 @@ export default function MarketplaceSearchBar({
   placeholder,
   listboxId = "marketplace-search-listbox",
   className,
-  tone = "default",
   showFilters = false,
   filtersOpen = false,
   onFiltersClick,
 }: MarketplaceSearchBarProps) {
   const { t } = useTranslation();
+  const isDark = useIsDarkTheme();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { searchSuggestions, searchSuggestionsLoading } = useAppSelector(
@@ -215,7 +215,7 @@ export default function MarketplaceSearchBar({
               onFocus={() => trimmed.length >= 2 && setOpen(true)}
               onKeyDown={onKeyDown}
               placeholder={resolvedPlaceholder}
-              className={marketplaceSearchInputClass(tone)}
+              className={marketplaceSearchInputClass()}
               autoComplete="off"
               enterKeyHint="search"
               role="combobox"
@@ -265,7 +265,7 @@ export default function MarketplaceSearchBar({
         id={listboxId}
         className={cn(
           "relative z-[100] mt-2 pointer-events-none [&>*]:pointer-events-auto",
-          tone === "default" && "md:absolute md:inset-x-0 md:top-full md:mt-2",
+          !isDark && "md:absolute md:inset-x-0 md:top-full md:mt-2",
         )}
       >
         <HeroSearchDropdown
@@ -277,6 +277,7 @@ export default function MarketplaceSearchBar({
           flatItems={flatItems}
           onHighlight={setHighlightIndex}
           onSelect={goToItem}
+          variant={isDark ? "dark" : "light"}
         />
       </div>
     </div>

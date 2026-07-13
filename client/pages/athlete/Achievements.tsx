@@ -75,7 +75,7 @@ export default function AthleteAchievements() {
               <Sparkles className="w-8 h-8 text-navy-deep" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wider text-cyan font-semibold">
+              <p className="text-xs uppercase tracking-wider text-primary font-semibold">
                 {t("athletePortal.achievements.level")}
               </p>
               <p className="text-4xl font-bold">
@@ -91,7 +91,7 @@ export default function AthleteAchievements() {
                   next: profile?.nextLevelXp ?? 100,
                 })}
               </span>
-              <span className="font-medium text-cyan">{xpProgress}%</span>
+              <span className="font-medium text-primary">{xpProgress}%</span>
             </div>
             <Progress value={xpProgress} className="h-2" />
             <div className="flex flex-wrap gap-4 pt-1 text-sm">
@@ -110,14 +110,14 @@ export default function AthleteAchievements() {
 
       {isLoading ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>
       ) : (
         <>
           {profile && profile.recentAchievements.length > 0 ? (
             <section className="space-y-3">
               <h2 className="text-lg font-bold flex items-center gap-2">
-                <Award className="w-5 h-5 text-cyan" />
+                <Award className="w-5 h-5 text-primary" />
                 {t("athletePortal.achievements.badges")}
               </h2>
               <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
@@ -129,7 +129,7 @@ export default function AthleteAchievements() {
                       className="shrink-0 w-36 card-sport p-3 text-center space-y-2"
                     >
                       <div className="w-10 h-10 mx-auto rounded-full bg-cyan/10 flex items-center justify-center">
-                        <Icon className="w-5 h-5 text-cyan" />
+                        <Icon className="w-5 h-5 text-primary" />
                       </div>
                       <p className="text-xs font-semibold line-clamp-2">{a.name}</p>
                       <p className="text-[10px] text-accent">+{a.xp_reward} XP</p>
@@ -142,7 +142,7 @@ export default function AthleteAchievements() {
 
           <section className="space-y-4">
             <h2 className="text-lg font-bold flex items-center gap-2">
-              <Medal className="w-5 h-5 text-cyan" />
+              <Medal className="w-5 h-5 text-primary" />
               {t("athletePortal.achievements.badges")}
               <span className="text-sm font-normal text-muted-foreground">
                 ({achievements.length})
@@ -170,7 +170,7 @@ export default function AthleteAchievements() {
                       className="card-sport p-4 flex gap-4"
                     >
                       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan/20 to-purple-accent/20 border border-cyan/20 flex items-center justify-center shrink-0">
-                        <Icon className="w-6 h-6 text-cyan" />
+                        <Icon className="w-6 h-6 text-primary" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold">{badge.name}</h3>

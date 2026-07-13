@@ -27,6 +27,8 @@ import {
 import { getAthleteToken } from "@/lib/api";
 import AthleteProfileCompletionForm from "@/components/auth/AthleteProfileCompletionForm";
 import { athleteNeedsProfileCompletion } from "@/utils/athleteProfileCompletion";
+import LegalConsentNotice from "@/components/legal/LegalConsentNotice";
+import { legalTermsAcceptanceSchema } from "@/validation/legalConsentSchema";
 
 interface WizardAuthStepProps {
   onAuthed: () => void;
@@ -109,6 +111,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
       gender: "" as "" | "male" | "female" | "other" | "prefer_not_to_say",
       password: "",
       confirmPassword: "",
+      acceptedTerms: false,
     },
     validationSchema: Yup.object({
       firstName: Yup.string().trim().required(t("common.required")),
@@ -116,6 +119,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
       dateOfBirth: athleteDateOfBirthSchema(t),
       gender: athleteGenderSchema(t),
       ...athletePasswordConfirmSchema(t).fields,
+      acceptedTerms: legalTermsAcceptanceSchema(t),
     }),
     onSubmit: async (values) => {
       const result = await dispatch(
@@ -166,8 +170,8 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
 
   if (user && token) {
     return (
-      <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-400">
-        <Loader2 className="w-6 h-6 animate-spin text-cyan" />
+      <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
         {t("registrationWizard.auth.sessionReady")}
       </div>
     );
@@ -178,10 +182,10 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-cyan/20 bg-cyan/5 p-4 flex gap-3">
-        <ShieldCheck className="w-5 h-5 text-cyan shrink-0 mt-0.5" />
+        <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-white">{t("registrationWizard.auth.title")}</p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-sm font-semibold text-foreground">{t("registrationWizard.auth.title")}</p>
+          <p className="text-xs text-muted-foreground mt-1">
             {phase === "register"
               ? t("registrationWizard.auth.registerSubtitlePassword")
               : phase === "login"
@@ -193,7 +197,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
 
       <ul className="grid gap-2">
         {perks.map((perk) => (
-          <li key={perk} className="text-xs text-gray-500 flex items-center gap-2">
+          <li key={perk} className="text-xs text-muted-foreground flex items-center gap-2">
             <span className="w-1 h-1 rounded-full bg-cyan" />
             {perk}
           </li>
@@ -205,12 +209,12 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           <div className="space-y-2">
             <Label htmlFor="wizard-email">{t("common.email")}</Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 id="wizard-email"
                 type="email"
                 placeholder="you@example.com"
-                className="pl-10 bg-surface-dark border-gray-700"
+                className="pl-10 bg-card border-border"
                 {...identifyForm.getFieldProps("email")}
               />
             </div>
@@ -231,17 +235,17 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
 
       {phase === "login" && (
         <form onSubmit={loginForm.handleSubmit} className="space-y-4">
-          <div className="rounded-lg border border-gray-700/60 bg-surface-dark/50 px-3 py-2 text-xs text-gray-400 truncate">
+          <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs text-muted-foreground truncate">
             {email}
           </div>
           <div className="space-y-2">
             <Label htmlFor="wizard-password">{t("auth.password.label")}</Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 id="wizard-password"
                 type="password"
-                className="pl-10 bg-surface-dark border-gray-700"
+                className="pl-10 bg-card border-border"
                 autoComplete="current-password"
                 {...loginForm.getFieldProps("password")}
               />
@@ -257,14 +261,14 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           </Button>
           <button
             type="button"
-            className="text-xs text-cyan hover:underline w-full text-center"
+            className="text-xs text-primary hover:underline w-full text-center"
             onClick={() => setPhase("forgot")}
           >
             {t("auth.password.forgotLink")}
           </button>
           <button
             type="button"
-            className="text-xs text-gray-500 hover:text-cyan w-full text-center"
+            className="text-xs text-muted-foreground hover:text-primary w-full text-center"
             onClick={() => setPhase("identify")}
           >
             {t("registrationWizard.auth.changeEmail")}
@@ -274,16 +278,16 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
 
       {phase === "register" && (
         <form onSubmit={registerForm.handleSubmit} className="space-y-4">
-          <div className="rounded-lg border border-gray-700/60 bg-surface-dark/50 px-3 py-2 text-xs text-gray-400 truncate">
+          <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs text-muted-foreground truncate">
             {email}
           </div>
           <div className="space-y-2">
             <Label htmlFor="wizard-first-name">{t("registrationWizard.auth.firstNameLabel")}</Label>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 id="wizard-first-name"
-                className="pl-10 bg-surface-dark border-gray-700"
+                className="pl-10 bg-card border-border"
                 {...registerForm.getFieldProps("firstName")}
               />
             </div>
@@ -291,10 +295,10 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           <div className="space-y-2">
             <Label htmlFor="wizard-last-name">{t("registrationWizard.auth.lastNameLabel")}</Label>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 id="wizard-last-name"
-                className="pl-10 bg-surface-dark border-gray-700"
+                className="pl-10 bg-card border-border"
                 {...registerForm.getFieldProps("lastName")}
               />
             </div>
@@ -334,11 +338,23 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
             <Input
               id="wizard-confirm-password"
               type="password"
-              className="bg-surface-dark border-gray-700"
+              className="bg-card border-border"
               autoComplete="new-password"
               {...registerForm.getFieldProps("confirmPassword")}
             />
           </div>
+          <LegalConsentNotice
+            variant="athleteRegister"
+            showCheckbox
+            id="wizard-register-legal"
+            checked={registerForm.values.acceptedTerms}
+            onCheckedChange={(v) => registerForm.setFieldValue("acceptedTerms", v)}
+            error={
+              registerForm.submitCount > 0 && registerForm.errors.acceptedTerms
+                ? String(registerForm.errors.acceptedTerms)
+                : null
+            }
+          />
           {error && <p className="text-sm text-red-400">{error}</p>}
           <Button
             type="submit"
@@ -349,7 +365,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           </Button>
           <button
             type="button"
-            className="text-xs text-gray-500 hover:text-cyan w-full text-center"
+            className="text-xs text-muted-foreground hover:text-primary w-full text-center"
             onClick={() => setPhase("identify")}
           >
             {t("registrationWizard.auth.changeEmail")}
@@ -359,23 +375,24 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
 
       {phase === "socialLogin" && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-gray-700/60 bg-surface-dark/50 px-3 py-2 text-xs text-gray-400 truncate">
+          <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs text-muted-foreground truncate">
             {email}
           </div>
-          <p className="text-sm text-gray-400">{t("auth.athlete.socialOnlySubtitle", { email })}</p>
+          <p className="text-sm text-muted-foreground">{t("auth.athlete.socialOnlySubtitle", { email })}</p>
+          <LegalConsentNotice variant="athleteRegister" />
           <ClerkOAuthButtons
             returnTo={window.location.pathname + window.location.search}
           />
           <button
             type="button"
-            className="text-xs text-cyan hover:underline w-full text-center"
+            className="text-xs text-primary hover:underline w-full text-center"
             onClick={() => setPhase("forgot")}
           >
             {t("auth.athlete.setPasswordViaEmail")}
           </button>
           <button
             type="button"
-            className="text-xs text-gray-500 hover:text-cyan w-full text-center"
+            className="text-xs text-muted-foreground hover:text-primary w-full text-center"
             onClick={() => setPhase("identify")}
           >
             {t("registrationWizard.auth.changeEmail")}
@@ -393,7 +410,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
               <Input
                 id="wizard-forgot-email"
                 type="email"
-                className="bg-surface-dark border-gray-700"
+                className="bg-card border-border"
                 {...forgotForm.getFieldProps("email")}
               />
             </div>
@@ -414,7 +431,7 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
           )}
           <button
             type="button"
-            className="text-xs text-gray-500 hover:text-cyan w-full text-center"
+            className="text-xs text-muted-foreground hover:text-primary w-full text-center"
             onClick={() => setPhase("login")}
           >
             {t("common.back")}
@@ -426,9 +443,9 @@ export default function WizardAuthStep({ onAuthed }: WizardAuthStepProps) {
         <>
           <div className="relative py-2">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-800" />
+              <div className="w-full border-t border-border" />
             </div>
-            <p className="relative text-center text-[10px] uppercase tracking-widest text-gray-600 bg-bg-dark px-3 mx-auto w-fit">
+            <p className="relative text-center text-[10px] uppercase tracking-widest text-muted-foreground bg-background px-3 mx-auto w-fit">
               {t("registrationWizard.auth.orContinue")}
             </p>
           </div>
