@@ -20,6 +20,8 @@ export type GroupWizardStep =
 
 export interface GroupParticipantDraft extends GroupCheckoutLineItemInput {
   category?: EventCategory;
+  /** Explicit for Immer draft typing across package boundary */
+  managedByPurchaser?: boolean;
 }
 
 interface GroupRegistrationCheckoutState {

@@ -13,6 +13,7 @@ import {
   validateCheckoutBreakdown,
 } from "../shared/checkoutBreakdown.js";
 import { evaluateCategoryEligibility } from "../shared/categoryEligibility.js";
+import { validateRegistrationFieldAnswers } from "../shared/registrationFields.js";
 import {
   isMinorOnReferenceDate,
   normalizeParticipantEmail,
@@ -35,6 +36,10 @@ import {
   validateWaiverSignaturesForEvent,
 } from "./eventWaivers.js";
 import { allocateRegistrationNumber, type RegistrationFolioContext } from "./folioSegments.js";
+import {
+  fetchEventBibMode,
+  resolveRegistrationBibNumber,
+} from "./bibMode.js";
 
 export type GroupRegistrationError = { status: number; body: Record<string, unknown> };
 
@@ -306,6 +311,34 @@ export async function validateAndPriceGroupCheckout(
       const category = await loadCategory(conn, opts.eventId, line.categoryId);
       if (!category) return { ok: false, error: { status: 404, body: { error: "Category not found" } } };
 
+      const fieldRows = await fetchRegistrationFieldsForCategory(
+        conn,
+        opts.eventId,
+        line.categoryId,
+      );
+      const fieldErr = validateRegistrationFieldAnswers(
+        fieldRows.map((row) => ({
+          field_key: String(row.field_key),
+          label: String(row.label),
+          field_type: String(row.field_type),
+          is_required: row.is_required as boolean | number,
+          options_json: row.options_json,
+        })),
+        line.fieldValues ?? {},
+      );
+      if (fieldErr) {
+        return {
+          ok: false,
+          error: {
+            status: 400,
+            body: {
+              error: `${participant.label}: ${fieldErr}`,
+              code: "registration_fields_invalid",
+            },
+          },
+        };
+      }
+
       const elig = evaluateCategoryEligibility(
         category,
         participant.profile,
@@ -471,10 +504,10 @@ export async function finalizeGroupRegistrationOrder(
   );
   if (existingOrder.length > 0 && existingOrder[0].status === "confirmed") {
     const [regs] = await conn.query<RowDataPacket[]>(
-      `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.status, r.total_cents,
+      `SELECT r.public_uuid, r.registration_number, r.qr_code_token, r.bib_number, r.status, r.total_cents,
               ec.name AS category_name, e.title AS event_title, e.slug AS event_slug,
               CONCAT(a.first_name, ' ', a.last_name) AS participant_label, a.email AS participant_email,
-              r.guest_claim_token
+              r.guest_claim_token, r.purchaser_athlete_id, r.athlete_id
        FROM registrations r
        JOIN event_categories ec ON ec.id = r.event_category_id
        JOIN events e ON e.id = r.event_id
@@ -482,17 +515,30 @@ export async function finalizeGroupRegistrationOrder(
        WHERE r.order_id = ? AND r.deleted_at IS NULL`,
       [existingOrder[0].id],
     );
-    return { success: true, orderPublicUuid, registrations: regs };
+    const enriched = regs.map((r) => {
+      const claimPending = Boolean(r.guest_claim_token);
+      const managed =
+        r.purchaser_athlete_id != null &&
+        Number(r.purchaser_athlete_id) !== Number(r.athlete_id) &&
+        !claimPending;
+      return {
+        ...r,
+        wallet_held_by_purchaser: claimPending || managed,
+        is_managed_participant: managed,
+      };
+    });
+    return { success: true, orderPublicUuid, registrations: enriched };
   }
 
   const [[eventMetaRow]] = await conn.query<RowDataPacket[]>(
-    "SELECT slug, starts_at FROM events WHERE id = ? LIMIT 1",
+    "SELECT slug, start_date FROM events WHERE id = ? LIMIT 1",
     [eventId],
   );
   const eventYear =
-    eventMetaRow?.starts_at != null
-      ? String(new Date(eventMetaRow.starts_at as string).getFullYear())
+    eventMetaRow?.start_date != null
+      ? String(new Date(eventMetaRow.start_date as string).getFullYear())
       : String(new Date().getFullYear());
+  const eventStartDate = String(eventMetaRow?.start_date ?? new Date().toISOString()).slice(0, 10);
   const eventCode = String(eventMetaRow?.slug ?? eventId)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
@@ -519,6 +565,7 @@ export async function finalizeGroupRegistrationOrder(
   );
   const orderId = orderResult.insertId;
   const createdRegs: RowDataPacket[] = [];
+  const bibMode = await fetchEventBibMode(conn, eventId);
 
   for (const line of meta.lineItems) {
     const athleteId = line.resolvedAthleteId!;
@@ -537,14 +584,26 @@ export async function finalizeGroupRegistrationOrder(
     const { registrationNumber, folioSegmentId } = await allocateRegistrationNumber(conn, folioCtx);
     const regUuid = newPublicUuid();
     const qrToken = newQrToken();
-    const guestClaimToken = line.participantType === "guest" ? newGuestClaimToken() : null;
+    const guestDob = line.guest?.dateOfBirth ?? "";
+    const isManagedMinor =
+      line.participantType === "guest" &&
+      Boolean(guestDob) &&
+      isMinorOnReferenceDate(guestDob, eventStartDate);
+    const isManagedGuest =
+      line.participantType === "guest" && (isManagedMinor || Boolean(line.managedByPurchaser));
+    const guestClaimToken =
+      line.participantType === "guest" && !isManagedGuest ? newGuestClaimToken() : null;
+    const bibNumber = resolveRegistrationBibNumber({
+      registrationNumber,
+      bibMode,
+    });
 
     const [regInsert] = await conn.query<ResultSetHeader>(
       `INSERT INTO registrations (
         public_uuid, event_id, event_category_id, athlete_id, registration_number,
-        folio_segment_id, qr_code_token, status, price_cents, service_fee_cents, total_cents,
+        folio_segment_id, qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
         discount_code_id, currency, source, payment_id, order_id, purchaser_athlete_id, guest_claim_token
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         regUuid,
         eventId,
@@ -553,6 +612,7 @@ export async function finalizeGroupRegistrationOrder(
         registrationNumber,
         folioSegmentId,
         qrToken,
+        bibNumber,
         "confirmed",
         line.breakdown.listPriceCents,
         line.serviceFeeCents,
@@ -622,12 +682,16 @@ export async function finalizeGroupRegistrationOrder(
       public_uuid: regUuid,
       registration_number: registrationNumber,
       qr_code_token: qrToken,
+      bib_number: bibNumber,
       status: "confirmed",
       total_cents: line.totalCents,
       category_name: line.categoryName,
       participant_label: line.participantLabel,
       participant_email: line.participantEmail,
       guest_claim_token: guestClaimToken,
+      wallet_held_by_purchaser:
+        line.participantType === "guest" && (Boolean(guestClaimToken) || isManagedGuest),
+      is_managed_participant: isManagedGuest,
     } as RowDataPacket);
   }
 

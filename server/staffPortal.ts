@@ -1,4 +1,5 @@
 import type { Express, NextFunction, RequestHandler, Request, Response } from "express";
+import crypto from "crypto";
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import {
   CATEGORY_SOLD_COUNT_UNALIASED_SQL,
@@ -6,9 +7,18 @@ import {
   EVENT_REGISTRATION_COUNT_SQL,
   WAVE_REGISTERED_COUNT_SQL,
 } from "./registrationCounts.js";
+import {
+  buildStaffEventsPagination,
+  listStaffEvents,
+  parseStaffEventsListQuery,
+} from "./staffEventsList.js";
 import { handleEventAssetUpload } from "./eventAssetUpload.js";
 import { handleStaffImageProxy } from "./staffImageProxy.js";
 import { normalizeCdnUploadUrl } from "./cdnUpload.js";
+import {
+  normalizeEventBibMode,
+  resolveRegistrationBibNumber,
+} from "./bibMode.js";
 import {
   fetchEventWaiversForStaff,
   getRegistrationWaiverStatus,
@@ -18,6 +28,7 @@ import {
   validateEventPublishWaivers,
 } from "./eventWaivers.js";
 import { eventEndWallTime, parseIncomingEventDateTime } from "../shared/checkInWindow.js";
+import { isMinorOnReferenceDate } from "../shared/groupCheckout.js";
 import { validateCoursePayload } from "../shared/courseValidation.js";
 import { normalizeEventCourse } from "../shared/courseNormalize.js";
 import {
@@ -26,6 +37,10 @@ import {
   evaluateEventCheckInWindow,
   loadEventCheckInContext,
 } from "./eventCheckIn.js";
+import {
+  buildRegistrationExport,
+  buildRegistrationExportCatalog,
+} from "./registrationExport.js";
 import {
   assertOrganizerPayoutReadyForPaidEvent,
   assertPaidCategoryMutationAllowed,
@@ -38,6 +53,7 @@ import { isOrganizerPayoutReady, isTribooPayoutProfileComplete } from "../shared
 import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
+  canOrganizerManageRegistrations,
   canOrganizerRecordManualSale,
   canOrganizerViewAllPayments,
   canOrganizerViewPayments,
@@ -157,6 +173,10 @@ export interface StaffPortalDeps {
     firstName: string;
     preferredLanguage?: unknown;
   }) => Promise<void>;
+  /** Optional — staff guest claim emails */
+  deliverRegistrationConfirmedEmail?: (
+    registrationId: number,
+  ) => Promise<{ sent: boolean; skipped?: boolean; error?: string }>;
 }
 
 function slugify(text: string): string {
@@ -268,29 +288,42 @@ export async function listOrganizerMemberEvents(
   memberId: number,
   organizerId: number,
 ): Promise<RowDataPacket[]> {
+  const result = await listOrganizerMemberEventsPaginated(pool, memberId, organizerId, {
+    page: 1,
+    limit: 100,
+    sortBy: "start_date",
+    sortDir: "DESC",
+  });
+  return result.events as unknown as RowDataPacket[];
+}
+
+export async function listOrganizerMemberEventsPaginated(
+  pool: Pool,
+  memberId: number,
+  organizerId: number,
+  options: {
+    q?: string;
+    status?: string;
+    page?: unknown;
+    limit?: unknown;
+    sortBy?: unknown;
+    sortDir?: unknown;
+  } = {},
+) {
   const access = await getMemberEventAccess(pool, memberId, organizerId);
   if (Array.isArray(access) && access.length === 0) {
-    return [];
+    const { page, limit } = parseStaffEventsListQuery(options);
+    return {
+      events: [],
+      pagination: buildStaffEventsPagination(page, limit, 0),
+    };
   }
 
-  const params: unknown[] = [organizerId];
-  let eventFilter = "";
-  if (access !== "all") {
-    eventFilter = ` AND e.id IN (${access.map(() => "?").join(", ")})`;
-    params.push(...access);
-  }
-
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT e.id, e.slug, e.title, e.status, e.start_date, e.organizer_id,
-            ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count,
-            e.location_city, st.name AS sport_name
-     FROM events e
-     JOIN sport_types st ON st.id = e.sport_type_id
-     WHERE e.organizer_id = ? AND e.deleted_at IS NULL${eventFilter}
-     ORDER BY e.start_date DESC`,
-    params,
-  );
-  return rows;
+  return listStaffEvents(pool, {
+    ...options,
+    organizerId,
+    eventIds: access === "all" ? undefined : access,
+  });
 }
 
 export async function assertMemberCanAccessEvent(
@@ -349,7 +382,7 @@ async function fetchStaffEventDetail(
             e.hero_image_url, e.requires_waiver, e.fee_presentation, e.service_fee_percent,
             e.submitted_for_approval_at, e.approval_rejection_reason,
             ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count, e.max_registrations,
-            e.max_registrations_per_order,
+            e.max_registrations_per_order, e.bib_mode,
             st.name AS sport_name, o.name AS organizer_name,
             o.fee_presentation AS organizer_fee_presentation,
             o.service_fee_percent AS organizer_service_fee_percent
@@ -976,22 +1009,25 @@ async function fetchStaffRegistrationDetail(
     `SELECT r.id, r.public_uuid, r.registration_number, r.bib_number, r.qr_code_token,
             r.status, r.price_cents, r.service_fee_cents, r.total_cents, r.source,
             r.waiver_signed_at, r.checked_in_at, r.created_at, r.updated_at, r.payment_id,
-            r.event_category_id, r.athlete_id,
+            r.event_category_id, r.athlete_id, r.order_id, r.purchaser_athlete_id, r.guest_claim_token,
             ec.name AS category_name,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
             a.email AS athlete_email, a.phone AS athlete_phone,
-            e.title AS event_title, e.slug AS event_slug
+            e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
+            p.first_name AS purchaser_first_name, p.last_name AS purchaser_last_name,
+            p.email AS purchaser_email
      FROM registrations r
      JOIN event_categories ec ON ec.id = r.event_category_id
      JOIN athletes a ON a.id = r.athlete_id AND a.deleted_at IS NULL
      JOIN events e ON e.id = r.event_id AND e.deleted_at IS NULL
+     LEFT JOIN athletes p ON p.id = r.purchaser_athlete_id AND p.deleted_at IS NULL
      WHERE r.id = ? AND r.event_id = ? AND r.deleted_at IS NULL
      LIMIT 1`,
     [registrationId, eventId],
   );
   if (rows.length === 0) return null;
 
-  const reg = rows[0];
+  const reg = enrichRegistrationPartyFlags(rows[0]);
   let payment: RowDataPacket | null = null;
   if (reg.payment_id) {
     const [payRows] = await pool.query<RowDataPacket[]>(
@@ -1061,6 +1097,48 @@ async function fetchStaffRegistrationDetail(
 
   const purchased_extras = await fetchRegistrationPurchasedExtras(pool, registrationId);
 
+  let order_mates: Array<{
+    id: number;
+    registration_number: string;
+    bib_number?: string | null;
+    status: string;
+    athlete_first_name: string;
+    athlete_last_name: string;
+    athlete_email?: string | null;
+    guest_claim_pending?: boolean;
+    is_managed_participant?: boolean;
+    qr_code_token?: string;
+  }> = [];
+  if (reg.order_id) {
+    const [mates] = await pool.query<RowDataPacket[]>(
+      `SELECT r.id, r.registration_number, r.bib_number, r.status, r.qr_code_token,
+              r.guest_claim_token, r.purchaser_athlete_id, r.athlete_id,
+              a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
+              a.email AS athlete_email
+       FROM registrations r
+       JOIN athletes a ON a.id = r.athlete_id AND a.deleted_at IS NULL
+       WHERE r.order_id = ? AND r.id <> ? AND r.deleted_at IS NULL
+       ORDER BY r.id ASC`,
+      [reg.order_id, registrationId],
+    );
+    order_mates = mates.map((m) => {
+      const enriched = enrichRegistrationPartyFlags(m);
+      return {
+        id: Number(enriched.id),
+        registration_number: String(enriched.registration_number),
+        bib_number: (enriched.bib_number as string | null) ?? null,
+        status: String(enriched.status),
+        athlete_first_name: String(enriched.athlete_first_name),
+        athlete_last_name: String(enriched.athlete_last_name),
+        athlete_email: (enriched.athlete_email as string | null) ?? null,
+        guest_claim_pending: enriched.guest_claim_pending,
+        is_managed_participant: enriched.is_managed_participant,
+        qr_code_token: enriched.qr_code_token ? String(enriched.qr_code_token) : undefined,
+      };
+    });
+    reg.order_sibling_count = order_mates.length + 1;
+  }
+
   return {
     registration: reg,
     payment,
@@ -1071,6 +1149,27 @@ async function fetchStaffRegistrationDetail(
     status_history: statusHistory,
     transfers,
     refunds,
+    order_mates,
+  };
+}
+
+function enrichRegistrationPartyFlags<T extends RowDataPacket>(row: T): T & {
+  guest_claim_pending: boolean;
+  is_managed_participant: boolean;
+} {
+  const guestClaimPending = Boolean(row.guest_claim_token);
+  const purchaserId = row.purchaser_athlete_id != null ? Number(row.purchaser_athlete_id) : null;
+  const athleteId = row.athlete_id != null ? Number(row.athlete_id) : null;
+  const isManaged =
+    purchaserId != null &&
+    athleteId != null &&
+    purchaserId !== athleteId &&
+    !guestClaimPending;
+  const { guest_claim_token: _token, ...rest } = row as T & { guest_claim_token?: string | null };
+  return {
+    ...(rest as T),
+    guest_claim_pending: guestClaimPending,
+    is_managed_participant: isManaged,
   };
 }
 
@@ -1106,8 +1205,8 @@ export async function listStaffRegistrations(
   if (options.q) {
     const like = `%${options.q}%`;
     filters +=
-      " AND (r.registration_number LIKE ? OR a.email LIKE ? OR CONCAT(a.first_name, ' ', a.last_name) LIKE ? OR e.title LIKE ?)";
-    params.push(like, like, like, like);
+      " AND (r.registration_number LIKE ? OR r.bib_number LIKE ? OR a.email LIKE ? OR CONCAT(a.first_name, ' ', a.last_name) LIKE ? OR e.title LIKE ?)";
+    params.push(like, like, like, like, like);
   }
 
   const [[countRow]] = await pool.query<RowDataPacket[]>(
@@ -1122,22 +1221,32 @@ export async function listStaffRegistrations(
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT r.id, r.registration_number, r.bib_number, r.status, r.total_cents, r.created_at,
-            r.checked_in_at, r.waiver_signed_at,
+            r.checked_in_at, r.waiver_signed_at, r.order_id, r.purchaser_athlete_id,
+            r.athlete_id, r.guest_claim_token,
             e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
             ec.name AS category_name,
             a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
-            a.email AS athlete_email
+            a.email AS athlete_email,
+            p.first_name AS purchaser_first_name, p.last_name AS purchaser_last_name,
+            p.email AS purchaser_email,
+            (
+              SELECT COUNT(*) FROM registrations ro
+              WHERE ro.order_id = r.order_id AND ro.deleted_at IS NULL AND r.order_id IS NOT NULL
+            ) AS order_sibling_count
      FROM registrations r
      JOIN events e ON e.id = r.event_id
      JOIN event_categories ec ON ec.id = r.event_category_id
      JOIN athletes a ON a.id = r.athlete_id AND a.deleted_at IS NULL
+     LEFT JOIN athletes p ON p.id = r.purchaser_athlete_id AND p.deleted_at IS NULL
      ${filters}
      ORDER BY ${sortCol} ${sortDir}, r.id DESC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset],
   );
 
-  return { registrations: rows, pagination: buildPagination(page, limit, total) };
+  const registrations = rows.map((row) => enrichRegistrationPartyFlags(row));
+
+  return { registrations, pagination: buildPagination(page, limit, total) };
 }
 
 async function assertRegistrationInEvent(
@@ -1203,9 +1312,13 @@ function mountEventHubRoutes(
       conn?: import("mysql2/promise").PoolConnection,
     ) => Promise<{ registrationNumber: string; folioSegmentId: number | null }>;
     getStripeClient?: () => import("stripe").default | null;
+    deliverRegistrationConfirmedEmail?: (
+      registrationId: number,
+    ) => Promise<{ sent: boolean; skipped?: boolean; error?: string } | unknown>;
   },
   canMutate?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
   canRecordManualSale?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
+  canMutateRegistrationOps?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
 ) {
   async function assertEventRead(
     req: AuthedRequest,
@@ -1236,6 +1349,35 @@ function mountEventHubRoutes(
       const gate = await canMutate(req, eventId);
       if (gate === "forbidden") {
         res.status(403).json({ error: "Insufficient permissions to edit events" });
+        return false;
+      }
+      if (gate !== "ok") {
+        res.status(404).json({ error: "Event not found" });
+        return false;
+      }
+      return true;
+    }
+    if (!(await canAccess(req, eventId))) {
+      res.status(404).json({ error: "Event not found" });
+      return false;
+    }
+    return true;
+  }
+
+  /** Check-in / bib / cancel — timing included via REGISTRATION_OPS_ROLES. */
+  async function assertRegistrationOpsWrite(
+    req: AuthedRequest,
+    res: Response,
+    eventId: number,
+  ): Promise<boolean> {
+    if (!Number.isFinite(eventId)) {
+      res.status(400).json({ error: "Invalid event id" });
+      return false;
+    }
+    if (canMutateRegistrationOps) {
+      const gate = await canMutateRegistrationOps(req, eventId);
+      if (gate === "forbidden") {
+        res.status(403).json({ error: "Insufficient permissions for registration operations" });
         return false;
       }
       if (gate !== "ok") {
@@ -1371,7 +1513,7 @@ function mountEventHubRoutes(
       if (!Number.isFinite(eventId) || !Number.isFinite(registrationId)) {
         return res.status(400).json({ error: "Invalid id" });
       }
-      if (!(await assertEventWrite(req, res, eventId))) return;
+      if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
       if (await enforceCheckInWindow(pool, res, eventId, req)) {
         return;
       }
@@ -1475,13 +1617,13 @@ function mountEventHubRoutes(
       if (!Number.isFinite(eventId) || !Number.isFinite(registrationId)) {
         return res.status(400).json({ error: "Invalid id" });
       }
-      if (!(await assertEventWrite(req, res, eventId))) return;
+      if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
 
       const bibRaw = req.body?.bib_number;
       const bib_number =
         bibRaw === null || bibRaw === undefined || bibRaw === ""
           ? null
-          : String(bibRaw).trim().slice(0, 20);
+          : String(bibRaw).trim().slice(0, 30);
 
       const reg = await assertRegistrationInEvent(pool, registrationId, eventId);
       if (!reg) {
@@ -1520,7 +1662,7 @@ function mountEventHubRoutes(
       if (!Number.isFinite(eventId) || !Number.isFinite(registrationId)) {
         return res.status(400).json({ error: "Invalid id" });
       }
-      if (!(await assertEventWrite(req, res, eventId))) return;
+      if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
 
       const reg = await assertRegistrationInEvent(pool, registrationId, eventId);
       if (!reg) {
@@ -1582,7 +1724,7 @@ function mountEventHubRoutes(
 
   app.post(`${basePath}/:eventId/registrations/bulk-bib`, guard, async (req: AuthedRequest, res) => {
     const eventId = Number(req.params.eventId);
-    if (!(await assertEventWrite(req, res, eventId))) return;
+    if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
 
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (rows.length === 0) {
@@ -1597,7 +1739,7 @@ function mountEventHubRoutes(
 
     for (const row of rows) {
       const folio = String(row?.folio ?? "").trim();
-      const bib = String(row?.bib ?? "").trim().slice(0, 20);
+      const bib = String(row?.bib ?? "").trim().slice(0, 30);
       if (!folio || !bib) {
         errors.push({ folio: folio || "?", error: "folio and bib required" });
         continue;
@@ -1635,6 +1777,50 @@ function mountEventHubRoutes(
   });
 
   app.get(
+    `${basePath}/:eventId/registrations/export-catalog`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventRead(req, res, eventId))) return;
+      const catalog = await buildRegistrationExportCatalog(pool, eventId);
+      if (!catalog) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      res.json(catalog);
+    },
+  );
+
+  app.post(
+    `${basePath}/:eventId/registrations/export`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventRead(req, res, eventId))) return;
+
+      const result = await buildRegistrationExport(pool, eventId, {
+        columns: req.body?.columns,
+        statuses: req.body?.statuses,
+        q: req.body?.q ?? req.query?.q,
+      });
+      if (result.ok === false) {
+        return res.status(result.status).json({ error: result.error });
+      }
+
+      const format = String(req.body?.format ?? "csv").toLowerCase();
+      if (format === "json") {
+        return res.json(result.payload);
+      }
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${result.filename}"`,
+      );
+      res.send(result.csv);
+    },
+  );
+
+  app.get(
     `${basePath}/:eventId/registrations/:registrationId`,
     guard,
     async (req: AuthedRequest, res) => {
@@ -1670,15 +1856,68 @@ function mountEventHubRoutes(
     const athleteEmail = String(req.body?.athlete_email ?? "")
       .trim()
       .toLowerCase();
+    const createGuest = Boolean(req.body?.create_guest);
+    let guestClaimToken: string | null = null;
+    let purchaserAthleteId: number | null =
+      req.body?.purchaser_athlete_id != null ? Number(req.body.purchaser_athlete_id) : null;
+    const managedByPurchaser = Boolean(req.body?.managed_by_purchaser);
+
     if (!athleteId && athleteEmail) {
       const [athRows] = await pool.query<RowDataPacket[]>(
         "SELECT id FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1",
         [athleteEmail],
       );
       if (athRows.length === 0) {
-        return res.status(404).json({ error: "Athlete not found" });
+        if (!createGuest) {
+          return res.status(404).json({ error: "Athlete not found" });
+        }
+        const firstName = String(req.body?.guest_first_name ?? "").trim();
+        const lastName = String(req.body?.guest_last_name ?? "").trim();
+        const dob = String(req.body?.guest_date_of_birth ?? "").trim();
+        const gender = String(req.body?.guest_gender ?? "prefer_not_to_say").trim();
+        if (!firstName || !lastName || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+          return res.status(400).json({
+            error: "guest_first_name, guest_last_name, and guest_date_of_birth (YYYY-MM-DD) required",
+          });
+        }
+        const [eventRowForAge] = await pool.query<RowDataPacket[]>(
+          "SELECT start_date FROM events WHERE id = ? LIMIT 1",
+          [eventId],
+        );
+        const eventStart = String(eventRowForAge[0]?.start_date ?? new Date().toISOString()).slice(
+          0,
+          10,
+        );
+        const isMinor = isMinorOnReferenceDate(dob, eventStart);
+        const isManaged = managedByPurchaser || isMinor;
+        if (purchaserAthleteId == null && req.body?.purchaser_email) {
+          const purchaserEmail = String(req.body.purchaser_email).trim().toLowerCase();
+          const [pRows] = await pool.query<RowDataPacket[]>(
+            "SELECT id FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1",
+            [purchaserEmail],
+          );
+          if (pRows.length) purchaserAthleteId = Number(pRows[0].id);
+        }
+        if (isManaged && purchaserAthleteId == null) {
+          return res.status(400).json({
+            error:
+              "purchaser_email or purchaser_athlete_id required for managed / minor guests",
+            code: "purchaser_required",
+          });
+        }
+        const [ins] = await pool.query<ResultSetHeader>(
+          `INSERT INTO athletes (
+             public_uuid, email, first_name, last_name, date_of_birth, gender, preferred_language, status
+           ) VALUES (?,?,?,?,?,?, 'es', 'active')`,
+          [hubHelpers.newPublicUuid(), athleteEmail, firstName, lastName, dob, gender],
+        );
+        athleteId = ins.insertId;
+        if (!isManaged) {
+          guestClaimToken = crypto.randomUUID();
+        }
+      } else {
+        athleteId = Number(athRows[0].id);
       }
-      athleteId = Number(athRows[0].id);
     }
     if (!athleteId || !Number.isFinite(athleteId)) {
       return res.status(400).json({ error: "athlete_id or athlete_email required" });
@@ -1689,13 +1928,13 @@ function mountEventHubRoutes(
       return res.status(400).json({ error: "manual_sale cannot be combined with comp" });
     }
     const waiverWaived = Boolean(req.body?.waiver_waived);
-    const bib_number = req.body?.bib_number
-      ? String(req.body.bib_number).trim().slice(0, 20)
+    const bib_number_raw = req.body?.bib_number
+      ? String(req.body.bib_number).trim().slice(0, 30)
       : null;
 
     const [[category]] = await pool.query<RowDataPacket[]>(
       `SELECT ec.id, ec.price_cents, ec.capacity, ec.sold_count, ec.currency, e.organizer_id,
-              e.requires_waiver, e.service_fee_percent, o.service_fee_percent AS org_fee_percent
+              e.requires_waiver, e.service_fee_percent, e.bib_mode, o.service_fee_percent AS org_fee_percent
        FROM event_categories ec
        JOIN events e ON e.id = ec.event_id AND e.deleted_at IS NULL
        JOIN organizers o ON o.id = e.organizer_id
@@ -1728,17 +1967,6 @@ function mountEventHubRoutes(
       Number(category.sold_count) >= Number(category.capacity)
     ) {
       return res.status(409).json({ error: "Category is sold out" });
-    }
-
-    if (bib_number) {
-      const [dupBib] = await pool.query<RowDataPacket[]>(
-        `SELECT id FROM registrations
-         WHERE event_id = ? AND bib_number = ? AND deleted_at IS NULL LIMIT 1`,
-        [eventId, bib_number],
-      );
-      if (dupBib.length > 0) {
-        return res.status(409).json({ error: "Bib number already assigned" });
-      }
     }
 
     const priceCents = comp ? 0 : Number(category.price_cents);
@@ -1797,13 +2025,30 @@ function mountEventHubRoutes(
         );
       const qrToken = hubHelpers.newQrToken();
       const regUuid = hubHelpers.newPublicUuid();
+      const bib_number = resolveRegistrationBibNumber({
+        registrationNumber: regNumber,
+        bibMode: normalizeEventBibMode(category.bib_mode),
+        explicitBib: bib_number_raw,
+      });
+
+      if (bib_number) {
+        const [dupBib] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM registrations
+           WHERE event_id = ? AND bib_number = ? AND deleted_at IS NULL LIMIT 1`,
+          [eventId, bib_number],
+        );
+        if (dupBib.length > 0) {
+          await conn.rollback();
+          return res.status(409).json({ error: "Bib number already assigned" });
+        }
+      }
 
       const [regResult] = await conn.query<ResultSetHeader>(
         `INSERT INTO registrations (
            public_uuid, event_id, event_category_id, athlete_id, registration_number,
            folio_segment_id, qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
-           currency, source
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'admin')`,
+           currency, source, purchaser_athlete_id, guest_claim_token
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'admin',?,?)`,
         [
           regUuid,
           eventId,
@@ -1818,6 +2063,8 @@ function mountEventHubRoutes(
           serviceFeeCents,
           totalCents,
           category.currency || "MXN",
+          purchaserAthleteId,
+          guestClaimToken,
         ],
       );
       const registrationId = regResult.insertId;
@@ -1887,6 +2134,12 @@ function mountEventHubRoutes(
       }
 
       await conn.commit();
+
+      if (guestClaimToken && hubHelpers.deliverRegistrationConfirmedEmail) {
+        void hubHelpers
+          .deliverRegistrationConfirmedEmail(registrationId)
+          .catch((err) => console.error("[email:staff-guest-claim]", err));
+      }
 
       const detail = await fetchStaffRegistrationDetail(pool, eventId, registrationId);
       res.status(201).json(detail);
@@ -2598,11 +2851,13 @@ type ParsedEventBody = {
   max_registrations_per_order: number;
   requires_waiver: boolean;
   fee_presentation: string | null;
+  bib_mode: "folio" | "separate";
 };
 
 function eventBodySqlTail(): string {
   return `location_name = ?, location_city = ?, location_state = ?, location_lat = ?, location_lng = ?,
-           hero_image_url = ?, banner_image_url = ?, max_registrations = ?, max_registrations_per_order = ?`;
+           hero_image_url = ?, banner_image_url = ?, max_registrations = ?, max_registrations_per_order = ?,
+           bib_mode = ?`;
 }
 
 function eventBodySqlValues(data: ParsedEventBody): (
@@ -2620,6 +2875,7 @@ function eventBodySqlValues(data: ParsedEventBody): (
     data.banner_image_url,
     data.max_registrations,
     data.max_registrations_per_order,
+    data.bib_mode,
   ];
 }
 
@@ -2741,6 +2997,15 @@ function parseEventBody(body: Record<string, unknown>):
     return { error: "invalid fee_presentation" };
   }
 
+  let bib_mode: "folio" | "separate" = "folio";
+  if (body.bib_mode === undefined || body.bib_mode === null || body.bib_mode === "") {
+    bib_mode = "folio";
+  } else if (body.bib_mode === "folio" || body.bib_mode === "separate") {
+    bib_mode = body.bib_mode;
+  } else {
+    return { error: "invalid bib_mode" };
+  }
+
   return {
     data: {
       title,
@@ -2780,6 +3045,7 @@ function parseEventBody(body: Record<string, unknown>):
       max_registrations_per_order,
       requires_waiver: body.requires_waiver === false || body.requires_waiver === 0 ? false : true,
       fee_presentation: fee_presentation ?? null,
+      bib_mode,
     },
   };
 }
@@ -2871,6 +3137,7 @@ export function registerStaffPortalRoutes(
     buildOrganizerPayoutSetupEmail,
     sendStaffLoginOtp,
     getStripeClient,
+    deliverRegistrationConfirmedEmail,
   } = deps;
 
   async function applyOrganizerEventLocation(
@@ -3126,6 +3393,22 @@ export function registerStaffPortalRoutes(
     return "ok";
   }
 
+  async function organizerRegistrationOpsAccess(
+    req: AuthedRequest,
+    eventId: number,
+  ): Promise<OrganizerMutateGate> {
+    const organizerId = req.auth!.organizerId;
+    if (!organizerId || !req.auth?.id) return "forbidden";
+    if (!(await assertMemberCanAccessEvent(pool, req.auth.id, organizerId, eventId))) {
+      return "not_found";
+    }
+    const memberRole = await getOrganizerMemberRole(pool, req.auth.id, organizerId);
+    if (!memberRole || !canOrganizerManageRegistrations(memberRole)) {
+      return "forbidden";
+    }
+    return "ok";
+  }
+
   async function organizerManualSaleAccess(
     req: AuthedRequest,
     eventId: number,
@@ -3176,7 +3459,13 @@ export function registerStaffPortalRoutes(
     return true;
   }
 
-  const hubHelpers = { newPublicUuid, newQrToken, nextRegistrationNumber, getStripeClient };
+  const hubHelpers = {
+    newPublicUuid,
+    newQrToken,
+    nextRegistrationNumber,
+    getStripeClient,
+    deliverRegistrationConfirmedEmail,
+  };
 
   mountEventHubRoutes(
     app,
@@ -3187,6 +3476,7 @@ export function registerStaffPortalRoutes(
     hubHelpers,
     organizerEventMutateAccess,
     organizerManualSaleAccess,
+    organizerRegistrationOpsAccess,
   );
 
   mountEventHubRoutes(
@@ -3320,8 +3610,8 @@ export function registerStaffPortalRoutes(
            status, visibility, featured, start_date, end_date, registration_opens_at,
            registration_closes_at, check_in_opens_at, check_in_closes_at,
            location_name, location_city, location_state, location_lat, location_lng,
-           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, requires_waiver
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, bib_mode, requires_waiver
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizerId,
@@ -4221,12 +4511,12 @@ export function registerStaffPortalRoutes(
       }
 
       const [regs] = await pool.query<RowDataPacket[]>(
-        `SELECT r.id, r.registration_number, r.status, r.total_cents, r.created_at,
-                e.title AS event_title, e.slug AS event_slug
-         FROM registrations r
-         JOIN events e ON e.id = r.event_id
-         WHERE r.athlete_id = ? AND r.deleted_at IS NULL
-         ORDER BY r.created_at DESC LIMIT 20`,
+  `SELECT r.id, r.registration_number, r.status, r.total_cents, r.created_at,
+          e.id AS event_id, e.title AS event_title, e.slug AS event_slug
+   FROM registrations r
+   JOIN events e ON e.id = r.event_id
+   WHERE r.athlete_id = ? AND r.deleted_at IS NULL
+   ORDER BY r.created_at DESC LIMIT 20`,
         [athleteId],
       );
 
@@ -5877,8 +6167,8 @@ export function registerStaffPortalRoutes(
            status, visibility, featured, start_date, end_date, registration_opens_at,
            registration_closes_at, check_in_opens_at, check_in_closes_at,
            location_name, location_city, location_state, location_lat, location_lng,
-           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, requires_waiver
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, bib_mode, requires_waiver
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizer_id,

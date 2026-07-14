@@ -753,7 +753,20 @@ paths:
         - bearerAuth: []
       responses:
         "200":
-          description: Registrations list
+          description: Registrations list (includes order_id / managed / claim-pending flags)
+
+  /athlete/order-wallets:
+    get:
+      tags: [Athlete]
+      summary: Pass wallet for group purchases (managed minors + unclaimed guests)
+      description: >
+        Returns QR passes the signed-in purchaser should hold at the gate —
+        managed participants (no claim) and adult guests with pending claim tokens.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Wallet list ordered by most recent group order
 
   /athlete/registrations/claim-guest:
     post:
@@ -1405,12 +1418,44 @@ paths:
   /organizer/events:
     get:
       tags: [Organizer]
-      summary: List organizer events
+      summary: Paginated list of organizer events (respects member event access)
       security:
         - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, pending_approval, published, cancelled, completed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+        - name: sortDir
+          in: query
+          schema:
+            type: string
+            enum: [ASC, DESC]
       responses:
         "200":
-          description: Events list
+          description: Paginated events list
     post:
       tags: [Organizer]
       summary: Create a new event draft
@@ -1421,16 +1466,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [title, sport_type_id, start_date]
-              properties:
-                title:
-                  type: string
-                sport_type_id:
-                  type: integer
-                start_date:
-                  type: string
-                  format: date-time
+              $ref: "#/components/schemas/StaffEventUpsertRequest"
       responses:
         "201":
           description: Event created
@@ -1449,7 +1485,7 @@ paths:
             type: integer
       responses:
         "200":
-          description: Event detail
+          description: Event detail (includes bib_mode)
     patch:
       tags: [Organizer]
       summary: Update organizer event
@@ -1461,6 +1497,11 @@ paths:
           required: true
           schema:
             type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffEventUpsertRequest"
       responses:
         "200":
           description: Updated event
@@ -2204,13 +2245,31 @@ paths:
                   type: boolean
                 bib_number:
                   type: string
+                create_guest:
+                  type: boolean
+                  description: Create athlete profile when email has no account
+                guest_first_name:
+                  type: string
+                guest_last_name:
+                  type: string
+                guest_date_of_birth:
+                  type: string
+                  format: date
+                managed_by_purchaser:
+                  type: boolean
+                  description: Skip claim email (auto for under-18); requires purchaser_email
+                purchaser_email:
+                  type: string
+                  format: email
+                purchaser_athlete_id:
+                  type: integer
       responses:
         "201":
           description: Registration created
         "400":
-          description: Validation error (e.g. manual_sale combined with comp)
+          description: Validation error (e.g. manual_sale combined with comp, purchaser_required)
         "403":
-          description: Insufficient permissions
+          description: Insufficient permissions (manual sale vs registration ops vs event editors)
         "409":
           description: Duplicate registration or sold out
 
@@ -2260,6 +2319,7 @@ paths:
     patch:
       tags: [Organizer]
       summary: Assign bib number
+      description: Requires registration ops role (owner, organizer, operations, timing).
       security:
         - bearerAuth: []
       parameters:
@@ -2281,6 +2341,7 @@ paths:
     patch:
       tags: [Organizer]
       summary: Cancel registration (no automatic refund)
+      description: Requires registration ops role (owner, organizer, operations, timing).
       security:
         - bearerAuth: []
       parameters:
@@ -2302,6 +2363,7 @@ paths:
     post:
       tags: [Organizer]
       summary: Bulk assign bib numbers for an event
+      description: Requires registration ops role (owner, organizer, operations, timing).
       security:
         - bearerAuth: []
       parameters:
@@ -2313,6 +2375,68 @@ paths:
       responses:
         "200":
           description: Bulk import result
+
+  /organizer/events/{eventId}/registrations/export-catalog:
+    get:
+      tags: [Organizer]
+      summary: Available columns for dynamic registration export
+      description: >
+        Returns core columns plus this event's custom registration fields and extras
+        (qty, totals, and extra field answers), with presets (essentials, race_day, logistics, full).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Export column catalog
+
+  /organizer/events/{eventId}/registrations/export:
+    post:
+      tags: [Organizer]
+      summary: Export registrations as CSV (or JSON)
+      description: >
+        Server-side export for the full filtered event set (not just the UI page).
+        Body: columns (required column ids from export-catalog), optional statuses, optional q search, format csv|json.
+        CSV includes a UTF-8 BOM for Excel.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [columns]
+              properties:
+                columns:
+                  type: array
+                  items:
+                    type: string
+                statuses:
+                  type: array
+                  items:
+                    type: string
+                q:
+                  type: string
+                format:
+                  type: string
+                  enum: [csv, json]
+      responses:
+        "200":
+          description: CSV download or JSON grid
+        "400":
+          description: Invalid columns / too many rows
 
   /organizer/members:
     get:
@@ -2641,7 +2765,7 @@ paths:
   /admin/events:
     get:
       tags: [Admin]
-      summary: List all events with organizer info
+      summary: Paginated list of all events with organizer info
       security:
         - bearerAuth: []
       parameters:
@@ -2653,10 +2777,59 @@ paths:
           in: query
           schema:
             type: string
-            enum: [draft, published, cancelled, completed]
+            enum: [draft, pending_approval, published, cancelled, completed]
+        - name: organizerId
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [start_date, title, status, registration_count, organizer_name, created_at, id, location_city]
+        - name: sortDir
+          in: query
+          schema:
+            type: string
+            enum: [ASC, DESC]
       responses:
         "200":
-          description: Events list
+          description: Paginated events list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer
+        "400":
+          description: Invalid organizerId
     post:
       tags: [Admin]
       summary: Create event for an organizer
@@ -2707,6 +2880,10 @@ paths:
                   type: string
                 max_registrations:
                   type: integer
+                max_registrations_per_order:
+                  type: integer
+                bib_mode:
+                  $ref: "#/components/schemas/EventBibMode"
       responses:
         "201":
           description: Event created as draft
@@ -2944,6 +3121,59 @@ paths:
       responses:
         "200":
           description: Bulk import result
+
+  /admin/events/{eventId}/registrations/export-catalog:
+    get:
+      tags: [Admin]
+      summary: Available columns for dynamic registration export
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Export column catalog
+
+  /admin/events/{eventId}/registrations/export:
+    post:
+      tags: [Admin]
+      summary: Export registrations as CSV (or JSON)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [columns]
+              properties:
+                columns:
+                  type: array
+                  items:
+                    type: string
+                statuses:
+                  type: array
+                  items:
+                    type: string
+                q:
+                  type: string
+                format:
+                  type: string
+                  enum: [csv, json]
+      responses:
+        "200":
+          description: CSV download or JSON grid
 
   /admin/events/{eventId}/publish:
     post:
@@ -3978,6 +4208,56 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    EventBibMode:
+      type: string
+      enum: [folio, separate]
+      description: >
+        folio = registration folio is also the race bib (dorsal); separate = folio and bib independent.
+        New events default to folio; existing events migrate to separate.
+    StaffEventUpsertRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        sport_type_id:
+          type: integer
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        slug:
+          type: string
+        short_description:
+          type: string
+        description:
+          type: string
+        visibility:
+          type: string
+          enum: [public, private, unlisted]
+        featured:
+          type: boolean
+        registration_opens_at:
+          type: string
+          format: date-time
+        registration_closes_at:
+          type: string
+          format: date-time
+        location_name:
+          type: string
+        location_city:
+          type: string
+        location_state:
+          type: string
+        max_registrations:
+          type: integer
+        max_registrations_per_order:
+          type: integer
+        bib_mode:
+          $ref: "#/components/schemas/EventBibMode"
+        fee_presentation:
+          $ref: "#/components/schemas/FeePresentation"
     FeePresentation:
       type: string
       enum: [pass_through, absorb_all]

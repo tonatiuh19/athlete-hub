@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { CheckCircle2, QrCode, XCircle, ArrowRight, RotateCcw, Clock } from "lucide-react";
 import type { WaitlistEntry } from "@shared/api";
 import { useTranslation } from "react-i18next";
+import RegistrationInviteFriendsCard from "@/components/events/registration/RegistrationInviteFriendsCard";
 import { Button } from "@/components/ui/button";
 import { formatPriceMxn } from "@/utils/eventFormat";
 import { fireRegistrationCelebration } from "@/utils/celebrationConfetti";
@@ -171,6 +172,13 @@ export default function WizardResultStep({
           </div>
         </div>
       )}
+
+      {registration?.event_slug ? (
+        <RegistrationInviteFriendsCard
+          eventTitle={registration.event_title}
+          eventSlug={registration.event_slug}
+        />
+      ) : null}
 
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
         <Button variant="outline" onClick={onClose} className="border-border">

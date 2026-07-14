@@ -30,6 +30,7 @@ const baseFormValues = {
   max_registrations: "",
   max_registrations_per_order: "10",
   fee_presentation: "pass_through" as const,
+  bib_mode: "folio" as const,
 };
 
 describe("buildStaffEventBody coordinates", () => {

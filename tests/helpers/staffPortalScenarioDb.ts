@@ -19,6 +19,7 @@ export const STAFF_SCENARIO = {
   memberId: 2001,
   financeMemberId: 2002,
   sellerMemberId: 2003,
+  timingMemberId: 2004,
   organizerId: 7,
   sportTypeId: 1,
   defaultEventId: 100,
@@ -62,6 +63,8 @@ type EventRow = RowDataPacket & {
   hero_image_url: string | null;
   banner_image_url: string | null;
   max_registrations: number | null;
+  max_registrations_per_order?: number;
+  bib_mode?: string;
   requires_waiver: number;
   deleted_at: string | null;
   submitted_for_approval_at: string | null;
@@ -154,6 +157,11 @@ export interface StaffPortalSeed {
     categories?: Array<{ price_cents?: number; is_active?: number }>;
   }>;
   manualPayments?: ManualPaymentSeed[];
+  registrations?: Array<{
+    event_id?: number;
+    registration_number: string;
+    bib_number?: string | null;
+  }>;
 }
 
 function normalizeSql(sql: string): string {
@@ -194,6 +202,8 @@ function defaultEvent(partial: StaffPortalSeed["events"] extends (infer E)[] | u
     hero_image_url: null,
     banner_image_url: null,
     max_registrations: null,
+    max_registrations_per_order: 10,
+    bib_mode: "folio",
     requires_waiver: partial.requires_waiver ? 1 : 0,
     deleted_at: null,
     submitted_for_approval_at:
@@ -329,10 +339,19 @@ export class StaffPortalScenarioDb {
   private nextCategoryId = 500;
   private nextPublicUuid = 1;
   private nextOrganizerId = STAFF_SCENARIO.organizerId + 1;
-  private nextMemberId = STAFF_SCENARIO.sellerMemberId + 1;
+  /** Must stay above seeded timing/seller/etc. member ids to avoid collisions on self-service register. */
+  private nextMemberId = STAFF_SCENARIO.timingMemberId + 1;
   private nextPaymentId = 8001;
+  private nextRegistrationId = 9001;
   private lastRegisteredOrganizerId: number | null = null;
   private lastRegisteredMemberId: number | null = null;
+  private registrations: Array<{
+    id: number;
+    event_id: number;
+    registration_number: string;
+    bib_number: string | null;
+    deleted_at: string | null;
+  }> = [];
 
   constructor(seed: StaffPortalSeed = {}) {
     this.memberRole = seed.memberRole ?? "owner";
@@ -412,6 +431,20 @@ export class StaffPortalScenarioDb {
         preferred_language: "es",
         deleted_at: null,
       } as OrganizerMemberRow,
+      {
+        id: STAFF_SCENARIO.timingMemberId,
+        public_uuid: "member-uuid-2004",
+        organizer_id: STAFF_SCENARIO.organizerId,
+        email: "timing@test.local",
+        first_name: "Race",
+        last_name: "Timing",
+        phone: null,
+        role: "timing",
+        event_access_scope: "organization",
+        status: "active",
+        preferred_language: "es",
+        deleted_at: null,
+      } as OrganizerMemberRow,
     );
 
     for (const ev of seed.events ?? []) {
@@ -462,6 +495,16 @@ export class StaffPortalScenarioDb {
         paid_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
         registration_number: "MAN-001",
+      });
+    }
+
+    for (const reg of seed.registrations ?? []) {
+      this.registrations.push({
+        id: this.nextRegistrationId++,
+        event_id: reg.event_id ?? STAFF_SCENARIO.defaultEventId,
+        registration_number: reg.registration_number,
+        bib_number: reg.bib_number ?? null,
+        deleted_at: null,
       });
     }
   }
@@ -542,6 +585,65 @@ export class StaffPortalScenarioDb {
       throw new Error("No self-service organizer member registered in scenario");
     }
     return this.lastRegisteredMemberId;
+  }
+
+  private filterEventsForStaffList(q: string, params: unknown[]): EventRow[] {
+    let rows = this.events.filter((e) => !e.deleted_at);
+    const trailingLimitOffset =
+      q.includes("limit ? offset ?") && params.length >= 2
+        ? params.slice(0, -2)
+        : params;
+    let i = 0;
+
+    if (q.includes("e.organizer_id = ?") && i < trailingLimitOffset.length) {
+      const organizerId = Number(trailingLimitOffset[i++]);
+      rows = rows.filter((e) => e.organizer_id === organizerId);
+    }
+
+    if (q.includes("e.id in (")) {
+      const ids: number[] = [];
+      while (i < trailingLimitOffset.length && typeof trailingLimitOffset[i] === "number") {
+        const n = Number(trailingLimitOffset[i]);
+        // stop before status string or LIKE patterns; numeric IDs only
+        ids.push(n);
+        i++;
+        // end of IN list is followed by status or LIKE strings — break if next is string
+        if (
+          i < trailingLimitOffset.length &&
+          typeof trailingLimitOffset[i] === "string"
+        ) {
+          break;
+        }
+      }
+      if (ids.length > 0) {
+        const idSet = new Set(ids);
+        rows = rows.filter((e) => idSet.has(e.id));
+      }
+    }
+
+    if (q.includes("e.status = ?") && i < trailingLimitOffset.length) {
+      const status = String(trailingLimitOffset[i++]);
+      rows = rows.filter((e) => e.status === status);
+    }
+
+    if (q.includes("like ?") && i < trailingLimitOffset.length) {
+      const like = String(trailingLimitOffset[i] ?? "")
+        .replace(/%/g, "")
+        .toLowerCase();
+      if (like) {
+        rows = rows.filter((e) => {
+          const orgName =
+            this.organizers.find((o) => o.id === e.organizer_id)?.name ?? "";
+          return (
+            e.title.toLowerCase().includes(like) ||
+            e.slug.toLowerCase().includes(like) ||
+            orgName.toLowerCase().includes(like)
+          );
+        });
+      }
+    }
+
+    return rows;
   }
 
   private memberRow(memberId: number): OrganizerMemberRow | undefined {
@@ -714,7 +816,9 @@ export class StaffPortalScenarioDb {
       row.hero_image_url = params[21] as string | null;
       row.banner_image_url = params[22] as string | null;
       row.max_registrations = params[23] as number | null;
-      row.requires_waiver = Number(params[25] ?? params[24]);
+      row.max_registrations_per_order = Number(params[24] ?? 10);
+      row.bib_mode = String(params[25] ?? "folio");
+      row.requires_waiver = Number(params[26] ?? params[25] ?? params[24]);
       this.events.push(row);
       return [header(id, 1), []];
     }
@@ -825,14 +929,16 @@ export class StaffPortalScenarioDb {
             event.submitted_for_approval_at = null;
           }
         }
-        event.location_name = params[eventIdIdx - 9] as string | null;
-        event.location_city = params[eventIdIdx - 8] as string | null;
-        event.location_state = params[eventIdIdx - 7] as string | null;
-        event.location_lat = params[eventIdIdx - 6] as number | null;
-        event.location_lng = params[eventIdIdx - 5] as number | null;
-        event.hero_image_url = params[eventIdIdx - 4] as string | null;
-        event.banner_image_url = params[eventIdIdx - 3] as string | null;
-        event.max_registrations = params[eventIdIdx - 2] as number | null;
+        event.location_name = params[eventIdIdx - 10] as string | null;
+        event.location_city = params[eventIdIdx - 9] as string | null;
+        event.location_state = params[eventIdIdx - 8] as string | null;
+        event.location_lat = params[eventIdIdx - 7] as number | null;
+        event.location_lng = params[eventIdIdx - 6] as number | null;
+        event.hero_image_url = params[eventIdIdx - 5] as string | null;
+        event.banner_image_url = params[eventIdIdx - 4] as string | null;
+        event.max_registrations = params[eventIdIdx - 3] as number | null;
+        event.max_registrations_per_order = Number(params[eventIdIdx - 2] ?? 10);
+        event.bib_mode = String(params[eventIdIdx - 1] ?? "folio");
       }
       if (q.includes("submitted_for_approval_at = null")) {
         event.submitted_for_approval_at = null;
@@ -843,7 +949,43 @@ export class StaffPortalScenarioDb {
     if (
       q.includes("from events e") &&
       q.includes("join sport_types st") &&
-      q.includes("where e.organizer_id = ?")
+      q.includes("join organizers o") &&
+      q.includes("select count(*) as total")
+    ) {
+      const rows = this.filterEventsForStaffList(q, params);
+      return [[{ total: rows.length }], []];
+    }
+
+    if (
+      q.includes("from events e") &&
+      q.includes("join sport_types st") &&
+      q.includes("join organizers o") &&
+      q.includes("limit ? offset ?")
+    ) {
+      const filtered = this.filterEventsForStaffList(q, params);
+      const limit = Number(params[params.length - 2] ?? 20);
+      const offset = Number(params[params.length - 1] ?? 0);
+      const pageRows = filtered.slice(offset, offset + limit).map((e) => ({
+        id: e.id,
+        slug: e.slug,
+        title: e.title,
+        status: e.status,
+        start_date: e.start_date,
+        organizer_id: e.organizer_id,
+        registration_count: 0,
+        location_city: e.location_city,
+        sport_name: "Running",
+        organizer_name:
+          this.organizers.find((o) => o.id === e.organizer_id)?.name ?? "Org",
+      }));
+      return [pageRows, []];
+    }
+
+    if (
+      q.includes("from events e") &&
+      q.includes("join sport_types st") &&
+      q.includes("where e.organizer_id = ?") &&
+      !q.includes("join organizers o")
     ) {
       const rows = this.events
         .filter((e) => e.organizer_id === Number(params[0]) && !e.deleted_at)
@@ -1274,6 +1416,49 @@ export class StaffPortalScenarioDb {
       ];
     }
 
+    if (
+      q.includes("select r.id from registrations r") &&
+      q.includes("registration_number = ?") &&
+      q.includes("r.event_id = ?")
+    ) {
+      const eventId = Number(params[0]);
+      const folio = String(params[1]);
+      const hit = this.registrations.find(
+        (r) =>
+          r.event_id === eventId &&
+          r.registration_number === folio &&
+          !r.deleted_at,
+      );
+      return hit ? [[{ id: hit.id }], []] : [[], []];
+    }
+
+    if (
+      q.includes("select id from registrations") &&
+      q.includes("bib_number = ?") &&
+      q.includes("id <> ?")
+    ) {
+      const eventId = Number(params[0]);
+      const bib = String(params[1]);
+      const excludeId = Number(params[2]);
+      const hit = this.registrations.find(
+        (r) =>
+          r.event_id === eventId &&
+          r.bib_number === bib &&
+          r.id !== excludeId &&
+          !r.deleted_at,
+      );
+      return hit ? [[{ id: hit.id }], []] : [[], []];
+    }
+
+    if (q.startsWith("update registrations set bib_number = ? where id = ?")) {
+      const bib = String(params[0]);
+      const id = Number(params[1]);
+      const hit = this.registrations.find((r) => r.id === id);
+      if (!hit) return [header(0, 0), []];
+      hit.bib_number = bib;
+      return [header(0, 1), []];
+    }
+
     throw new Error(`Unmocked SQL in staff portal test: ${sql.slice(0, 160)}…`);
   };
 
@@ -1310,6 +1495,14 @@ export const staffSeeds = {
       memberId: STAFF_SCENARIO.sellerMemberId,
       memberRole: "seller",
       events: [{ id: STAFF_SCENARIO.defaultEventId, status: "published" }],
+    };
+  },
+  timingUser(): StaffPortalSeed {
+    return {
+      memberId: STAFF_SCENARIO.timingMemberId,
+      memberRole: "timing",
+      events: [{ id: STAFF_SCENARIO.defaultEventId, status: "published" }],
+      registrations: [{ registration_number: "REG-001", bib_number: null }],
     };
   },
   withManualPayments(): StaffPortalSeed {

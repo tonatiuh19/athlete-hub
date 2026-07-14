@@ -6,6 +6,17 @@ export const EVENT_EDITOR_ROLES = new Set([
   "marketing",
 ]);
 
+/**
+ * Race-day registration ops: check-in, bib assign, cancel, bulk bib.
+ * Includes timing (excluded from EVENT_EDITOR_ROLES).
+ */
+export const REGISTRATION_OPS_ROLES = new Set([
+  "owner",
+  "organizer",
+  "operations",
+  "timing",
+]);
+
 /** Roles that can capture paid manual sales (no platform commission). */
 export const MANUAL_SALE_ROLES = new Set([
   "owner",
@@ -21,6 +32,10 @@ export function canOrganizerCreateEvents(role: string): boolean {
 
 export function canOrganizerEditEvents(role: string): boolean {
   return EVENT_EDITOR_ROLES.has(role);
+}
+
+export function canOrganizerManageRegistrations(role: string): boolean {
+  return REGISTRATION_OPS_ROLES.has(role);
 }
 
 export function canOrganizerRecordManualSale(role: string): boolean {

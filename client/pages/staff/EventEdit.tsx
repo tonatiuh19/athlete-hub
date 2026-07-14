@@ -11,6 +11,7 @@ import {
   Save,
   Trash2,
   Trophy,
+  AlertTriangle,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +23,8 @@ import StaffEventCategoriesSection from "@/components/staff/StaffEventCategories
 import StaffEventExtrasSection from "@/components/staff/StaffEventExtrasSection";
 import StaffCategoryScopePicker from "@/components/staff/StaffCategoryScopePicker";
 import StaffCheckoutSectionLegend from "@/components/staff/StaffCheckoutSectionLegend";
+import StaffEventBibModePicker from "@/components/staff/StaffEventBibModePicker";
+import StaffRegistrationFieldsGuide from "@/components/staff/StaffRegistrationFieldsGuide";
 import StaffEventFolioSegmentsSection from "@/components/staff/StaffEventFolioSegmentsSection";
 import StaffEventWaiversSection from "@/components/staff/StaffEventWaiversSection";
 import EventAssetUpload from "@/components/staff/EventAssetUpload";
@@ -113,6 +116,10 @@ import {
 } from "@/utils/buildStaffEventBody";
 import { isStaffEventCreateRoute } from "@/utils/staffEventRoutes";
 import { getFormikMissingItems } from "@/utils/staffFormMissing";
+import {
+  builtinOverlapSeverity,
+  matchBuiltinRegistrationField,
+} from "@/utils/builtinRegistrationFields";
 import { normalizeCoursePayloadForSave } from "@/utils/courseMapUtils";
 import { isEventEndBeforeStart } from "@/utils/staffEventDateValidation";
 import {
@@ -991,7 +998,17 @@ export default function StaffEventEdit() {
       updateRegistrationFields({
         eventId,
         role: staffRole,
-        fields: fieldDrafts.filter((f) => f.label.trim()),
+        fields: fieldDrafts
+          .filter((f) => f.label.trim())
+          .map((f) => ({
+            ...f,
+            scope_type:
+              f.scope_type === "selected_categories"
+                ? "selected_categories"
+                : "all_categories",
+            category_ids:
+              f.scope_type === "selected_categories" ? f.category_ids ?? [] : [],
+          })),
       }),
     );
   };
@@ -1620,6 +1637,15 @@ export default function StaffEventEdit() {
                         </span>
                       </span>
                     </label>
+
+                    <div className="sm:col-span-2">
+                      <StaffEventBibModePicker
+                        groupName="event-bib-mode-details"
+                        value={formik.values.bib_mode}
+                        onChange={(mode) => formik.setFieldValue("bib_mode", mode)}
+                        t={t}
+                      />
+                    </div>
                   </>
                 ) : null}
 
@@ -1953,14 +1979,19 @@ export default function StaffEventEdit() {
                 <p className="text-sm text-muted-foreground">
                   {t("staffPortal.eventEdit.fieldsSubtitle")}
                 </p>
-                <StaffCheckoutSectionLegend variant="fields" />
+                <StaffRegistrationFieldsGuide />
                 {fieldsError ? <p className="text-sm text-destructive">{fieldsError}</p> : null}
                 <div className="space-y-3">
-                  {fieldDrafts.map((f, i) => (
+                  {fieldDrafts.map((f, i) => {
+                    const overlapKind = matchBuiltinRegistrationField(f.label);
+                    const overlapSeverity = overlapKind
+                      ? builtinOverlapSeverity(overlapKind)
+                      : null;
+                    return (
                     <div key={i} className="space-y-2 p-3 rounded-xl border border-border/70">
-                      <div className="grid sm:grid-cols-12 gap-2 items-center">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <Input
-                          className="sm:col-span-4"
+                          className="flex-1 min-w-0"
                           placeholder={t("staffPortal.eventEdit.fieldLabel")}
                           value={f.label}
                           onChange={(e) => {
@@ -1981,7 +2012,7 @@ export default function StaffEventEdit() {
                             setFieldDrafts(next);
                           }}
                         >
-                          <SelectTrigger className="sm:col-span-3">
+                          <SelectTrigger className="w-full sm:w-40 shrink-0">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1994,7 +2025,10 @@ export default function StaffEventEdit() {
                             )}
                           </SelectContent>
                         </Select>
-                        <div className="sm:col-span-2 flex items-center gap-2 min-h-10">
+                        <label
+                          htmlFor={`field-required-${i}`}
+                          className="inline-flex items-center gap-2 h-10 px-2.5 rounded-lg border border-border/70 bg-card shrink-0 whitespace-nowrap text-sm font-medium cursor-pointer select-none"
+                        >
                           <Checkbox
                             id={`field-required-${i}`}
                             checked={Boolean(f.is_required)}
@@ -2004,23 +2038,36 @@ export default function StaffEventEdit() {
                               setFieldDrafts(next);
                             }}
                           />
-                          <Label
-                            htmlFor={`field-required-${i}`}
-                            className="text-sm font-normal cursor-pointer leading-none"
-                          >
-                            {t("staffPortal.eventEdit.fieldRequired")}
-                          </Label>
-                        </div>
+                          {t("staffPortal.eventEdit.fieldRequired")}
+                        </label>
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="text-destructive sm:col-span-1 shrink-0"
+                          className="text-destructive shrink-0 self-end sm:self-center"
                           onClick={() => setFieldDrafts(fieldDrafts.filter((_, idx) => idx !== i))}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
+                      {overlapKind && overlapSeverity ? (
+                        <p
+                          className={cn(
+                            "flex items-start gap-2 text-xs rounded-lg border px-3 py-2",
+                            overlapSeverity === "duplicate" || overlapSeverity === "derived"
+                              ? "border-destructive/30 bg-destructive/10 text-destructive"
+                              : "border-primary/25 bg-primary/10 text-foreground",
+                          )}
+                          role="status"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden />
+                          <span>
+                            {t(`staffPortal.eventEdit.builtinFields.overlap.${overlapSeverity}`, {
+                              field: t(`staffPortal.eventEdit.builtinFields.kinds.${overlapKind}`),
+                            })}
+                          </span>
+                        </p>
+                      ) : null}
                       {f.field_type === "select" ? (
                         <div className="space-y-2 pl-1">
                           <p className="text-xs text-muted-foreground">
@@ -2077,6 +2124,7 @@ export default function StaffEventEdit() {
                         </div>
                       ) : null}
                       <StaffCategoryScopePicker
+                        groupName={`registration-field-scope-${i}`}
                         scopeType={f.scope_type ?? "all_categories"}
                         categoryIds={f.category_ids ?? []}
                         categories={eventDetail?.categories ?? []}
@@ -2088,7 +2136,8 @@ export default function StaffEventEdit() {
                         }}
                       />
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -2404,6 +2453,17 @@ export default function StaffEventEdit() {
 
           {canManageCategories ? (
             <TabsContent value="folios" className="mt-0 space-y-4">
+              <StaffEventBibModePicker
+                groupName="event-bib-mode-folios"
+                value={formik.values.bib_mode}
+                onChange={(mode) => formik.setFieldValue("bib_mode", mode)}
+                t={t}
+                strongFolioNote
+                readOnly
+              />
+              <p className="text-xs text-muted-foreground px-1">
+                {t("staffPortal.eventEdit.bibMode.saveWithDetails")}
+              </p>
               <StaffEventFolioSegmentsSection
                 segments={folioSegments}
                 categories={eventDetail?.categories ?? []}

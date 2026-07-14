@@ -34,7 +34,7 @@ export default function StaffMessaging() {
   } = useAppSelector((s) => s.staffPortal);
 
   useEffect(() => {
-    dispatch(fetchOrganizerEvents());
+    dispatch(fetchOrganizerEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
   }, [dispatch]);
 
   const formik = useFormik({

@@ -59,7 +59,7 @@ export default function StaffCreateOrganizerDialog({ onCreated }: StaffCreateOrg
 
   useEffect(() => {
     if (open) {
-      dispatch(fetchAdminEvents({}));
+      dispatch(fetchAdminEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
       dispatch(fetchGeoStates("MX"));
       setEventQuery("");
       setSelectedEventIds([]);

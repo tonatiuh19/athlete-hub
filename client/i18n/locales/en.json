@@ -36,7 +36,10 @@
       "light": "Light theme",
       "dark": "Dark theme",
       "system": "System theme"
-    }
+    },
+    "copied": "Copied",
+    "next": "Next",
+    "close": "Close"
   },
   "auth": {
     "athlete": {
@@ -251,7 +254,8 @@
       "resignSubtitle": "The organizer updated the waiver for {{event}}. Please review and accept the latest version.",
       "resignAcceptLabel": "I have read and accept the updated waiver(s)",
       "resignSubmit": "Submit updated waiver",
-      "resignFailed": "Could not save waiver acceptance"
+      "resignFailed": "Could not save waiver acceptance",
+      "walletSection": "Passes you hold for others"
     },
     "waitlist": {
       "title": "Waitlist",
@@ -480,7 +484,9 @@
       "updateEventMedia": "Could not update event media",
       "registrationNotFound": "Registration not found",
       "checkInFailed": "Check-in failed",
-      "eventIdRequired": "Select an event to continue"
+      "eventIdRequired": "Select an event to continue",
+      "loadExportCatalog": "Could not load export columns",
+      "exportRegistrations": "Could not export registrations"
     },
     "nav": {
       "dashboard": "Dashboard",
@@ -537,7 +543,12 @@
       "detailSubtitle": "Contact info, registrations, and account status",
       "suspend": "Suspend account",
       "reactivate": "Reactivate account",
-      "recentRegs": "Recent registrations"
+      "recentRegs": "Recent registrations",
+      "colDob": "Date of birth",
+      "colGender": "Gender",
+      "colShirt": "Shirt size",
+      "colLastLogin": "Last login",
+      "openRegistration": "Open registration"
     },
     "people": {
       "title": "People",
@@ -606,7 +617,6 @@
       "saveOrganizer": "Save changes",
       "organizerSaved": "Organizer updated",
       "feePresentationSaveHint": "Click Save organizer details below to apply this pricing mode.",
-      "feePresentationSaveHint": "Click Save organizer details below to apply this pricing mode.",
       "createdAt": "Created {{date}}",
       "eventsSection": "Linked events",
       "linkEvents": "Link events",
@@ -646,6 +656,13 @@
       "calendarMore": "+{{count}} more",
       "calendarDayTitle": "Events on {{date}}",
       "calendarDayEmpty": "No events on this day.",
+      "calendarCapHint": "Showing up to {{limit}} matching events on the calendar. Use search or filters to narrow results.",
+      "colTitle": "Event",
+      "colOrganizer": "Organizer",
+      "colDate": "Date",
+      "colCity": "City",
+      "colRegistrations": "Registrations",
+      "colActions": "Actions",
       "createAdminTitle": "Create event for organizer",
       "createAdminSubmit": "Create draft",
       "createOrganizerId": "Organizer ID"
@@ -884,6 +901,24 @@
       "fieldMaxRegsPerOrderHint": "Family/group checkout limit (1–20 participants per purchase).",
       "fieldRequiresWaiver": "Require digital waivers at registration",
       "fieldRequiresWaiverHint": "Athletes must accept all active waivers before checkout. Configure them in the Waiver tab.",
+      "bibMode": {
+        "title": "Use folio as race bib (dorsal)",
+        "subtitle": "Choose how race numbers work for this event. Check-in can find athletes by folio, bib, or QR either way.",
+        "folioOption": "Folio = bib (recommended)",
+        "folioHint": "The number from your folio rules is also the dorsal on the shirt. Assigned automatically at registration.",
+        "separateOption": "Separate folio and bib",
+        "separateHint": "Folio is the registration ID. Assign the physical bib later (kit pickup or CSV import).",
+        "folioStrongNote": "These folio rules create the dorsales athletes will wear. Design sequences that match what you print on shirts.",
+        "separateNudge": "Triboo will remind you on Registrations when confirmed athletes still need a dorsal.",
+        "changeInDetails": "Change this policy under Details (then save the event).",
+        "saveWithDetails": "Race-number policy is saved with the event Details tab.",
+        "missingBibsTitle": "{{count}} athletes still need a dorsal",
+        "missingBibsHint": "This event keeps folio and bib separate. Import a CSV or open a registration to assign bibs.",
+        "missingBibsImport": "Import bibs",
+        "importOverrideHint": "Folio = bib is on for this event. Import will override assigned dorsales.",
+        "manualSaleAutoHint": "Leave blank to use the folio as the bib (you can still type a custom override).",
+        "folioEqualsBibHint": "Folio = bib is on — dorsal matches folio."
+      },
       "fieldFeePresentation": "Fee presentation",
       "fieldFeePresentationHint": "Inherit uses your payout setting. Absorb-all makes category prices the final athlete total.",
       "feePresentation": {
@@ -1084,8 +1119,64 @@
       "unlimited": "Unlimited",
       "tabWaiver": "Waiver",
       "fieldsTitle": "Registration questions",
-      "fieldsSubtitle": "Collect extra info during checkout (shirt size, emergency contact, etc.)",
-      "fieldsSectionLegend": "Campos extra are custom checkout questions (text, dropdowns, etc.) for every registrant. For sellable add-ons with pricing—like merch or parking—use Extras instead.",
+      "fieldsSubtitle": "Ask only for info Triboo does not already collect — for each person registering (including family/guest entries).",
+      "fieldsSectionLegend": "Campos extra are asked once per registrant (every line in a multi-person order). For sellable add-ons with pricing—like merch or parking—use Extras instead.",
+      "builtinFields": {
+        "regionLabel": "Built-in registration data",
+        "alwaysTitle": "Already collected — do not add again",
+        "alwaysHint": "Triboo asks these for every athlete (including guests when someone buys for others).",
+        "alwaysItems": [
+          "Email",
+          "First name",
+          "Last name",
+          "Date of birth",
+          "Gender"
+        ],
+        "groupTitle": "When someone buys for family / friends",
+        "groupHint": "The purchaser pays once and gets the receipt. Each participant still enters their own identity, answers your custom Campos extra, and can pick extras. Prefer questions about the athlete racing (club, federation ID), not the payer. Guest minors also ask guardian relationship.",
+        "groupItems": [
+          "Per participant: email, name, DOB, gender",
+          "Guest minors: guardian relationship",
+          "Custom Campos extra: answered per participant",
+          "Extras / merch: chosen per participant",
+          "Receipt email: purchaser account"
+        ],
+        "optionalTitle": "On athlete profile (optional)",
+        "optionalHint": "Not required by the default wizard. Add as Campos extra only if you need them required at checkout for this event.",
+        "optionalItems": [
+          "Phone",
+          "Shirt size",
+          "City",
+          "Emergency contact"
+        ],
+        "goodTitle": "Good custom field examples",
+        "goodHint": "Race-day or organizer-specific data that is not already on the athlete profile.",
+        "goodExamples": [
+          "Club / team name",
+          "Federation / license ID",
+          "Blood type",
+          "How did you hear about us?",
+          "State of birth"
+        ],
+        "kinds": {
+          "email": "Email",
+          "first_name": "First name",
+          "last_name": "Last name",
+          "date_of_birth": "Date of birth",
+          "age": "Age",
+          "gender": "Gender",
+          "guardian": "Guardian relationship",
+          "phone": "Phone",
+          "shirt_size": "Shirt size",
+          "emergency": "Emergency contact",
+          "city": "City"
+        },
+        "overlap": {
+          "duplicate": "“{{field}}” is already collected for every registrant — remove this field to avoid asking twice.",
+          "derived": "“{{field}}” can be calculated from date of birth — you usually do not need a separate question.",
+          "profile_optional": "“{{field}}” exists on the athlete profile but is optional. Keep this field only if you need it required for this event."
+        }
+      },
       "fieldLabel": "Field label",
       "fieldRequired": "Required",
       "addField": "Add field",
@@ -1517,14 +1608,69 @@
       "searchPlaceholder": "Search by folio, name, or email…",
       "eventFilter": "Filter by event",
       "allEvents": "All events",
+      "eventSearchPlaceholder": "Search events…",
+      "eventSearchEmpty": "No events match",
       "empty": "No registrations match your filters.",
       "folio": "Folio",
+      "bib": "Bib (dorsal)",
       "checkedIn": "Checked in",
       "exportCsv": "Export CSV",
       "bibPlaceholder": "Bib #",
       "saveBib": "Save",
       "cancel": "Cancel",
-      "cancelConfirm": "Cancel this registration? No automatic refund will be issued.",
+      "cancelConfirm": "Cancel this registration? This cannot be easily undone.",
+      "export": {
+        "title": "Export registrations",
+        "subtitle": "Pick the columns you need — core athlete data, custom fields, and extras. Full event (not just this page).",
+        "searchApplied": "Search filter applied: “{{q}}”",
+        "loading": "Loading available columns…",
+        "download": "Download CSV",
+        "selectedCount": "{{count}} columns selected",
+        "selectGroup": "Select all",
+        "clearGroup": "Clear",
+        "statusesTitle": "Include statuses",
+        "presets": {
+          "essentials": "Essentials",
+          "race_day": "Race day",
+          "logistics": "Logistics + extras",
+          "full": "Everything"
+        },
+        "groups": {
+          "core": "Core athlete & registration",
+          "fields": "Custom registration fields"
+        },
+        "statuses": {
+          "confirmed": "Confirmed",
+          "pending_payment": "Pending payment",
+          "cancelled": "Cancelled",
+          "transferred": "Transferred",
+          "refunded": "Refunded"
+        },
+        "columns": {
+          "folio": "Folio",
+          "bib": "Bib (dorsal)",
+          "first_name": "First name",
+          "last_name": "Last name",
+          "email": "Email",
+          "phone": "Phone",
+          "date_of_birth": "Date of birth",
+          "gender": "Gender",
+          "shirt_size": "Shirt size",
+          "category": "Category",
+          "status": "Status",
+          "total_mxn": "Total (MXN)",
+          "price_mxn": "Registration (MXN)",
+          "fee_mxn": "Service fee (MXN)",
+          "source": "Source",
+          "waiver": "Waiver signed",
+          "checked_in": "Checked in",
+          "purchaser_name": "Purchaser name",
+          "purchaser_email": "Purchaser email",
+          "managed": "Managed participant",
+          "claim_pending": "Claim pending",
+          "created_at": "Registered at"
+        }
+      },
       "bulkBibTitle": "Bulk bib import",
       "bulkBibHint": "CSV with folio and bib columns. Header row optional.",
       "bulkBibSelectEvent": "Filter by a single event above to import bib numbers.",
@@ -1549,7 +1695,26 @@
       "addManualSubmit": "Create registration",
       "selectCategory": "Select category",
       "bibOptional": "Bib number (optional)",
-      "compEntry": "Comp / free entry (no charge)"
+      "compEntry": "Comp / free entry (no charge)",
+      "opsBar": "Race-day ops",
+      "checkIn": "Check in",
+      "checkedInAt": "Checked in {{date}}",
+      "copyQr": "Copy QR",
+      "boughtBy": "Bought by",
+      "orderMates": "Others in this order",
+      "refundHistory": "Refund history",
+      "transfersSection": "Transfers",
+      "price": "Price",
+      "fee": "Fee",
+      "createGuest": "Create guest athlete",
+      "guestFirstName": "First name",
+      "guestLastName": "Last name",
+      "guestDob": "Date of birth",
+      "managedByPurchaser": "Managed participant (minor / no claim)",
+      "modeComp": "Comp / free entry",
+      "modePaid": "Paid manual sale",
+      "purchaserEmail": "Purchaser email (for managed guests)",
+      "purchaserEmailHint": "Required for minors / managed participants so QRs appear in their pass wallet."
     },
     "finance": {
       "title": "Payments",
@@ -2620,6 +2785,17 @@
     "maxPerOrder": "Up to {{max}} registrations per order",
     "includeMe": "Include myself in this order",
     "continue": "Continue",
+    "continueToFields": "Continue to questions",
+    "continueToWaiver": "Continue to waiver",
+    "continueToExtras": "Continue to add-ons",
+    "participantSteps": "Steps for this participant",
+    "subStepProfile": "Identity",
+    "subStepFields": "Questions",
+    "subStepWaiver": "Waiver",
+    "subStepExtras": "Add-ons",
+    "fieldsHint": "Answer these organizer questions for this person — not the payer.",
+    "fieldsForPerson": "For {{name}}",
+    "fieldsAnswered": "{{count}} details",
     "category": "Category",
     "selectCategory": "Select a category",
     "participantType": "Participant type",
@@ -2647,7 +2823,11 @@
     "confirmFree": "Confirm registration",
     "resultSuccessTitle": "Group registration confirmed!",
     "resultSuccessHint": "Confirmation emails were sent to each participant. Your receipt was sent to {{email}}.",
-    "resultFailedTitle": "Payment could not be completed"
+    "resultFailedTitle": "Payment could not be completed",
+    "managedByPurchaser": "Managed by me (no claim email — use for kids or dependents)",
+    "managedByPurchaserHint": "They enter with your QR wallet. No Triboo account required.",
+    "resultWalletTitle": "Pass wallet",
+    "resultWalletHint": "Keep these QRs for anyone who will not claim their own account."
   },
   "registrationWizard": {
     "title": "Event registration",
@@ -2787,7 +2967,21 @@
       "waitlistTitle": "You're on the waitlist!",
       "waitlistHint": "We'll email you when a spot opens. Your place is reserved in line.",
       "waitlistEvent": "Event",
-      "waitlistPosition": "Your position"
+      "waitlistPosition": "Your position",
+      "invite": {
+        "eyebrow": "Race together",
+        "title": "Invite friends & family",
+        "subtitle": "Share {{event}} — bring your crew to the start line.",
+        "crewHint": "Training partners race better together",
+        "share": "Share invite",
+        "copyLink": "Copy link",
+        "copied": "Copied!",
+        "whatsapp": "WhatsApp",
+        "shareTitle": "Join me at {{event}}",
+        "shareText": "I'm registered for {{event}} on Triboo Sport — come race with me!",
+        "linkCopied": "Invite link copied!",
+        "linkCopyFailed": "Could not copy the link. Try again."
+      }
     }
   },
   "notFound": {
@@ -2816,5 +3010,18 @@
       "statesLoadError": "Could not load states. Check your connection and try again.",
       "citiesLoadError": "Could not load cities. Check your connection and try again."
     }
+  },
+  "registrationWallet": {
+    "title": "Your race passes",
+    "subtitle": "{{count}} QR ready for gate check-in",
+    "folio": "Folio",
+    "bib": "Bib",
+    "fullscreen": "Full screen",
+    "fullscreenHint": "Turn up brightness and show this screen at check-in.",
+    "badgeManaged": "Managed (no claim)",
+    "badgeUnclaimed": "Awaiting claim",
+    "badgeSelf": "Yours",
+    "portalTitle": "Family / guest passes",
+    "portalSubtitle": "QR codes you hold for kids and unclaimed guests"
   }
 }

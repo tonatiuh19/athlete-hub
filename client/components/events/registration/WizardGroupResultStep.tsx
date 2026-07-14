@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
-import { CheckCircle2, QrCode, XCircle, RotateCcw } from "lucide-react";
+import { CheckCircle2, XCircle, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { RegistrationConfirmResponse } from "@shared/api";
+import PurchaserQrWallet from "@/components/shared/PurchaserQrWallet";
+import RegistrationInviteFriendsCard from "@/components/events/registration/RegistrationInviteFriendsCard";
 import { Button } from "@/components/ui/button";
 import { formatPriceMxn } from "@/utils/eventFormat";
 import { fireRegistrationCelebration } from "@/utils/celebrationConfetti";
@@ -10,6 +12,8 @@ interface WizardGroupResultStepProps {
   success: boolean;
   failureMessage?: string | null;
   confirmationEmail?: string | null;
+  eventTitle?: string;
+  eventSlug?: string;
   order?: RegistrationConfirmResponse["order"];
   onRetry: () => void;
   onClose: () => void;
@@ -19,6 +23,8 @@ export default function WizardGroupResultStep({
   success,
   failureMessage,
   confirmationEmail,
+  eventTitle,
+  eventSlug,
   order,
   onRetry,
   onClose,
@@ -83,6 +89,22 @@ export default function WizardGroupResultStep({
         </p>
       </div>
 
+      <PurchaserQrWallet
+        items={registrations.map((reg) => ({
+          public_uuid: reg.public_uuid,
+          registration_number: reg.registration_number,
+          qr_code_token: reg.qr_code_token,
+          bib_number: reg.bib_number,
+          participant_label: reg.participant_label,
+          category_name: reg.category_name,
+          wallet_held_by_purchaser: reg.wallet_held_by_purchaser,
+          is_managed_participant: reg.is_managed_participant,
+          guest_claim_token: reg.guest_claim_token,
+        }))}
+        title={t("groupRegistration.resultWalletTitle")}
+        subtitle={t("groupRegistration.resultWalletHint")}
+      />
+
       <ul className="space-y-3 text-left">
         {registrations.map((reg) => (
           <li
@@ -102,13 +124,13 @@ export default function WizardGroupResultStep({
                 {formatPriceMxn(reg.total_cents, i18n.language)}
               </span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <QrCode className="w-3.5 h-3.5 shrink-0" />
-              <span className="font-mono truncate">{reg.qr_code_token}</span>
-            </div>
           </li>
         ))}
       </ul>
+
+      {eventSlug && eventTitle ? (
+        <RegistrationInviteFriendsCard eventTitle={eventTitle} eventSlug={eventSlug} />
+      ) : null}
 
       <Button onClick={onClose} className="w-full btn-primary font-bold">
         {t("registrationWizard.result.close")}

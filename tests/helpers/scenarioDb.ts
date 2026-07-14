@@ -130,6 +130,7 @@ export interface ScenarioSeed {
     check_in_opens_at?: string | null;
     check_in_closes_at?: string | null;
     max_registrations_per_order?: number;
+    bib_mode?: "folio" | "separate";
   };
   category?: {
     name?: string;
@@ -356,6 +357,7 @@ export class RegistrationScenarioDb {
       check_in_closes_at: seed.event?.check_in_closes_at ?? "2030-12-31 23:59:59",
       max_registrations_per_order:
         seed.maxRegistrationsPerOrder ?? seed.event?.max_registrations_per_order ?? 10,
+      bib_mode: seed.event?.bib_mode ?? "separate",
     } as RowDataPacket;
 
     this.athleteProfiles.set(SCENARIO.athleteId, { ...this.athleteProfile });
@@ -1550,16 +1552,24 @@ export class RegistrationScenarioDb {
       return [[{ requires_waiver: this.requiresWaiver ? 1 : 0 }], []];
     }
 
-    if (q.includes("select slug, starts_at from events where id")) {
+    if (
+      q.includes("select slug, starts_at from events where id") ||
+      q.includes("select slug, start_date from events where id")
+    ) {
       return [
         [
           {
             slug: SCENARIO.slug,
             starts_at: this.event.start_date ?? "2026-09-01T10:00:00.000Z",
+            start_date: this.event.start_date ?? "2026-09-01T10:00:00.000Z",
           },
         ],
         [],
       ];
+    }
+
+    if (q.includes("select bib_mode from events where id")) {
+      return [[{ bib_mode: this.event.bib_mode ?? "separate" }], []];
     }
 
     if (
@@ -1691,6 +1701,8 @@ export class RegistrationScenarioDb {
     }
 
     if (q.startsWith("insert into registrations")) {
+      const hasBibCol = sql.toLowerCase().includes("bib_number");
+      const bibOffset = hasBibCol ? 1 : 0;
       const reg: RegistrationRow = {
         id: this.nextRegistrationId++,
         public_uuid: String(params[0]),
@@ -1699,18 +1711,21 @@ export class RegistrationScenarioDb {
         athlete_id: Number(params[3]),
         registration_number: String(params[4]),
         qr_code_token: String(params[6]),
-        status: String(params[7]),
-        price_cents: Number(params[8]),
-        service_fee_cents: Number(params[9]),
-        total_cents: Number(params[10]),
-        discount_code_id: params[11] as number | null,
-        currency: String(params[12]),
-        source: String(params[13]),
-        payment_id: Number(params[14]),
-        order_id: params[15] != null ? Number(params[15]) : null,
+        bib_number: hasBibCol ? ((params[7] as string | null) ?? null) : null,
+        status: String(params[7 + bibOffset]),
+        price_cents: Number(params[8 + bibOffset]),
+        service_fee_cents: Number(params[9 + bibOffset]),
+        total_cents: Number(params[10 + bibOffset]),
+        discount_code_id: params[11 + bibOffset] as number | null,
+        currency: String(params[12 + bibOffset]),
+        source: String(params[13 + bibOffset]),
+        payment_id: Number(params[14 + bibOffset]),
+        order_id: params[15 + bibOffset] != null ? Number(params[15 + bibOffset]) : null,
+        purchaser_athlete_id:
+          params[16 + bibOffset] != null ? Number(params[16 + bibOffset]) : null,
         guest_claim_token:
-          params[17] != null && String(params[17]).trim()
-            ? String(params[17])
+          params[17 + bibOffset] != null && String(params[17 + bibOffset]).trim()
+            ? String(params[17 + bibOffset])
             : null,
         deleted_at: null,
         waiver_signed_at: null,
@@ -1722,6 +1737,12 @@ export class RegistrationScenarioDb {
     }
 
     if (q.startsWith("insert into registration_field_values")) {
+      this.fieldValues.push({
+        id: this.nextFieldValueId,
+        registration_id: Number(params[0]),
+        field_id: Number(params[1]),
+        value_text: params[2] != null ? String(params[2]) : null,
+      } as RowDataPacket);
       return [header(this.nextFieldValueId++, 1), []];
     }
 

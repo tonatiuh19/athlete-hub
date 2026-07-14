@@ -321,6 +321,20 @@ describe("HTTP smoke: organizer event approval workflow", () => {
     expect(res.body.error).toMatch(/insufficient permissions/i);
   });
 
+  it("timing role can bulk-import bibs on event hub route", async () => {
+    const { app, authHeader } = await mountStaffPortalScenario(staffSeeds.timingUser());
+
+    const res = await request(app)
+      .post(
+        `/api/organizer/events/${STAFF_SCENARIO.defaultEventId}/registrations/bulk-bib`,
+      )
+      .set("Authorization", authHeader)
+      .send({ rows: [{ folio: "REG-001", bib: "101" }] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.updated).toBe(1);
+  });
+
   it("legacy bulk-bib route is removed", async () => {
     const { app, authHeader } = await mountStaffPortalScenario(
       staffSeeds.draftWithCategory(),

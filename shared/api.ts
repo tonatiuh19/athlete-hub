@@ -613,6 +613,41 @@ export interface RegistrationItem {
   category_name: string;
   allows_transfers?: boolean | number;
   waiver_outdated?: boolean;
+  order_id?: number | null;
+  /** True when this athlete is the purchaser holding wallet QRs */
+  is_order_purchaser?: boolean;
+  guest_claim_pending?: boolean;
+  is_managed_participant?: boolean;
+  participant_label?: string;
+}
+
+export interface AthleteOrderWalletPass {
+  id: number;
+  public_uuid: string;
+  registration_number: string;
+  qr_code_token: string;
+  bib_number?: string | null;
+  status: string;
+  category_name: string;
+  participant_label: string;
+  participant_email?: string | null;
+  guest_claim_pending: boolean;
+  is_managed_participant: boolean;
+  wallet_held_by_purchaser: boolean;
+}
+
+export interface AthleteOrderWallet {
+  order_id: number;
+  order_public_uuid: string;
+  event_title: string;
+  event_slug: string;
+  start_date: string;
+  item_count: number;
+  passes: AthleteOrderWalletPass[];
+}
+
+export interface AthleteOrderWalletsResponse {
+  wallets: AthleteOrderWallet[];
 }
 
 export type AthleteResultStatus = "finished" | "dnf" | "dns" | "dq";
@@ -737,6 +772,8 @@ export interface GroupCheckoutLineItemInput {
   accountEmail?: string;
   guest?: GroupGuestParticipant;
   guardianRelationship?: string;
+  /** Force managed-by-purchaser (no claim). Minors are auto-managed. */
+  managedByPurchaser?: boolean;
   categoryId: number;
   fieldValues: Record<string, string | boolean>;
   waiverSignatures?: WaiverSignatureInput[];
@@ -989,6 +1026,9 @@ export interface RegistrationConfirmResponse {
       participant_label?: string;
       participant_email?: string;
       guest_claim_token?: string | null;
+      wallet_held_by_purchaser?: boolean;
+      is_managed_participant?: boolean;
+      bib_number?: string | null;
     }>;
   };
   error?: string;
@@ -1031,6 +1071,11 @@ export interface StaffEventRow {
   location_city?: string;
   has_paid_categories?: boolean;
   payments_available?: boolean;
+}
+
+export interface PaginatedStaffEventsResponse {
+  events: StaffEventRow[];
+  pagination: PaginationInfo;
 }
 
 export interface AdminAthleteRow {
@@ -1078,6 +1123,18 @@ export interface OrganizerRegistrationRow {
   athlete_first_name: string;
   athlete_last_name: string;
   athlete_email?: string | null;
+  athlete_id?: number;
+  /** Group order linkage */
+  order_id?: number | null;
+  purchaser_athlete_id?: number | null;
+  purchaser_first_name?: string | null;
+  purchaser_last_name?: string | null;
+  purchaser_email?: string | null;
+  /** Pending adult guest claim */
+  guest_claim_pending?: boolean;
+  /** Minor or force-managed — no claim; purchaser holds QR */
+  is_managed_participant?: boolean;
+  order_sibling_count?: number;
 }
 
 export interface PaginationInfo {
@@ -1195,12 +1252,36 @@ export interface StaffRegistrationDetailResponse {
   status_history: StaffRegistrationStatusHistoryRow[];
   transfers: StaffRegistrationTransferRow[];
   refunds: StaffPaymentRefundRow[];
+  /** Other registrations on the same group order */
+  order_mates?: Array<{
+    id: number;
+    registration_number: string;
+    bib_number?: string | null;
+    status: string;
+    athlete_first_name: string;
+    athlete_last_name: string;
+    athlete_email?: string | null;
+    guest_claim_pending?: boolean;
+    is_managed_participant?: boolean;
+    qr_code_token?: string;
+  }>;
 }
 
 export interface StaffManualRegistrationRequest {
   event_category_id: number;
   athlete_id?: number;
   athlete_email?: string;
+  /** Create guest athlete when email has no account */
+  create_guest?: boolean;
+  guest_first_name?: string;
+  guest_last_name?: string;
+  guest_date_of_birth?: string;
+  guest_gender?: string;
+  /** Force managed-by-purchaser (no claim). Minors are auto-managed. */
+  managed_by_purchaser?: boolean;
+  /** Purchaser athlete id when creating managed guest (defaults to staff-linked athlete if set) */
+  purchaser_athlete_id?: number;
+  purchaser_email?: string;
   comp?: boolean;
   /** Paid in-person sale — category price, no platform commission */
   manual_sale?: boolean;
@@ -1308,6 +1389,8 @@ export interface StaffEventDetail {
   registration_count: number;
   max_registrations?: number | null;
   max_registrations_per_order?: number;
+  /** folio = registration number is also the bib; separate = staff assigns bib later */
+  bib_mode?: "folio" | "separate";
   requires_waiver?: boolean | number;
   fee_presentation?: FeePresentation | null;
   organizer_fee_presentation?: FeePresentation;
@@ -1432,6 +1515,15 @@ export interface StaffEventHubRegistrationsResponse {
   registrations: OrganizerRegistrationRow[];
 }
 
+export type {
+  RegistrationExportCatalogResponse,
+  RegistrationExportColumnMeta,
+  RegistrationExportJsonResponse,
+  RegistrationExportPresetId,
+  RegistrationExportRequest,
+  RegistrationExportStatus,
+} from "./registrationExport";
+
 export interface StaffEventUpsertRequest {
   title: string;
   slug?: string;
@@ -1457,6 +1549,8 @@ export interface StaffEventUpsertRequest {
   max_registrations?: number | null;
   max_registrations_per_order?: number | null;
   requires_waiver?: boolean;
+  /** folio: folio is the dorsal; separate: assign bib later. Default folio for new events. */
+  bib_mode?: "folio" | "separate";
   /** null = inherit organizer default */
   fee_presentation?: FeePresentation | null;
 }
@@ -1490,6 +1584,7 @@ export interface AdminAthleteDetailResponse {
     status: string;
     total_cents: number;
     created_at: string;
+    event_id: number;
     event_title: string;
     event_slug: string;
   }>;

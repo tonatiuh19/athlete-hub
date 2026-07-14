@@ -319,10 +319,10 @@ export default function BlogEditor() {
 
   useEffect(() => {
     if (isAdmin) {
-      dispatch(fetchAdminEvents({ status: "published" }));
+      dispatch(fetchAdminEvents({ status: "published", limit: 100, sortBy: "title", sortDir: "ASC" }));
       dispatch(fetchAdminOrganizers({}));
     } else if (role) {
-      dispatch(fetchOrganizerEvents());
+      dispatch(fetchOrganizerEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
     }
   }, [dispatch, isAdmin, role]);
 

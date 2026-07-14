@@ -28,6 +28,11 @@ export interface GroupCheckoutLineItemInput {
   guest?: GroupGuestParticipant;
   /** Parent/guardian relationship when participant is a minor */
   guardianRelationship?: string;
+  /**
+   * Force managed-by-purchaser (no claim email), even if adult.
+   * Minors are always managed automatically.
+   */
+  managedByPurchaser?: boolean;
   categoryId: number;
   fieldValues: Record<string, string | boolean>;
   waiverSignatures?: WaiverSignatureInput[];
@@ -81,12 +86,16 @@ export interface GroupRegistrationConfirmRegistration {
   public_uuid: string;
   registration_number: string;
   qr_code_token: string;
+  bib_number?: string | null;
   status: string;
   total_cents: number;
   category_name: string;
   participant_label: string;
   participant_email: string;
   guest_claim_token?: string | null;
+  /** Purchaser should keep QR (minor / managed / unclaimed guest) */
+  wallet_held_by_purchaser?: boolean;
+  is_managed_participant?: boolean;
 }
 
 export const DEFAULT_MAX_REGISTRATIONS_PER_ORDER = 10;

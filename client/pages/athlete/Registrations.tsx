@@ -12,11 +12,13 @@ import WaitlistOfferCountdown from "@/components/athlete/WaitlistOfferCountdown"
 import { Button } from "@/components/ui/button";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
+  fetchAthleteOrderWallets,
   fetchAthleteRegistrations,
   fetchAthleteWaitlist,
 } from "@/store/slices/athletePortalSlice";
 import { fetchEventDetail } from "@/store/slices/marketplaceSlice";
 import { openRegistrationWizard } from "@/store/slices/registrationCheckoutSlice";
+import PurchaserQrWallet from "@/components/shared/PurchaserQrWallet";
 import { Badge } from "@/components/ui/badge";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
 import type { RegistrationItem, WaitlistEntry } from "@shared/api";
@@ -27,8 +29,10 @@ export default function AthleteRegistrations() {
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     registrations,
+    orderWallets,
     waitlistEntries,
     loadingRegistrations,
+    loadingOrderWallets,
     loadingWaitlist,
     registrationsError,
     waitlistError,
@@ -46,10 +50,12 @@ export default function AthleteRegistrations() {
 
   useEffect(() => {
     dispatch(fetchAthleteRegistrations());
+    dispatch(fetchAthleteOrderWallets());
     dispatch(fetchAthleteWaitlist());
   }, [dispatch]);
 
   const qrParam = searchParams.get("qr");
+  const walletParam = searchParams.get("wallet");
 
   useEffect(() => {
     if (!qrParam || registrations.length === 0) return;
@@ -60,8 +66,26 @@ export default function AthleteRegistrations() {
     }
   }, [qrParam, registrations, setSearchParams]);
 
+  useEffect(() => {
+    if (walletParam !== "1" || loadingOrderWallets) return;
+    if (orderWallets.length === 0) return;
+    document.getElementById("athlete-pass-wallet")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("wallet");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [walletParam, loadingOrderWallets, orderWallets.length, setSearchParams]);
+
   const retry = () => {
     dispatch(fetchAthleteRegistrations());
+    dispatch(fetchAthleteOrderWallets());
     dispatch(fetchAthleteWaitlist());
   };
 
@@ -111,6 +135,32 @@ export default function AthleteRegistrations() {
       </div>
 
       <PortalErrorAlert error={registrationsError || waitlistError} onRetry={retry} />
+
+      {!loadingOrderWallets && orderWallets.length > 0 ? (
+        <section id="athlete-pass-wallet" className="space-y-4 scroll-mt-20">
+          <h2 className="text-lg font-semibold">{t("athletePortal.registrations.walletSection")}</h2>
+          {orderWallets.map((wallet) => (
+            <div key={wallet.order_id} className="space-y-2">
+              <p className="text-sm font-medium text-foreground">{wallet.event_title}</p>
+              <PurchaserQrWallet
+                items={wallet.passes.map((p) => ({
+                  public_uuid: p.public_uuid,
+                  registration_number: p.registration_number,
+                  qr_code_token: p.qr_code_token,
+                  bib_number: p.bib_number,
+                  participant_label: p.participant_label,
+                  category_name: p.category_name,
+                  wallet_held_by_purchaser: p.wallet_held_by_purchaser,
+                  is_managed_participant: p.is_managed_participant,
+                  guest_claim_token: p.guest_claim_pending ? "pending" : null,
+                }))}
+                title={t("registrationWallet.portalTitle")}
+                subtitle={t("registrationWallet.portalSubtitle")}
+              />
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {!loadingWaitlist && waitlistEntries.length > 0 ? (
         <section className="space-y-3">

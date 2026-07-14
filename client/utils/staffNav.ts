@@ -1,7 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  canOrganizerCreateEvents as sharedCanOrganizerCreateEvents,
+    canOrganizerCreateEvents as sharedCanOrganizerCreateEvents,
   canOrganizerEditEvents as sharedCanOrganizerEditEvents,
+  canOrganizerManageRegistrations as sharedCanOrganizerManageRegistrations,
   canOrganizerRecordManualSale as sharedCanOrganizerRecordManualSale,
   canOrganizerViewAllPayments as sharedCanOrganizerViewAllPayments,
   canOrganizerViewPayments as sharedCanOrganizerViewPayments,
@@ -138,6 +139,19 @@ export function getStaffNav(isAdmin: boolean, organizerRole?: string): StaffNavI
 
 export function canOrganizerEditEvents(role: string): boolean {
   return sharedCanOrganizerEditEvents(role);
+}
+
+export function canOrganizerManageRegistrations(role: string): boolean {
+  return sharedCanOrganizerManageRegistrations(role);
+}
+
+/** Admin always; organizer members via REGISTRATION_OPS_ROLES (includes timing). */
+export function canStaffManageRegistrations(
+  isAdmin: boolean,
+  organizerRole?: string,
+): boolean {
+  if (isAdmin) return true;
+  return sharedCanOrganizerManageRegistrations(organizerRole ?? "");
 }
 
 export function canOrganizerManageTeam(role: string): boolean {

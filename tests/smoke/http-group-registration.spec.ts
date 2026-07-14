@@ -260,4 +260,145 @@ describe("HTTP smoke: group registration checkout & claim", () => {
     expect(res.status).toBe(404);
     expect(res.body.code).toBe("claim_not_found");
   });
+
+  it("rejects group checkout when required Campos extra are missing", async () => {
+    const { app, authHeader } = await mountRegistrationScenario(
+      seeds.withRequiredRegistrationField(),
+    );
+
+    const res = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/checkout`)
+      .set("Authorization", authHeader)
+      .send({
+        idempotencyKey: "grp-fields-missing",
+        lineItems: [
+          {
+            lineId: "self",
+            participantType: "self",
+            categoryId: SCENARIO.categoryId,
+            fieldValues: {},
+          },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("registration_fields_invalid");
+    expect(res.body.error).toMatch(/Emergency contact/i);
+  });
+
+  it("accepts group checkout when required Campos extra are provided per line", async () => {
+    const { app, authHeader, db } = await mountRegistrationScenario(
+      seeds.withRequiredRegistrationField(),
+    );
+
+    const res = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/checkout`)
+      .set("Authorization", authHeader)
+      .send({
+        idempotencyKey: "grp-fields-ok",
+        lineItems: [
+          {
+            lineId: "self",
+            participantType: "self",
+            categoryId: SCENARIO.categoryId,
+            fieldValues: { emergency_contact: "Ana +521555" },
+          },
+          {
+            ...guestLine,
+            fieldValues: { emergency_contact: "Luis +521666" },
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.orderMode).toBe("group");
+    expect(res.body.itemCount).toBe(2);
+
+    const confirm = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/confirm`)
+      .set("Authorization", authHeader)
+      .send({ paymentPublicUuid: res.body.paymentPublicUuid });
+
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.success).toBe(true);
+    expect(db.fieldValues.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("minor guest gets no claim token (managed by purchaser)", async () => {
+    const { app, authHeader } = await mountRegistrationScenario(seeds.groupFreeOpen());
+
+    const minorLine = {
+      ...guestLine,
+      lineId: "minor-1",
+      guest: {
+        ...guestLine.guest,
+        firstName: "Kid",
+        lastName: "Runner",
+        email: "kid-guest@test.local",
+        dateOfBirth: "2015-01-15",
+      },
+      guardianRelationship: "Parent",
+    };
+
+    const checkout = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/checkout`)
+      .set("Authorization", authHeader)
+      .send({
+        idempotencyKey: "grp-minor-managed",
+        lineItems: [
+          {
+            lineId: "self",
+            participantType: "self",
+            categoryId: SCENARIO.categoryId,
+            fieldValues: {},
+          },
+          minorLine,
+        ],
+      });
+    expect(checkout.status).toBe(200);
+
+    const confirm = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/confirm`)
+      .set("Authorization", authHeader)
+      .send({ paymentPublicUuid: checkout.body.paymentPublicUuid });
+
+    expect(confirm.status).toBe(200);
+    const kid = confirm.body.order.registrations.find(
+      (r: { participant_email?: string }) => r.participant_email === "kid-guest@test.local",
+    );
+    expect(kid).toBeTruthy();
+    expect(kid.guest_claim_token).toBeFalsy();
+    expect(kid.is_managed_participant).toBe(true);
+    expect(kid.wallet_held_by_purchaser).toBe(true);
+  });
+
+  it("managedByPurchaser adult guest skips claim token", async () => {
+    const { app, authHeader } = await mountRegistrationScenario(seeds.groupFreeOpen());
+
+    const checkout = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/checkout`)
+      .set("Authorization", authHeader)
+      .send({
+        idempotencyKey: "grp-force-managed",
+        lineItems: [
+          {
+            ...guestLine,
+            managedByPurchaser: true,
+            guardianRelationship: "Guardian",
+          },
+        ],
+      });
+    expect(checkout.status).toBe(200);
+
+    const confirm = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/confirm`)
+      .set("Authorization", authHeader)
+      .send({ paymentPublicUuid: checkout.body.paymentPublicUuid });
+
+    expect(confirm.status).toBe(200);
+    const guest = confirm.body.order.registrations[0];
+    expect(guest.guest_claim_token).toBeFalsy();
+    expect(guest.is_managed_participant).toBe(true);
+    expect(guest.wallet_held_by_purchaser).toBe(true);
+  });
 });

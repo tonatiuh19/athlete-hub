@@ -10,9 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import WizardAuthStep from "@/components/events/registration/WizardAuthStep";
 import WizardWaiverStep from "@/components/events/registration/WizardWaiverStep";
 import WizardExtrasStep from "@/components/events/registration/WizardExtrasStep";
+import WizardRegistrationFieldsForm from "@/components/events/registration/WizardRegistrationFieldsForm";
 import WizardGroupCheckoutStep from "@/components/events/registration/WizardGroupCheckoutStep";
 import WizardGroupResultStep from "@/components/events/registration/WizardGroupResultStep";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -28,6 +30,7 @@ import {
   setGroupWizardStep,
   setGroupWaiverForCurrent,
   updateCurrentParticipant,
+  type GroupParticipantDraft,
 } from "@/store/slices/groupRegistrationCheckoutSlice";
 import { fetchPaymentConfig } from "@/store/slices/registrationCheckoutSlice";
 import { fetchEventDetail } from "@/store/slices/marketplaceSlice";
@@ -37,9 +40,40 @@ import {
   getRegistrationWaivers,
   isWaiverMisconfigured,
 } from "@/utils/eventRegistrationWaivers";
+import { filterRegistrationFieldsForCategory } from "@shared/registrationFields";
 import type { EventCategory, GroupCheckoutLineItemInput } from "@shared/api";
+import { cn } from "@/lib/utils";
 
 export { openGroupRegistrationWizard };
+
+type ParticipantSubStep = "profile" | "fields" | "waiver" | "extras";
+
+function participantDisplayName(
+  p: GroupParticipantDraft,
+  youLabel: string,
+): string {
+  if (p.participantType === "self") return youLabel;
+  if (p.participantType === "account") return p.accountEmail?.trim() || youLabel;
+  return `${p.guest?.firstName ?? ""} ${p.guest?.lastName ?? ""}`.trim() || youLabel;
+}
+
+function nextAfter(
+  current: ParticipantSubStep,
+  available: ParticipantSubStep[],
+): ParticipantSubStep | null {
+  const idx = available.indexOf(current);
+  if (idx < 0 || idx >= available.length - 1) return null;
+  return available[idx + 1];
+}
+
+function prevBefore(
+  current: ParticipantSubStep,
+  available: ParticipantSubStep[],
+): ParticipantSubStep | null {
+  const idx = available.indexOf(current);
+  if (idx <= 0) return null;
+  return available[idx - 1];
+}
 
 export default function GroupRegistrationWizard() {
   const { t } = useTranslation();
@@ -64,7 +98,7 @@ export default function GroupRegistrationWizard() {
   } = useAppSelector((s) => s.groupRegistration);
 
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
-  const [subStep, setSubStep] = useState<"profile" | "waiver" | "extras">("profile");
+  const [subStep, setSubStep] = useState<ParticipantSubStep>("profile");
 
   const categories = eventDetail?.categories ?? [];
   const registrationWaivers = useMemo(
@@ -76,6 +110,12 @@ export default function GroupRegistrationWizard() {
   const current = participants[currentParticipantIndex];
   const currentCategory = categories.find((c) => c.id === current?.categoryId);
 
+  const registrationFields = useMemo(() => {
+    const all = eventDetail?.registrationFields ?? [];
+    if (!currentCategory?.id) return [];
+    return filterRegistrationFieldsForCategory(all, currentCategory.id);
+  }, [eventDetail?.registrationFields, currentCategory?.id]);
+
   const registrationExtras = useMemo(() => {
     const all = eventDetail?.extras ?? [];
     if (!currentCategory?.id) return all;
@@ -86,9 +126,22 @@ export default function GroupRegistrationWizard() {
     });
   }, [eventDetail?.extras, currentCategory?.id]);
 
+  const hasFields = registrationFields.length > 0;
   const hasExtras = registrationExtras.length > 0;
   const maxPerOrder = eventDetail?.event?.max_registrations_per_order ?? 10;
   const buyerRegistered = eventDetail?.myRegistration?.status === "confirmed";
+
+  const availableSubSteps = useMemo((): ParticipantSubStep[] => {
+    const steps: ParticipantSubStep[] = ["profile"];
+    if (hasFields) steps.push("fields");
+    if (needsWaiver) steps.push("waiver");
+    if (hasExtras) steps.push("extras");
+    return steps;
+  }, [hasFields, needsWaiver, hasExtras]);
+
+  const currentParticipantLabel = current
+    ? participantDisplayName(current, t("groupRegistration.you"))
+    : "";
 
   useEffect(() => {
     if (open && eventSlug) {
@@ -114,6 +167,14 @@ export default function GroupRegistrationWizard() {
     dispatch(fetchAthleteRegistrations());
   }, [open, confirmResult?.success, dispatch]);
 
+  /** If a step disappears (e.g. category loses scoped fields), snap back to a valid step. */
+  useEffect(() => {
+    if (step !== "participant") return;
+    if (!availableSubSteps.includes(subStep)) {
+      setSubStep(availableSubSteps[0] ?? "profile");
+    }
+  }, [step, subStep, availableSubSteps]);
+
   const lineItemsForCheckout = useMemo((): GroupCheckoutLineItemInput[] => {
     return participants
       .filter((p) => p.categoryId > 0)
@@ -123,6 +184,7 @@ export default function GroupRegistrationWizard() {
         accountEmail: p.accountEmail,
         guest: p.guest,
         guardianRelationship: p.guardianRelationship,
+        managedByPurchaser: p.managedByPurchaser,
         categoryId: p.categoryId,
         fieldValues: p.fieldValues ?? {},
         waiverSignatures: p.waiverSignatures,
@@ -132,21 +194,6 @@ export default function GroupRegistrationWizard() {
       }));
   }, [participants]);
 
-  const goNextParticipantSubStep = () => {
-    if (subStep === "profile") {
-      if (needsWaiver) setSubStep("waiver");
-      else if (hasExtras) setSubStep("extras");
-      else advanceParticipant();
-      return;
-    }
-    if (subStep === "waiver") {
-      if (hasExtras) setSubStep("extras");
-      else advanceParticipant();
-      return;
-    }
-    advanceParticipant();
-  };
-
   const advanceParticipant = () => {
     setSubStep("profile");
     if (currentParticipantIndex < participants.length - 1) {
@@ -155,6 +202,46 @@ export default function GroupRegistrationWizard() {
       dispatch(setGroupWizardStep("review"));
     }
   };
+
+  const goNextParticipantSubStep = () => {
+    const nxt = nextAfter(subStep, availableSubSteps);
+    if (nxt) {
+      setSubStep(nxt);
+      return;
+    }
+    advanceParticipant();
+  };
+
+  const goPrevParticipantSubStep = () => {
+    const prev = prevBefore(subStep, availableSubSteps);
+    if (prev) {
+      setSubStep(prev);
+      return;
+    }
+    if (currentParticipantIndex > 0) {
+      setSubStep("profile");
+      dispatch(setCurrentParticipantIndex(currentParticipantIndex - 1));
+    }
+  };
+
+  const profileContinueLabel = (() => {
+    const nxt = nextAfter("profile", availableSubSteps);
+    if (nxt === "fields") return t("groupRegistration.continueToFields");
+    if (nxt === "waiver") return t("groupRegistration.continueToWaiver");
+    if (nxt === "extras") return t("groupRegistration.continueToExtras");
+    return currentParticipantIndex < participants.length - 1
+      ? t("groupRegistration.nextParticipant")
+      : t("groupRegistration.reviewOrder");
+  })();
+
+  const fieldsContinueLabel = (() => {
+    const nxt = nextAfter("fields", availableSubSteps);
+    if (nxt === "waiver") return t("groupRegistration.continueToWaiver");
+    if (nxt === "extras") return t("groupRegistration.continueToExtras");
+    return currentParticipantIndex < participants.length - 1
+      ? t("groupRegistration.nextParticipant")
+      : t("groupRegistration.reviewOrder");
+  })();
 
   const handleStartCheckout = () => {
     if (!eventSlug) return;
@@ -187,6 +274,13 @@ export default function GroupRegistrationWizard() {
     );
   }
 
+  const subStepLabels: Record<ParticipantSubStep, string> = {
+    profile: t("groupRegistration.subStepProfile"),
+    fields: t("groupRegistration.subStepFields"),
+    waiver: t("groupRegistration.subStepWaiver"),
+    extras: t("groupRegistration.subStepExtras"),
+  };
+
   return (
     <Dialog
       open={open}
@@ -204,6 +298,7 @@ export default function GroupRegistrationWizard() {
                 current: currentParticipantIndex + 1,
                 total: participants.length,
               })}
+              {currentParticipantLabel ? ` · ${currentParticipantLabel}` : ""}
             </p>
           )}
         </DialogHeader>
@@ -276,6 +371,37 @@ export default function GroupRegistrationWizard() {
 
           {!waiverMisconfigured && step === "participant" && current && (
             <div className="space-y-4">
+              {availableSubSteps.length > 1 ? (
+                <nav
+                  aria-label={t("groupRegistration.participantSteps")}
+                  className="flex flex-wrap gap-1.5"
+                >
+                  {availableSubSteps.map((s) => {
+                    const active = s === subStep;
+                    const reached =
+                      availableSubSteps.indexOf(s) <= availableSubSteps.indexOf(subStep);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        disabled={!reached}
+                        onClick={() => reached && setSubStep(s)}
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                          active
+                            ? "border-primary/40 bg-primary/15 text-foreground"
+                            : reached
+                              ? "border-border bg-card text-muted-foreground hover:border-primary/30"
+                              : "border-border/50 bg-muted/30 text-muted-foreground/50 cursor-not-allowed",
+                        )}
+                      >
+                        {subStepLabels[s]}
+                      </button>
+                    );
+                  })}
+                </nav>
+              ) : null}
+
               {subStep === "profile" && (
                 <>
                   <div>
@@ -287,6 +413,7 @@ export default function GroupRegistrationWizard() {
                         dispatch(
                           updateCurrentParticipant({
                             categoryId: Number(e.target.value),
+                            fieldValues: {},
                           }),
                         )
                       }
@@ -317,7 +444,7 @@ export default function GroupRegistrationWizard() {
                             dispatch(
                               updateCurrentParticipant({
                                 participantType: e.target.value as "account" | "guest",
-                                accountEmail: "",
+                                accountEmail: undefined,
                                 guest: undefined,
                               }),
                             )
@@ -332,22 +459,21 @@ export default function GroupRegistrationWizard() {
                         <div>
                           <Label>{t("common.email")}</Label>
                           <Input
+                            className="mt-1"
                             type="email"
-                            className="mt-1.5"
                             value={current.accountEmail ?? ""}
                             onChange={(e) =>
                               dispatch(
                                 updateCurrentParticipant({ accountEmail: e.target.value }),
                               )
                             }
-                            placeholder="atleta@email.com"
                           />
                         </div>
                       )}
 
                       {current.participantType === "guest" && (
                         <div className="space-y-3">
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <Label>{t("groupRegistration.firstName")}</Label>
                               <Input
@@ -358,6 +484,7 @@ export default function GroupRegistrationWizard() {
                                     updateCurrentParticipant({
                                       guest: {
                                         ...(current.guest ?? {
+                                          firstName: "",
                                           lastName: "",
                                           email: "",
                                           dateOfBirth: "",
@@ -381,6 +508,7 @@ export default function GroupRegistrationWizard() {
                                       guest: {
                                         ...(current.guest ?? {
                                           firstName: "",
+                                          lastName: "",
                                           email: "",
                                           dateOfBirth: "",
                                           gender: "prefer_not_to_say",
@@ -396,8 +524,8 @@ export default function GroupRegistrationWizard() {
                           <div>
                             <Label>{t("common.email")}</Label>
                             <Input
-                              type="email"
                               className="mt-1"
+                              type="email"
                               value={current.guest?.email ?? ""}
                               onChange={(e) =>
                                 dispatch(
@@ -406,6 +534,7 @@ export default function GroupRegistrationWizard() {
                                       ...(current.guest ?? {
                                         firstName: "",
                                         lastName: "",
+                                        email: "",
                                         dateOfBirth: "",
                                         gender: "prefer_not_to_say",
                                       }),
@@ -416,12 +545,12 @@ export default function GroupRegistrationWizard() {
                               }
                             />
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <Label>{t("groupRegistration.dateOfBirth")}</Label>
                               <Input
-                                type="date"
                                 className="mt-1"
+                                type="date"
                                 value={current.guest?.dateOfBirth ?? ""}
                                 onChange={(e) =>
                                   dispatch(
@@ -431,6 +560,7 @@ export default function GroupRegistrationWizard() {
                                           firstName: "",
                                           lastName: "",
                                           email: "",
+                                          dateOfBirth: "",
                                           gender: "prefer_not_to_say",
                                         }),
                                         dateOfBirth: e.target.value,
@@ -443,7 +573,7 @@ export default function GroupRegistrationWizard() {
                             <div>
                               <Label>{t("groupRegistration.gender")}</Label>
                               <select
-                                className="mt-1 w-full h-10 rounded-xl border border-input bg-card px-2 text-sm"
+                                className="mt-1 w-full h-11 rounded-xl border border-input bg-card px-3 text-sm"
                                 value={current.guest?.gender ?? "prefer_not_to_say"}
                                 onChange={(e) =>
                                   dispatch(
@@ -491,12 +621,71 @@ export default function GroupRegistrationWizard() {
                               placeholder={t("groupRegistration.guardianPlaceholder")}
                             />
                           </div>
+                          <label className="flex items-start gap-2 text-sm pt-1">
+                            <Checkbox
+                              checked={Boolean(current.managedByPurchaser)}
+                              onCheckedChange={(v) =>
+                                dispatch(
+                                  updateCurrentParticipant({
+                                    managedByPurchaser: Boolean(v),
+                                  }),
+                                )
+                              }
+                            />
+                            <span className="leading-snug">
+                              <span className="font-medium text-foreground">
+                                {t("groupRegistration.managedByPurchaser")}
+                              </span>
+                              <span className="block text-xs text-muted-foreground mt-0.5">
+                                {t("groupRegistration.managedByPurchaserHint")}
+                              </span>
+                            </span>
+                          </label>
                         </div>
                       )}
                     </>
                   )}
+
+                  <div className="flex gap-2 pt-2">
+                    {currentParticipantIndex > 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={goPrevParticipantSubStep}
+                      >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        {t("common.back")}
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      className="flex-1 btn-primary"
+                      disabled={!current.categoryId}
+                      onClick={goNextParticipantSubStep}
+                    >
+                      {profileContinueLabel}
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
                 </>
               )}
+
+              {subStep === "fields" && hasFields ? (
+                <WizardRegistrationFieldsForm
+                  fields={registrationFields}
+                  initialValues={current.fieldValues}
+                  participantLabel={t("groupRegistration.fieldsForPerson", {
+                    name: currentParticipantLabel,
+                  })}
+                  submitLabel={fieldsContinueLabel}
+                  onBack={goPrevParticipantSubStep}
+                  onSubmit={(fieldValues) => {
+                    dispatch(updateCurrentParticipant({ fieldValues }));
+                    goNextParticipantSubStep();
+                  }}
+                />
+              ) : null}
 
               {subStep === "waiver" && registrationWaivers.length > 0 && (
                 <WizardWaiverStep
@@ -538,36 +727,6 @@ export default function GroupRegistrationWizard() {
                   }}
                 />
               )}
-
-              {subStep === "profile" && (
-                <div className="flex gap-2 pt-2">
-                  {currentParticipantIndex > 0 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        setSubStep("profile");
-                        dispatch(setCurrentParticipantIndex(currentParticipantIndex - 1));
-                      }}
-                    >
-                      <ChevronLeft className="w-4 h-4 mr-1" />
-                      {t("common.back")}
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    className="flex-1 btn-primary"
-                    disabled={!current.categoryId}
-                    onClick={goNextParticipantSubStep}
-                  >
-                    {currentParticipantIndex < participants.length - 1
-                      ? t("groupRegistration.nextParticipant")
-                      : t("groupRegistration.reviewOrder")}
-                    <ChevronRight className="w-4 h-4 ml-1" />
-                  </Button>
-                </div>
-              )}
             </div>
           )}
 
@@ -576,21 +735,28 @@ export default function GroupRegistrationWizard() {
               <ul className="space-y-2">
                 {participants.map((p, i) => {
                   const cat = categories.find((c) => c.id === p.categoryId);
-                  const label =
-                    p.participantType === "self"
-                      ? t("groupRegistration.you")
-                      : p.participantType === "account"
-                        ? p.accountEmail
-                        : `${p.guest?.firstName ?? ""} ${p.guest?.lastName ?? ""}`.trim();
+                  const label = participantDisplayName(p, t("groupRegistration.you"));
+                  const answeredCount = Object.values(p.fieldValues ?? {}).filter((v) =>
+                    typeof v === "boolean" ? v : String(v ?? "").trim(),
+                  ).length;
                   return (
                     <li
                       key={p.lineId}
                       className="rounded-xl border border-border bg-card/60 px-3 py-2.5 text-sm"
                     >
-                      <span className="font-medium text-foreground">
-                        {i + 1}. {label}
-                      </span>
-                      <span className="text-muted-foreground"> · {cat?.name}</span>
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <div>
+                          <span className="font-medium text-foreground">
+                            {i + 1}. {label}
+                          </span>
+                          <span className="text-muted-foreground"> · {cat?.name}</span>
+                        </div>
+                        {answeredCount > 0 ? (
+                          <span className="text-[11px] font-semibold text-primary">
+                            {t("groupRegistration.fieldsAnswered", { count: answeredCount })}
+                          </span>
+                        ) : null}
+                      </div>
                     </li>
                   );
                 })}
@@ -604,15 +770,30 @@ export default function GroupRegistrationWizard() {
                 />
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button
-                className="w-full btn-primary"
-                disabled={loadingCheckout}
-                onClick={handleStartCheckout}
-              >
-                {loadingCheckout
-                  ? t("groupRegistration.preparingCheckout")
-                  : t("groupRegistration.continueToPayment")}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setSubStep("profile");
+                    dispatch(setCurrentParticipantIndex(Math.max(0, participants.length - 1)));
+                    dispatch(setGroupWizardStep("participant"));
+                  }}
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  {t("common.back")}
+                </Button>
+                <Button
+                  className="flex-1 btn-primary"
+                  disabled={loadingCheckout}
+                  onClick={handleStartCheckout}
+                >
+                  {loadingCheckout
+                    ? t("groupRegistration.preparingCheckout")
+                    : t("groupRegistration.continueToPayment")}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -628,6 +809,8 @@ export default function GroupRegistrationWizard() {
               success={!paymentFailed && Boolean(confirmResult?.success)}
               failureMessage={failureMessage}
               confirmationEmail={confirmResult?.confirmationEmail ?? user?.email ?? null}
+              eventTitle={eventDetail.event.title}
+              eventSlug={eventSlug}
               order={confirmResult?.order}
               onRetry={handleRetry}
               onClose={() => dispatch(closeGroupRegistrationWizard())}

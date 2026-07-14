@@ -170,3 +170,33 @@ export function serializeRegistrationFieldValue(
   const strVal = String(raw).trim();
   return strVal || null;
 }
+
+/**
+ * Validate organizer Campos extra against submitted checkout values.
+ * Returns the first human-readable error, or null when all answers are valid.
+ */
+export function validateRegistrationFieldAnswers(
+  fields: Array<{
+    field_key: string;
+    label: string;
+    field_type: string;
+    is_required: boolean | number;
+    options_json?: unknown;
+  }>,
+  values: Record<string, string | boolean | undefined | null>,
+): string | null {
+  for (const field of fields) {
+    const err = validateRegistrationFieldInput(
+      {
+        field_key: field.field_key,
+        label: field.label,
+        field_type: field.field_type,
+        is_required: field.is_required,
+        options_json: parseRegistrationFieldOptions(field.options_json),
+      },
+      values[field.field_key],
+    );
+    if (err) return err;
+  }
+  return null;
+}

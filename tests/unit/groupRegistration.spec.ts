@@ -49,6 +49,30 @@ describe("buildGroupOrderSummaryEmail", () => {
     expect(mail.text).toContain("TR-001");
     expect(mail.html).toContain("10K");
   });
+
+  it("deep-links pass wallet when purchaser holds QRs", () => {
+    const mail = buildGroupOrderSummaryEmail({
+      locale: "en",
+      firstName: "Alex",
+      eventTitle: "Trail Run",
+      totalCents: 75_000,
+      itemCount: 1,
+      participants: [
+        {
+          label: "Kid Gomez",
+          categoryName: "Kids",
+          registrationNumber: "TR-KID",
+          totalCents: 75_000,
+        },
+      ],
+      appUrl: "https://triboo.test",
+      walletHeldCount: 1,
+    });
+
+    expect(mail.html).toContain("wallet=1");
+    expect(mail.text).toContain("wallet=1");
+    expect(mail.html).toMatch(/pass wallet|Open my pass wallet/i);
+  });
 });
 
 describe("claimGuestRegistration", () => {

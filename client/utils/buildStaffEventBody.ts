@@ -28,6 +28,7 @@ export type EventEditFormValues = {
   max_registrations: string;
   max_registrations_per_order: string;
   fee_presentation: "inherit" | FeePresentation;
+  bib_mode: "folio" | "separate";
 };
 
 export function buildEventEditFormValues(
@@ -67,6 +68,7 @@ export function buildEventEditFormValues(
     max_registrations_per_order:
       event?.max_registrations_per_order?.toString() ?? "10",
     fee_presentation: event?.fee_presentation ?? "inherit",
+    bib_mode: event?.bib_mode === "separate" ? "separate" : "folio",
   };
 }
 
@@ -108,6 +110,7 @@ export function buildStaffEventBody(
       : 10,
     fee_presentation:
       values.fee_presentation === "inherit" ? null : values.fee_presentation,
+    bib_mode: values.bib_mode === "separate" ? "separate" : "folio",
     ...overrides,
   };
 }

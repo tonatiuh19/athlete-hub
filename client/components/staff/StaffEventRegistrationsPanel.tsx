@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { CheckCircle2, Download, Search, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, Search, Upload, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import StaffAddRegistrationDialog from "@/components/staff/StaffAddRegistrationDialog";
 import StaffRegistrationDetailSheet from "@/components/staff/StaffRegistrationDetailSheet";
+import StaffRegistrationExportDialog from "@/components/staff/StaffRegistrationExportDialog";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import { DataGrid, type DataGridColumn } from "@/components/ui/data-grid";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
-  assignRegistrationBib,
   bulkAssignBibs,
   cancelRegistration,
   fetchEventHubRegistrations,
@@ -20,8 +20,7 @@ import {
 } from "@/store/slices/staffPortalSlice";
 import { useGridListState } from "@/hooks/useGridListState";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
-import { downloadCsv } from "@/utils/exportCsv";
-import { canRefundStaffPayments } from "@/utils/staffNav";
+import { canRefundStaffPayments, canStaffManageRegistrations } from "@/utils/staffNav";
 import type { OrganizerRegistrationRow, StaffEventCategory, StaffRole } from "@shared/api";
 
 interface StaffEventRegistrationsPanelProps {
@@ -38,6 +37,7 @@ export default function StaffEventRegistrationsPanel({
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
   const {
+    eventDetail,
     eventHubRegistrations,
     eventHubRegistrationsPagination,
     loadingEventHubRegistrations,
@@ -47,11 +47,27 @@ export default function StaffEventRegistrationsPanel({
     bulkBibResult,
     bulkBibError,
   } = useAppSelector((s) => s.staffPortal);
+  const eventBibMode =
+    eventDetail?.event?.id === eventId && eventDetail.event.bib_mode === "separate"
+      ? "separate"
+      : "folio";
+  const missingBibCount =
+    eventBibMode === "separate"
+      ? eventHubRegistrations.filter(
+          (r) =>
+            r.status === "confirmed" &&
+            !(r.bib_number && String(r.bib_number).trim()),
+        ).length
+      : 0;
   const { user } = useAppSelector((s) => s.staffAuth);
   const canRefund = canRefundStaffPayments(role === "admin", user?.type === "organizer" ? user.role : undefined);
+  const canOps = canStaffManageRegistrations(
+    role === "admin",
+    user?.type === "organizer" ? user.role : undefined,
+  );
+  const folioEqualsBib = eventBibMode === "folio";
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [bibDrafts, setBibDrafts] = useState<Record<number, string>>({});
   const [bulkCsv, setBulkCsv] = useState("");
   const [selectedRegistrationId, setSelectedRegistrationId] = useState<number | null>(null);
   const { page, setPage, sortBy, sortDir, onSort, gridParams } = useGridListState();
@@ -88,24 +104,6 @@ export default function StaffEventRegistrationsPanel({
     );
 
   const refreshSummary = () => dispatch(fetchEventHubSummary({ eventId, role }));
-
-  const handleExport = () => {
-    downloadCsv(
-      "registrations.csv",
-      ["folio", "bib", "athlete", "email", "category", "status", "total_mxn", "waiver", "checked_in"],
-      eventHubRegistrations.map((r) => [
-        r.registration_number,
-        r.bib_number ?? "",
-        `${r.athlete_first_name} ${r.athlete_last_name}`,
-        r.athlete_email ?? "",
-        r.category_name,
-        r.status,
-        String(r.total_cents / 100),
-        r.waiver_signed_at ? "yes" : "no",
-        r.checked_in_at ? "yes" : "no",
-      ]),
-    );
-  };
 
   const parseBulkBibCsv = (text: string) => {
     const lines = text.trim().split(/\r?\n/).filter(Boolean);
@@ -172,16 +170,15 @@ export default function StaffEventRegistrationsPanel({
       },
       {
         key: "bib_number",
-        label: t("staffPortal.registrations.bibPlaceholder"),
+        label: t("staffPortal.registrations.bib"),
         sortable: true,
         shrink: true,
         render: (r) => (
-          <Input
-            className="h-8 w-20 text-xs"
-            value={bibDrafts[r.id] ?? r.bib_number ?? ""}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setBibDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
-          />
+          <span className="font-mono text-xs">
+            {folioEqualsBib
+              ? r.bib_number || r.registration_number
+              : r.bib_number || "—"}
+          </span>
         ),
       },
       {
@@ -224,7 +221,10 @@ export default function StaffEventRegistrationsPanel({
         shrink: true,
         render: (r) =>
           r.checked_in_at ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" aria-label={t("staffPortal.registrations.checkedIn")} />
+            <CheckCircle2
+              className="w-4 h-4 text-accent"
+              aria-label={t("staffPortal.registrations.checkedIn")}
+            />
           ) : (
             "—"
           ),
@@ -233,27 +233,9 @@ export default function StaffEventRegistrationsPanel({
         key: "actions",
         label: "",
         shrink: true,
-        render: (r) => (
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              onClick={() =>
-                dispatch(
-                  assignRegistrationBib({
-                    registrationId: r.id,
-                    eventId,
-                    role,
-                    bib_number: (bibDrafts[r.id] ?? r.bib_number ?? "").trim() || null,
-                  }),
-                )
-              }
-            >
-              {t("staffPortal.registrations.saveBib")}
-            </Button>
-            {r.status === "confirmed" || r.status === "pending_payment" ? (
+        render: (r) =>
+          canOps && (r.status === "confirmed" || r.status === "pending_payment") ? (
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
               <Button
                 type="button"
                 size="sm"
@@ -270,14 +252,12 @@ export default function StaffEventRegistrationsPanel({
               >
                 <XCircle className="w-3 h-3" />
               </Button>
-            ) : null}
-          </div>
-        ),
+            </div>
+          ) : null,
       },
     ];
   }, [
     t,
-    bibDrafts,
     numLocale,
     dateLocale,
     dispatch,
@@ -285,6 +265,8 @@ export default function StaffEventRegistrationsPanel({
     role,
     cancellingRegistration,
     refreshSummary,
+    canOps,
+    folioEqualsBib,
   ]);
 
   return (
@@ -310,21 +292,48 @@ export default function StaffEventRegistrationsPanel({
             }}
           />
         ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleExport}
-          disabled={eventHubRegistrations.length === 0}
-          className="shrink-0"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          {t("staffPortal.registrations.exportCsv")}
-        </Button>
+        <StaffRegistrationExportDialog
+          eventId={eventId}
+          role={role}
+          searchQuery={debounced}
+        />
       </div>
 
-      <div className="card-sport p-5 space-y-3">
+      {missingBibCount > 0 ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-foreground">
+              {t("staffPortal.eventEdit.bibMode.missingBibsTitle", { count: missingBibCount })}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t("staffPortal.eventEdit.bibMode.missingBibsHint")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => {
+              document
+                .getElementById("staff-event-bulk-bib-import")
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          >
+            <Upload className="w-4 h-4 mr-1.5" />
+            {t("staffPortal.eventEdit.bibMode.missingBibsImport")}
+          </Button>
+        </div>
+      ) : null}
+
+      <div id="staff-event-bulk-bib-import" className="card-sport p-5 space-y-3">
         <h2 className="font-semibold text-sm">{t("staffPortal.registrations.bulkBibTitle")}</h2>
         <p className="text-xs text-muted-foreground">{t("staffPortal.registrations.bulkBibHint")}</p>
+        {eventBibMode === "folio" ? (
+          <p className="text-xs rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-muted-foreground">
+            {t("staffPortal.eventEdit.bibMode.importOverrideHint")}
+          </p>
+        ) : null}
         <Textarea
           value={bulkCsv}
           onChange={(e) => setBulkCsv(e.target.value)}
@@ -334,7 +343,7 @@ export default function StaffEventRegistrationsPanel({
         />
         {bulkBibError ? <p className="text-sm text-destructive">{bulkBibError}</p> : null}
         {bulkBibResult ? (
-          <p className="text-sm text-emerald-500">
+          <p className="text-sm text-accent">
             {t("staffPortal.registrations.bulkBibSuccess", { count: bulkBibResult.updated })}
           </p>
         ) : null}
@@ -366,6 +375,24 @@ export default function StaffEventRegistrationsPanel({
           emptyMessage={t("staffPortal.registrations.empty")}
           onRowClick={(r) => setSelectedRegistrationId(r.id)}
           noBleeding
+          mobileCard={(r) => (
+            <div className="card-sport p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">
+                    {r.athlete_first_name} {r.athlete_last_name}
+                  </div>
+                  <div className="text-xs font-mono text-primary mt-1">
+                    {r.registration_number}
+                    {folioEqualsBib || r.bib_number
+                      ? ` · ${r.bib_number || r.registration_number}`
+                      : ""}
+                  </div>
+                </div>
+                <StaffStatusBadge status={r.status} />
+              </div>
+            </div>
+          )}
         />
       </div>
 
@@ -376,6 +403,12 @@ export default function StaffEventRegistrationsPanel({
         open={selectedRegistrationId != null}
         onOpenChange={(open) => !open && setSelectedRegistrationId(null)}
         allowRefund={canRefund}
+        allowRegistrationOps={canOps}
+        bibMode={eventBibMode}
+        onChanged={() => {
+          reload();
+          refreshSummary();
+        }}
       />
     </div>
   );

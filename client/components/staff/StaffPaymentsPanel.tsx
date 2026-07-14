@@ -75,9 +75,9 @@ export default function StaffPaymentsPanel({
 
   useEffect(() => {
     if (isAdmin) {
-      dispatch(fetchAdminEvents({}));
+      dispatch(fetchAdminEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
     } else {
-      dispatch(fetchOrganizerEvents());
+      dispatch(fetchOrganizerEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
       if (showSellerFilters) {
         dispatch(fetchOrganizerMembers());
       }

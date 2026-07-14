@@ -26,7 +26,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     if (role === "admin") dispatch(fetchStaffDashboard());
     else if (role === "organizer") {
-      dispatch(fetchOrganizerEvents());
+      dispatch(fetchOrganizerEvents({ limit: 100, sortBy: "start_date", sortDir: "DESC" }));
       dispatch(fetchOrganizerAnalytics());
     }
   }, [dispatch, role]);
@@ -37,7 +37,7 @@ export default function StaffDashboard() {
   const reload = () => {
     if (isAdmin) dispatch(fetchStaffDashboard());
     else {
-      dispatch(fetchOrganizerEvents());
+      dispatch(fetchOrganizerEvents({ limit: 100, sortBy: "start_date", sortDir: "DESC" }));
       dispatch(fetchOrganizerAnalytics());
     }
   };

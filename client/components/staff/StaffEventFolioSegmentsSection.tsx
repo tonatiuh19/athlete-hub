@@ -296,6 +296,7 @@ export default function StaffEventFolioSegmentsSection({
                     </div>
 
                     <StaffCategoryScopePicker
+                      groupName={`folio-segment-scope-${index}`}
                       scopeType={segment.category_scope ?? "all_categories"}
                       categoryIds={segment.category_ids ?? []}
                       categories={categories}

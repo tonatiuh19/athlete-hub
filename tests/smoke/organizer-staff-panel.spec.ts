@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
+  canOrganizerManageRegistrations,
   EVENT_EDITOR_ROLES,
 } from "@shared/staffRoles";
 import { isStaffEventCreateRoute } from "@/utils/staffEventRoutes";
@@ -38,6 +39,7 @@ const baseFormValues = {
   max_registrations: "",
   max_registrations_per_order: "10",
   fee_presentation: "pass_through" as const,
+  bib_mode: "folio" as const,
 };
 
 describe("smoke: public event slug from pathname", () => {
@@ -91,6 +93,12 @@ describe("smoke: organizer role gates", () => {
       expect(canOrganizerCreateEvents(role)).toBe(false);
       expect(canOrganizerEditEvents(role)).toBe(false);
     }
+  });
+
+  it("timing can manage registration ops while finance cannot", () => {
+    expect(canOrganizerManageRegistrations("timing")).toBe(true);
+    expect(canOrganizerManageRegistrations("finance")).toBe(false);
+    expect(canOrganizerManageRegistrations("operations")).toBe(true);
   });
 });
 

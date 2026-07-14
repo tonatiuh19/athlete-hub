@@ -291,6 +291,14 @@ export class GroupRegistrationMemoryPool {
       return [[], []];
     }
 
+    if (q.includes("from event_registration_fields")) {
+      return [[], []];
+    }
+
+    if (q.includes("from event_registration_field_categories")) {
+      return [[], []];
+    }
+
     throw new Error(`GroupRegistrationMemoryPool: unhandled SQL: ${sql}`);
   }
 

@@ -59,7 +59,7 @@ export default function StaffManualSaleDialog({ role, onCreated }: StaffManualSa
 
   useEffect(() => {
     if (!open || role !== "organizer") return;
-    dispatch(fetchOrganizerEvents());
+    dispatch(fetchOrganizerEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
   }, [open, dispatch, role]);
 
   useEffect(() => {
@@ -179,6 +179,12 @@ export default function StaffManualSaleDialog({ role, onCreated }: StaffManualSa
           <div className="space-y-2">
             <Label htmlFor="manual-sale-bib">{t("staffPortal.registrations.bibOptional")}</Label>
             <Input id="manual-sale-bib" {...formik.getFieldProps("bib_number")} />
+            {eventDetail?.event?.id === resolvedEventId &&
+            eventDetail.event.bib_mode !== "separate" ? (
+              <p className="text-xs text-muted-foreground">
+                {t("staffPortal.eventEdit.bibMode.manualSaleAutoHint")}
+              </p>
+            ) : null}
           </div>
 
           <label className="flex items-center gap-2 text-sm">

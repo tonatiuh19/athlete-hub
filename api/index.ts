@@ -22,10 +22,11 @@ import {
   registerStaffPortalRoutes,
   listAdminAthletes,
   listStaffRegistrations,
-  listOrganizerMemberEvents,
+  listOrganizerMemberEventsPaginated,
   assertMemberCanAccessEvent,
   getOrganizerMemberRole,
 } from "../server/staffPortal.js";
+import { listStaffEvents } from "../server/staffEventsList.js";
 import { canOrganizerEditEvents } from "../shared/staffRoles.js";
 import {
   applyDiscountToCheckout,
@@ -113,6 +114,10 @@ import {
   allocateRegistrationNumber,
   type RegistrationFolioContext,
 } from "../server/folioSegments.js";
+import {
+  fetchEventBibMode,
+  resolveRegistrationBibNumber,
+} from "../server/bibMode.js";
 import {
   clerkAuthorizedParties,
   clerkRequestOriginsFromHeaders,
@@ -347,6 +352,8 @@ type EmailStrings = {
     totalLabel: string;
     participantsHeading: string;
     cta: string;
+    walletHint: string;
+    walletCta: string;
   };
   footer: {
     tagline: string;
@@ -470,11 +477,14 @@ const EMAIL_STRINGS_ES: EmailStrings = {
     title: "Pedido grupal confirmado",
     greeting: "Hola {{name}},",
     intro:
-      "Procesamos tu pedido grupal. Cada participante recibirá su propio correo con QR y folio. Este es tu resumen de compra:",
+      "Procesamos tu pedido grupal. Guarda tus pases en el portal — ahí tienes los QR de niños e invitados sin reclamar.",
     eventLabel: "Evento",
     totalLabel: "Total pagado",
     participantsHeading: "Participantes",
     cta: "Ver mis inscripciones",
+    walletHint:
+      "Tu billetera de pases guarda los QR que tú presentas en el acceso (menores y huéspedes pendientes de reclamar).",
+    walletCta: "Abrir mi billetera de pases",
   },
   footer: {
     tagline: "La plataforma de eventos deportivos de México",
@@ -609,11 +619,14 @@ const EMAIL_STRINGS_EN: EmailStrings = {
     title: "Group order confirmed",
     greeting: "Hi {{name}},",
     intro:
-      "Your group order was processed successfully. Each participant will receive their own email with QR and registration number. Here is your purchase summary:",
+      "Your group order was processed. Keep your passes in the portal — you hold QRs for kids and unclaimed guests.",
     eventLabel: "Event",
     totalLabel: "Total paid",
     participantsHeading: "Participants",
     cta: "View my registrations",
+    walletHint:
+      "Your pass wallet keeps the QRs you show at the gate (minors and guests still waiting to claim).",
+    walletCta: "Open my pass wallet",
   },
   footer: {
     tagline: "Mexico's sports events platform",
@@ -1234,6 +1247,8 @@ export function buildGroupOrderSummaryEmail(params: {
     totalCents: number;
   }>;
   appUrl: string;
+  /** Passes the purchaser should hold at the gate */
+  walletHeldCount?: number;
 }): { subject: string; html: string; text: string } {
   const {
     locale,
@@ -1243,9 +1258,12 @@ export function buildGroupOrderSummaryEmail(params: {
     itemCount,
     participants,
     appUrl,
+    walletHeldCount = 0,
   } = params;
   const s = emailStrings(locale);
-  const portalUrl = `${appUrl.replace(/\/$/, "")}/portal/registrations`;
+  const portalUrl = `${appUrl.replace(/\/$/, "")}/portal/registrations${
+    walletHeldCount > 0 ? "?wallet=1" : ""
+  }`;
 
   const detailRow = (label: string, value: string) =>
     `<tr><td style="padding:12px 20px;border-bottom:1px solid ${EMAIL_BRAND.border};"><span style="display:block;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:${EMAIL_BRAND.textDim};">${escapeHtml(label)}</span><span style="display:block;margin-top:4px;font-size:16px;font-weight:600;color:${EMAIL_BRAND.textPrimary};">${escapeHtml(value)}</span></td></tr>`;
@@ -1264,6 +1282,11 @@ export function buildGroupOrderSummaryEmail(params: {
       .join("")}
   </table>`;
 
+  const walletHtml =
+    walletHeldCount > 0
+      ? `<p style="margin:20px 0 0;padding:14px 16px;border-radius:12px;border:1px solid ${EMAIL_BRAND.border};background:${EMAIL_BRAND.black};font-size:14px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.groupOrderSummary.walletHint)}</p>`
+      : "";
+
   const bodyHtml = `
     <p style="margin:0 0 12px;font-size:17px;">${escapeHtml(interpolateEmail(s.groupOrderSummary.greeting, { name: firstName }))}</p>
     <p style="margin:0 0 20px;color:${EMAIL_BRAND.textMuted};">${escapeHtml(s.groupOrderSummary.intro)}</p>
@@ -1272,6 +1295,7 @@ export function buildGroupOrderSummaryEmail(params: {
       ${detailRow(s.groupOrderSummary.totalLabel, formatMxn(totalCents))}
     </table>
     ${participantsHtml}
+    ${walletHtml}
   `;
 
   const participantsText = participants
@@ -1288,10 +1312,17 @@ export function buildGroupOrderSummaryEmail(params: {
       preheader: s.groupOrderSummary.preheader,
       title: s.groupOrderSummary.title,
       bodyHtml,
-      cta: { label: s.groupOrderSummary.cta, url: portalUrl },
+      cta: {
+        label: walletHeldCount > 0 ? s.groupOrderSummary.walletCta : s.groupOrderSummary.cta,
+        url: portalUrl,
+      },
       appUrl,
     }),
-    text: `${interpolateEmail(s.groupOrderSummary.greeting, { name: firstName })}\n\n${eventTitle}\n${s.groupOrderSummary.totalLabel}: ${formatMxn(totalCents)}\n\n${s.groupOrderSummary.participantsHeading}:\n${participantsText}`,
+    text: `${interpolateEmail(s.groupOrderSummary.greeting, { name: firstName })}\n\n${eventTitle}\n${s.groupOrderSummary.totalLabel}: ${formatMxn(totalCents)}\n\n${s.groupOrderSummary.participantsHeading}:\n${participantsText}${
+      walletHeldCount > 0
+        ? `\n\n${s.groupOrderSummary.walletHint}\n${portalUrl}`
+        : ""
+    }`,
   };
 }
 
@@ -3043,12 +3074,15 @@ function formatGroupOrderResponse(
       public_uuid: r.public_uuid,
       registration_number: r.registration_number,
       qr_code_token: r.qr_code_token,
+      bib_number: r.bib_number ?? null,
       status: r.status,
       total_cents: r.total_cents,
       category_name: r.category_name,
       participant_label: r.participant_label,
       participant_email: r.participant_email,
       guest_claim_token: r.guest_claim_token ?? null,
+      wallet_held_by_purchaser: Boolean(r.wallet_held_by_purchaser),
+      is_managed_participant: Boolean(r.is_managed_participant),
       event_title: r.event_title ?? eventTitle,
       event_slug: r.event_slug ?? eventSlug,
     })),
@@ -3096,7 +3130,7 @@ async function deliverGroupOrderSummaryEmail(
   }
 
   const [participants] = await pool.query<RowDataPacket[]>(
-    `SELECT r.registration_number, r.total_cents,
+    `SELECT r.registration_number, r.total_cents, r.guest_claim_token, r.purchaser_athlete_id, r.athlete_id,
             ec.name AS category_name,
             CONCAT(a.first_name, ' ', a.last_name) AS participant_label
      FROM registrations r
@@ -3106,6 +3140,15 @@ async function deliverGroupOrderSummaryEmail(
      ORDER BY r.id ASC`,
     [orderId],
   );
+
+  const walletHeldCount = participants.filter((p) => {
+    const claimPending = Boolean(p.guest_claim_token);
+    const managed =
+      p.purchaser_athlete_id != null &&
+      Number(p.purchaser_athlete_id) !== Number(p.athlete_id) &&
+      !claimPending;
+    return claimPending || managed;
+  }).length;
 
   const locale = resolveLocale(order.preferred_language as string | undefined);
   const mail = buildGroupOrderSummaryEmail({
@@ -3121,6 +3164,7 @@ async function deliverGroupOrderSummaryEmail(
       totalCents: Number(p.total_cents),
     })),
     appUrl: APP_URL,
+    walletHeldCount,
   });
 
   let queueId: number | null = null;
@@ -3470,13 +3514,18 @@ async function finalizeRegistrationAfterPayment(
     const priceCents = meta.breakdown?.listPriceCents ?? Number(pay.registration_amount_cents);
     const serviceFeeCents = Number(pay.service_fee_cents);
     const totalCents = Number(pay.amount_cents);
+    const bibMode = await fetchEventBibMode(conn, eventId);
+    const bibNumber = resolveRegistrationBibNumber({
+      registrationNumber: regNumber,
+      bibMode,
+    });
 
     const [regResult] = await conn.query<ResultSetHeader>(
       `INSERT INTO registrations (
         public_uuid, event_id, event_category_id, athlete_id, registration_number,
-        folio_segment_id, qr_code_token, status, price_cents, service_fee_cents, total_cents,
+        folio_segment_id, qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
         discount_code_id, currency, source, payment_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         regUuid,
         eventId,
@@ -3485,6 +3534,7 @@ async function finalizeRegistrationAfterPayment(
         regNumber,
         folioSegmentId,
         qrToken,
+        bibNumber,
         "confirmed",
         priceCents,
         serviceFeeCents,
@@ -3768,6 +3818,7 @@ function buildApp() {
     appUrl: APP_URL,
     getStripeClient,
     processPaymentRefund,
+    deliverRegistrationConfirmedEmail,
     buildWelcomeStaffEmail: (params) =>
       buildWelcomeStaffEmail({
         locale: params.locale as AppLocale,
@@ -7247,7 +7298,8 @@ function registerAthleteRoutes(app: express.Express) {
     async (req: AuthedRequest, res) => {
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT r.id, r.public_uuid, r.registration_number, r.qr_code_token, r.bib_number, r.status,
-                r.total_cents, r.created_at, r.waiver_signed_at,
+                r.total_cents, r.created_at, r.waiver_signed_at, r.order_id, r.purchaser_athlete_id,
+                r.guest_claim_token, r.athlete_id,
                 e.title AS event_title, e.slug AS event_slug, e.start_date, e.allows_transfers,
                 e.requires_waiver,
                 ec.name AS category_name
@@ -7266,12 +7318,96 @@ function registerAthleteRoutes(app: express.Express) {
             const status = await getRegistrationWaiverStatus(pool, row.id as number);
             waiver_outdated = status.outdated;
           }
-          const { requires_waiver, ...rest } = row;
-          return { ...rest, waiver_outdated };
+          const { requires_waiver, guest_claim_token, purchaser_athlete_id, athlete_id, ...rest } =
+            row;
+          const claimPending = Boolean(guest_claim_token);
+          const isManaged =
+            purchaser_athlete_id != null &&
+            Number(purchaser_athlete_id) !== Number(athlete_id) &&
+            !claimPending;
+          return {
+            ...rest,
+            waiver_outdated,
+            is_order_purchaser: Number(purchaser_athlete_id) === Number(req.auth!.id),
+            guest_claim_pending: claimPending,
+            is_managed_participant: isManaged,
+          };
         }),
       );
 
       res.json({ registrations });
+    },
+  );
+
+  app.get(
+    "/api/athlete/order-wallets",
+    requireAthlete,
+    async (req: AuthedRequest, res) => {
+      const athleteId = req.auth!.id;
+      const [orderRows] = await pool.query<RowDataPacket[]>(
+        `SELECT ro.id AS order_id, ro.public_uuid AS order_public_uuid, ro.item_count,
+                e.title AS event_title, e.slug AS event_slug, e.start_date
+         FROM registration_orders ro
+         JOIN events e ON e.id = ro.event_id AND e.deleted_at IS NULL
+         WHERE ro.purchaser_athlete_id = ? AND ro.status = 'confirmed'
+         ORDER BY ro.created_at DESC
+         LIMIT 50`,
+        [athleteId],
+      );
+
+      const wallets = [];
+      for (const order of orderRows) {
+        const [passes] = await pool.query<RowDataPacket[]>(
+          `SELECT r.id, r.public_uuid, r.registration_number, r.qr_code_token, r.bib_number, r.status,
+                  r.guest_claim_token, r.purchaser_athlete_id, r.athlete_id,
+                  ec.name AS category_name,
+                  CONCAT(a.first_name, ' ', a.last_name) AS participant_label,
+                  a.email AS participant_email
+           FROM registrations r
+           JOIN event_categories ec ON ec.id = r.event_category_id
+           JOIN athletes a ON a.id = r.athlete_id AND a.deleted_at IS NULL
+           WHERE r.order_id = ? AND r.deleted_at IS NULL AND r.status = 'confirmed'
+           ORDER BY r.id ASC`,
+          [order.order_id],
+        );
+        const mapped = passes
+          .map((p) => {
+            const claimPending = Boolean(p.guest_claim_token);
+            const managed =
+              p.purchaser_athlete_id != null &&
+              Number(p.purchaser_athlete_id) !== Number(p.athlete_id) &&
+              !claimPending;
+            const held = claimPending || managed;
+            if (!held) return null;
+            return {
+              id: p.id,
+              public_uuid: p.public_uuid,
+              registration_number: p.registration_number,
+              qr_code_token: p.qr_code_token,
+              bib_number: p.bib_number,
+              status: p.status,
+              category_name: p.category_name,
+              participant_label: p.participant_label,
+              participant_email: p.participant_email,
+              guest_claim_pending: claimPending,
+              is_managed_participant: managed,
+              wallet_held_by_purchaser: true,
+            };
+          })
+          .filter(Boolean);
+        if (mapped.length === 0) continue;
+        wallets.push({
+          order_id: order.order_id,
+          order_public_uuid: order.order_public_uuid,
+          event_title: order.event_title,
+          event_slug: order.event_slug,
+          start_date: order.start_date,
+          item_count: order.item_count,
+          passes: mapped,
+        });
+      }
+
+      res.json({ wallets });
     },
   );
 
@@ -7842,23 +7978,25 @@ function registerOrganizerRoutes(app: express.Express) {
       if (!organizerId) {
         return res.status(403).json({ error: "Organizer context missing" });
       }
-      const rows = await listOrganizerMemberEvents(pool, req.auth!.id, organizerId);
+      const result = await listOrganizerMemberEventsPaginated(
+        pool,
+        req.auth!.id,
+        organizerId,
+        {
+          q: String(req.query.q ?? "").trim() || undefined,
+          status: String(req.query.status ?? "").trim() || undefined,
+          page: req.query.page,
+          limit: req.query.limit,
+          sortBy: req.query.sortBy,
+          sortDir: req.query.sortDir,
+        },
+      );
       const events = await enrichStaffEventsWithPaymentAvailability(
         pool,
-        rows.map((row) => ({
-          id: Number(row.id),
-          status: String(row.status),
-          organizer_id: Number(row.organizer_id ?? organizerId),
-          slug: String(row.slug),
-          title: String(row.title),
-          start_date: String(row.start_date),
-          registration_count: Number(row.registration_count ?? 0),
-          location_city: row.location_city != null ? String(row.location_city) : undefined,
-          sport_name: row.sport_name != null ? String(row.sport_name) : undefined,
-        })),
+        result.events,
         getStripeClient(),
       );
-      res.json({ events });
+      res.json({ events, pagination: result.pagination });
     },
   );
 
@@ -8085,40 +8223,30 @@ function registerAdminRoutes(app: express.Express) {
   app.get("/api/admin/events", requireAdmin, async (req, res) => {
     const q = String(req.query.q ?? "").trim();
     const status = String(req.query.status ?? "").trim();
-    const like = q ? `%${q}%` : null;
-    const params: string[] = [];
-    let filters = " WHERE e.deleted_at IS NULL";
-
-    if (like) {
-      filters += " AND (e.title LIKE ? OR e.slug LIKE ? OR o.name LIKE ?)";
-      params.push(like, like, like);
-    }
-    if (
-      status &&
-      ["draft", "pending_approval", "published", "cancelled", "completed"].includes(status)
-    ) {
-      filters += " AND e.status = ?";
-      params.push(status);
+    const organizerIdRaw = req.query.organizerId;
+    const organizerId =
+      organizerIdRaw != null && String(organizerIdRaw).trim() !== ""
+        ? Number(organizerIdRaw)
+        : undefined;
+    if (organizerId != null && !Number.isFinite(organizerId)) {
+      return res.status(400).json({ error: "Invalid organizerId" });
     }
 
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT e.id, e.slug, e.title, e.status, e.start_date, e.organizer_id,
-              ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count,
-              e.location_city, st.name AS sport_name, o.name AS organizer_name
-       FROM events e
-       JOIN sport_types st ON st.id = e.sport_type_id
-       JOIN organizers o ON o.id = e.organizer_id
-       ${filters}
-       ORDER BY e.start_date DESC
-       LIMIT 100`,
-      params,
-    );
+    const result = await listStaffEvents(pool, {
+      q: q || undefined,
+      status: status || undefined,
+      organizerId,
+      page: req.query.page,
+      limit: req.query.limit,
+      sortBy: req.query.sortBy,
+      sortDir: req.query.sortDir,
+    });
     const events = await enrichStaffEventsWithPaymentAvailability(
       pool,
-      rows as Array<{ id: number; status: string; organizer_id?: number | null }>,
+      result.events,
       getStripeClient(),
     );
-    res.json({ events });
+    res.json({ events, pagination: result.pagination });
   });
 
   app.get("/api/admin/analytics", requireAdmin, async (_req, res) => {

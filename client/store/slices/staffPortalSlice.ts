@@ -54,6 +54,7 @@ import type {
   BulkBibRow,
   BulkMessageResponse,
   EventMediaResponse,
+  RegistrationExportCatalogResponse,
   StaffMediaAssetRow,
   AdminEventCreateRequest,
   AdminOrganizerRow,
@@ -70,6 +71,7 @@ import type {
   AdminStaffUpdateRequest,
   PaginatedAdminOrganizersResponse,
   PaginatedAdminStaffResponse,
+  PaginatedStaffEventsResponse,
   StaffWaitlistEntry,
   ResultSplitRow,
   SponsorAnalyticsResponse,
@@ -81,6 +83,7 @@ interface StaffPortalState {
   analyticsTimeSeries: AnalyticsTimeSeries | null;
   organizerAnalytics: OrganizerAnalyticsResponse | null;
   events: StaffEventRow[];
+  eventsPagination: PaginationInfo | null;
   athletes: AdminAthleteRow[];
   athletesPagination: PaginationInfo | null;
   registrations: OrganizerRegistrationRow[];
@@ -243,6 +246,7 @@ const initialState: StaffPortalState = {
   analyticsTimeSeries: null,
   organizerAnalytics: null,
   events: [],
+  eventsPagination: null,
   athletes: [],
   athletesPagination: null,
   registrations: [],
@@ -548,15 +552,23 @@ export const updateAdminAthleteStatus = createAsyncThunk<
 });
 
 export const fetchAdminEvents = createAsyncThunk<
-  StaffEventRow[],
-  { q?: string; status?: string },
+  PaginatedStaffEventsResponse,
+  GridListParams & { status?: string; organizerId?: number },
   { rejectValue: string }
->("staffPortal/adminEvents", async ({ q, status }, { rejectWithValue }) => {
+>("staffPortal/adminEvents", async ({ q, status, organizerId, page, limit, sortBy, sortDir }, { rejectWithValue }) => {
   try {
-    const { data } = await api.get("/admin/events", {
-      params: { q: q || undefined, status: status || undefined },
+    const { data } = await api.get<PaginatedStaffEventsResponse>("/admin/events", {
+      params: {
+        q: q || undefined,
+        status: status || undefined,
+        organizerId,
+        page,
+        limit,
+        sortBy,
+        sortDir,
+      },
     });
-    return data.events as StaffEventRow[];
+    return data;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEvents"));
   }
@@ -967,13 +979,22 @@ export const updateResultSplits = createAsyncThunk<
 });
 
 export const fetchOrganizerEvents = createAsyncThunk<
-  StaffEventRow[],
-  void,
+  PaginatedStaffEventsResponse,
+  GridListParams & { status?: string },
   { rejectValue: string }
->("staffPortal/organizerEvents", async (_, { rejectWithValue }) => {
+>("staffPortal/organizerEvents", async (params = {}, { rejectWithValue }) => {
   try {
-    const { data } = await api.get("/organizer/events");
-    return data.events as StaffEventRow[];
+    const { data } = await api.get<PaginatedStaffEventsResponse>("/organizer/events", {
+      params: {
+        q: params.q || undefined,
+        status: params.status || undefined,
+        page: params.page,
+        limit: params.limit,
+        sortBy: params.sortBy,
+        sortDir: params.sortDir,
+      },
+    });
+    return data;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadEvents"));
   }
@@ -1854,6 +1875,90 @@ export const bulkAssignBibs = createAsyncThunk<
   }
 });
 
+export const fetchRegistrationExportCatalog = createAsyncThunk<
+  RegistrationExportCatalogResponse,
+  { eventId: number; role?: StaffRole },
+  { rejectValue: string }
+>(
+  "staffPortal/fetchRegistrationExportCatalog",
+  async ({ eventId, role = "organizer" }, { rejectWithValue }) => {
+    try {
+      const base = hubEventBasePath(role, eventId);
+      if (!base) {
+        return rejectWithValue(i18n.t("staffPortal.errors.eventIdRequired"));
+      }
+      const { data } = await api.get<RegistrationExportCatalogResponse>(
+        `${base}/registrations/export-catalog`,
+      );
+      return data;
+    } catch (e: unknown) {
+      return rejectWithValue(rejectMessage(e, "staffPortal.errors.loadExportCatalog"));
+    }
+  },
+);
+
+export const exportEventRegistrationsCsv = createAsyncThunk<
+  { filename: string; rowCount: number },
+  {
+    eventId: number;
+    role?: StaffRole;
+    columns: string[];
+    statuses: string[];
+    q?: string;
+  },
+  { rejectValue: string }
+>(
+  "staffPortal/exportEventRegistrationsCsv",
+  async ({ eventId, role = "organizer", columns, statuses, q }, { rejectWithValue }) => {
+    try {
+      const base = hubEventBasePath(role, eventId);
+      if (!base) {
+        return rejectWithValue(i18n.t("staffPortal.errors.eventIdRequired"));
+      }
+      const response = await api.post(
+        `${base}/registrations/export`,
+        { columns, statuses, q: q || undefined, format: "csv" },
+        { responseType: "blob" },
+      );
+      const contentType = String(response.headers["content-type"] ?? "");
+      if (contentType.includes("application/json")) {
+        const text = await (response.data as Blob).text();
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          return rejectWithValue(parsed.error || i18n.t("staffPortal.errors.exportRegistrations"));
+        } catch {
+          return rejectWithValue(i18n.t("staffPortal.errors.exportRegistrations"));
+        }
+      }
+
+      const disposition = String(response.headers["content-disposition"] ?? "");
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const filename = match?.[1] ?? "registrations-export.csv";
+      const blob = response.data as Blob;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      return { filename, rowCount: -1 };
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: Blob | { error?: string } } };
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text) as { error?: string };
+          if (parsed.error) return rejectWithValue(parsed.error);
+        } catch {
+          /* fall through */
+        }
+      }
+      return rejectWithValue(rejectMessage(e, "staffPortal.errors.exportRegistrations"));
+    }
+  },
+);
+
 export const fetchEventMedia = createAsyncThunk<
   StaffMediaAssetRow[],
   { eventId: number; role?: StaffRole },
@@ -2027,7 +2132,8 @@ const slice = createSlice({
     });
     b.addCase(fetchAdminEvents.fulfilled, (s, a) => {
       s.loadingEvents = false;
-      s.events = a.payload;
+      s.events = a.payload.events;
+      s.eventsPagination = a.payload.pagination;
     });
     b.addCase(fetchAdminEvents.rejected, (s, a) => {
       s.loadingEvents = false;
@@ -2040,7 +2146,8 @@ const slice = createSlice({
     });
     b.addCase(fetchOrganizerEvents.fulfilled, (s, a) => {
       s.loadingEvents = false;
-      s.events = a.payload;
+      s.events = a.payload.events;
+      s.eventsPagination = a.payload.pagination;
     });
     b.addCase(fetchOrganizerEvents.rejected, (s, a) => {
       s.loadingEvents = false;

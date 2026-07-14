@@ -71,7 +71,14 @@ Source URLs documented in `client/constants/tribooBrand.ts`.
 - **Home mobile:** hide featured **Events** `SectionHeader`; show **`HomeSportTypesSection`** with navigate-mode sport chips linking to `/events?sport=…`.
 - **Home map:** **`HomeEventsMapSection`** — after featured events grid; lazy-loaded Leaflet map with `EventsMap` + `MapEventPreview`; mobile horizontal compact cards + map; desktop list + map split; links to `/events`.
 - **Home FAQ:** **`HomeFaqSection`** — before final CTA; 6 curated athlete questions via **`FaqAccordion`** + sticky help card linking to `/help`. Copy in i18n (`faq.items.*`); structure in `client/constants/faqStructure.ts`.
-- **Help center (`/help`):** Full FAQ by category (registration, payments, account, Triboos, organizers, support) + support CTA block (contact, email, WhatsApp from site profile). Reuse **`FaqAccordion`** with `type="multiple"`.
+- **Staff events list (`/staff/events`):** **`DataGrid`** with server-side pagination (`page`/`limit`/`total`, max 100), sortable columns, search + status filters, and `mobileCard` actions. Calendar view loads up to 100 matching events. Filter dropdowns elsewhere request `limit=100`.
+- **Registration confirmation invite:** After successful checkout (solo + group), show **`RegistrationInviteFriendsCard`** with event link — Share (Web Share API), Copy link, WhatsApp. Gradient card + avatar stack; reuse on both result steps.
+- **Staff event Campos extra (`EventEdit` fields tab):** **`StaffRegistrationFieldsGuide`** legend of built-in identity fields + buy-for-others behavior; soft overlap warnings via `matchBuiltinRegistrationField` when labels duplicate Nombre/Email/DOB/etc.
+- **Group registration Campos extra:** Per participant sub-step **Questions** (`WizardRegistrationFieldsForm`) after identity; category-scoped; validated server-side on group checkout; review shows answered count.
+- **Event bib mode:** Details tab **`StaffEventBibModePicker`** — folio = dorsal vs separate. Mirrored read-only on Custom folios with strong note. New events default `folio`; existing migrate to `separate`.
+- **Registration workspace:** Staff registration sheet is an ops hub (check-in / bib / cancel / QR / party) for `REGISTRATION_OPS_ROLES` (includes timing). Purchaser **QR wallet** holds passes for managed minors and unclaimed guests after group checkout, in athlete portal, and via group-order email deep link (`?wallet=1`).
+- **Dynamic registration export:** Event registrations **Export CSV** opens a column picker (presets + per-field / per-extra toggles). Server builds the full filtered set via `GET …/export-catalog` + `POST …/registrations/export` — not the current grid page.
+- **Registrations event filter:** Global registrations uses **`StaffEventSearchPicker`** (searchable combobox). Inline bib edit/save is removed from grids — assign bib only in **`StaffRegistrationDetailSheet`** (or bulk CSV import).
 - **Dialogs:** base `DialogContent` caps width at `min(calc(100vw - 2rem), …)` with vertical scroll only.
 
 ## Staff — Payouts & Connect (MX)

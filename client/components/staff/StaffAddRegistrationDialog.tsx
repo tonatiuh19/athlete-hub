@@ -81,6 +81,13 @@ export default function StaffAddRegistrationDialog({
       athlete_email: "",
       event_category_id: "",
       comp: true,
+      manual_sale: false,
+      create_guest: false,
+      guest_first_name: "",
+      guest_last_name: "",
+      guest_date_of_birth: "",
+      managed_by_purchaser: false,
+      purchaser_email: "",
       waiver_waived: false,
       bib_number: "",
     },
@@ -95,7 +102,14 @@ export default function StaffAddRegistrationDialog({
           body: {
             athlete_email: values.athlete_email.trim(),
             event_category_id: Number(values.event_category_id),
-            comp: values.comp,
+            comp: values.manual_sale ? false : values.comp,
+            manual_sale: values.manual_sale || undefined,
+            create_guest: values.create_guest || undefined,
+            guest_first_name: values.create_guest ? values.guest_first_name.trim() : undefined,
+            guest_last_name: values.create_guest ? values.guest_last_name.trim() : undefined,
+            guest_date_of_birth: values.create_guest ? values.guest_date_of_birth : undefined,
+            managed_by_purchaser: values.managed_by_purchaser || undefined,
+            purchaser_email: values.create_guest && values.purchaser_email.trim() ? values.purchaser_email.trim() : undefined,
             waiver_waived: values.waiver_waived,
             bib_number: values.bib_number.trim() || undefined,
           },
@@ -159,6 +173,41 @@ export default function StaffAddRegistrationDialog({
             <Label htmlFor="athlete_email">{t("staffPortal.team.fieldEmail")}</Label>
             <Input id="athlete_email" type="email" {...formik.getFieldProps("athlete_email")} />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={formik.values.create_guest}
+              onCheckedChange={(v) => formik.setFieldValue("create_guest", Boolean(v))}
+            />
+            {t("staffPortal.registrations.createGuest")}
+          </label>
+          {formik.values.create_guest ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>{t("staffPortal.registrations.guestFirstName")}</Label>
+                <Input {...formik.getFieldProps("guest_first_name")} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("staffPortal.registrations.guestLastName")}</Label>
+                <Input {...formik.getFieldProps("guest_last_name")} />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>{t("staffPortal.registrations.guestDob")}</Label>
+                <Input type="date" {...formik.getFieldProps("guest_date_of_birth")} />
+              </div>
+              <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                <Checkbox
+                  checked={formik.values.managed_by_purchaser}
+                  onCheckedChange={(v) => formik.setFieldValue("managed_by_purchaser", Boolean(v))}
+                />
+                <span>{t("staffPortal.registrations.managedByPurchaser")}</span>
+              </label>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>{t("staffPortal.registrations.purchaserEmail")}</Label>
+                <Input type="email" {...formik.getFieldProps("purchaser_email")} />
+                <p className="text-xs text-muted-foreground">{t("staffPortal.registrations.purchaserEmailHint")}</p>
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-2">
             <Label htmlFor="category">{t("staffPortal.people.colCategory")}</Label>
             {loadingEventDetail && fixedEventId == null && pickedEventId ? (
@@ -191,10 +240,23 @@ export default function StaffAddRegistrationDialog({
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
-              checked={formik.values.comp}
-              onCheckedChange={(v) => formik.setFieldValue("comp", Boolean(v))}
+              checked={formik.values.comp && !formik.values.manual_sale}
+              onCheckedChange={(v) => {
+                formik.setFieldValue("comp", Boolean(v));
+                if (v) formik.setFieldValue("manual_sale", false);
+              }}
             />
-            {t("staffPortal.registrations.compEntry")}
+            {t("staffPortal.registrations.modeComp")}
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={formik.values.manual_sale}
+              onCheckedChange={(v) => {
+                formik.setFieldValue("manual_sale", Boolean(v));
+                if (v) formik.setFieldValue("comp", false);
+              }}
+            />
+            {t("staffPortal.registrations.modePaid")}
           </label>
           {eventDetail?.event?.requires_waiver !== false &&
           eventDetail?.event?.requires_waiver !== 0 ? (

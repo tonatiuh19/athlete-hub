@@ -45,7 +45,7 @@ export default function StaffOrganizerEventsSection({
 
   useEffect(() => {
     if (open) {
-      dispatch(fetchAdminEvents({}));
+      dispatch(fetchAdminEvents({ limit: 100, sortBy: "title", sortDir: "ASC" }));
       setSelected([]);
     }
   }, [open, dispatch]);

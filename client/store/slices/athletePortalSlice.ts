@@ -1,6 +1,8 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import api from "@/lib/api";
 import type {
+  AthleteOrderWallet,
+  AthleteOrderWalletsResponse,
   AthleteResultItem,
   AthleteResultVisualization,
   AthleteWaitlistResponse,
@@ -16,16 +18,19 @@ import type {
 
 interface AthletePortalState {
   registrations: RegistrationItem[];
+  orderWallets: AthleteOrderWallet[];
   waitlistEntries: WaitlistEntry[];
   upcomingEvents: EventListItem[];
   results: AthleteResultItem[];
   loadingRegistrations: boolean;
+  loadingOrderWallets: boolean;
   loadingWaitlist: boolean;
   loadingEvents: boolean;
   loadingResults: boolean;
   transferringRegistration: boolean;
   resigningWaiver: boolean;
   registrationsError: string | null;
+  orderWalletsError: string | null;
   waitlistError: string | null;
   transferError: string | null;
   resultVisualization: AthleteResultVisualization | null;
@@ -37,16 +42,19 @@ interface AthletePortalState {
 
 const initialState: AthletePortalState = {
   registrations: [],
+  orderWallets: [],
   waitlistEntries: [],
   upcomingEvents: [],
   results: [],
   loadingRegistrations: false,
+  loadingOrderWallets: false,
   loadingWaitlist: false,
   loadingEvents: false,
   loadingResults: false,
   transferringRegistration: false,
   resigningWaiver: false,
   registrationsError: null,
+  orderWalletsError: null,
   waitlistError: null,
   transferError: null,
   resultVisualization: null,
@@ -71,6 +79,19 @@ export const fetchAthleteRegistrations = createAsyncThunk<
     return data.registrations as RegistrationItem[];
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "Could not load registrations"));
+  }
+});
+
+export const fetchAthleteOrderWallets = createAsyncThunk<
+  AthleteOrderWallet[],
+  void,
+  { rejectValue: string }
+>("athletePortal/orderWallets", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get<AthleteOrderWalletsResponse>("/athlete/order-wallets");
+    return data.wallets;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "Could not load pass wallet"));
   }
 });
 
@@ -137,6 +158,7 @@ export const claimGuestRegistration = createAsyncThunk<
       { claimToken },
     );
     void dispatch(fetchAthleteRegistrations());
+    void dispatch(fetchAthleteOrderWallets());
     return data;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "Could not claim registration"));
@@ -203,6 +225,19 @@ const slice = createSlice({
     b.addCase(fetchAthleteRegistrations.rejected, (s, a) => {
       s.loadingRegistrations = false;
       s.registrationsError = a.payload || "Error loading registrations";
+    });
+
+    b.addCase(fetchAthleteOrderWallets.pending, (s) => {
+      s.loadingOrderWallets = true;
+      s.orderWalletsError = null;
+    });
+    b.addCase(fetchAthleteOrderWallets.fulfilled, (s, a) => {
+      s.loadingOrderWallets = false;
+      s.orderWallets = a.payload;
+    });
+    b.addCase(fetchAthleteOrderWallets.rejected, (s, a) => {
+      s.loadingOrderWallets = false;
+      s.orderWalletsError = a.payload || "Error loading wallets";
     });
 
     b.addCase(fetchMarketplaceEvents.pending, (s) => {
