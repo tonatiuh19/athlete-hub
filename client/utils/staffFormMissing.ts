@@ -101,14 +101,7 @@ export function getPayoutProfileMissing(values: PayoutProfileForm): StaffFormMis
       focusTarget: "billing_email",
     });
   }
-  if (!values.rfc.trim()) {
-    items.push({
-      id: "rfc",
-      labelKey: "staffPortal.payouts.fieldRfc",
-      severity: "required",
-      focusTarget: "rfc",
-    });
-  }
+  // RFC is collected by Stripe / Mercado Pago during provider onboarding.
   return items;
 }
 

@@ -66,8 +66,9 @@ export function buildTribooPayoutChecklist(
     },
     {
       key: "rfc",
+      // Collected by Stripe / Mercado Pago during provider onboarding.
       complete: Boolean(profile.rfc?.trim()),
-      required: true,
+      required: false,
     },
     {
       key: "billing_email",

@@ -87,6 +87,15 @@ describe("payout readiness", () => {
     };
     expect(buildTribooPayoutChecklist(profile).complete).toBe(true);
     expect(
+      buildTribooPayoutChecklist({
+        legal_name: "Trail MX SA",
+        rfc: null,
+        billing_email: "billing@trail.mx",
+        payout_terms_accepted_at: "2026-01-01",
+        payout_fee_acknowledged_at: "2026-01-01",
+      }).complete,
+    ).toBe(true);
+    expect(
       isOrganizerPayoutReady({
         stripe_connect_status: "ready",
         stripe_account_id: "acct_test",

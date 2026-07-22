@@ -95,8 +95,9 @@ Source URLs documented in `client/constants/tribooBrand.ts`.
 ## Staff — Payouts & Connect (MX)
 
 - **Route:** `/staff/payouts` — organizer owner/finance/organizer roles.
-- **Dual checklist pattern:** Triboo profile (Step 1) then bank verification via **Stripe** (Step 2). Use `destructive` border/text for incomplete blocking states; `accent` for ready/CTA. Be transparent with organizers: label providers as **Stripe** and **Mercado Pago** (not euphemisms). Hide Mercado Pago connect/rail controls when `mercadoPagoAvailable` is false (platform keys missing) and show Coming soon.
-- **`StaffFeeCalculatorCard`:** Reusable fee breakdown for **pass-through** (inscription + service fee) and **absorb-all** (public sticker with illustrative IVA slice). Props: `feePresentation`, `serviceFeePercent`. Used on Payouts, admin Connect panel, and create-organizer dialog.
+- **Setup wizard (`StaffPayoutSetupWizard`):** Guided flow — (1) compare Stripe vs Mercado Pago with fee education (why MP is higher), (2) choose provider, (3) minimal Triboo contact + terms (no RFC/KYC forms), (4) redirect to Stripe Connect or MP OAuth. Reuses `WizardProgress`. RFC/identity/CLABE stay with the provider.
+- **Dual checklist pattern:** Triboo terms/contact then bank verification via **Stripe** (or MP when available). Use `destructive` border/text for incomplete blocking states; `accent` for ready/CTA. Label providers as **Stripe** and **Mercado Pago** (not euphemisms). Hide Mercado Pago connect/rail controls when `mercadoPagoAvailable` is false (platform keys missing) and show Coming soon.
+- **`StaffFeeCalculatorCard`:** Reusable fee breakdown for **pass-through** (inscription + service fee) and **absorb-all** (public sticker with illustrative IVA slice). Props: `feePresentation`, `serviceFeePercent`. Used on Payouts wizard, admin Connect panel, and create-organizer dialog.
 - **Fee modes:** Organizer default on `/staff/payouts`; optional per-event override on Event Edit (`inherit` | `pass_through` | `absorb_all`). Category price labels change with mode (inscription vs sticker).
 - **Marketplace `from_price_cents`:** Athlete-facing minimum (pass-through includes service fee).
 - **`StaffAdminConnectPanel`:** Admin assisted onboarding in organizer detail sheet — never implies KYC can be skipped.
