@@ -28,6 +28,11 @@ import StaffRegistrationFieldsGuide from "@/components/staff/StaffRegistrationFi
 import StaffEventFolioSegmentsSection from "@/components/staff/StaffEventFolioSegmentsSection";
 import StaffEventWaiversSection from "@/components/staff/StaffEventWaiversSection";
 import EventAssetUpload from "@/components/staff/EventAssetUpload";
+import {
+  StaffFormSkeleton,
+  StaffPageSkeleton,
+  StaffTableSkeleton,
+} from "@/components/staff/skeletons/StaffSkeletons";
 import { resolveEventImageRole } from "@/constants/eventImageContexts";
 import RichHtmlEditor, {
   type RichHtmlEditorHandle,
@@ -35,6 +40,8 @@ import RichHtmlEditor, {
 import EventPublishPreviewDialog from "@/components/staff/EventPublishPreviewDialog";
 import StaffEventPublishChecklist, {
   computeEventPublishReadiness,
+  EventSetupStepBadge,
+  EVENT_SETUP_TAB_STEPS,
 } from "@/components/staff/StaffEventPublishChecklist";
 import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
@@ -243,6 +250,7 @@ export default function StaffEventEdit() {
     discount_type: "percent",
     discount_value: 10,
     applies_to: "registration",
+    max_uses: 50,
   });
   const [mediaDrafts, setMediaDrafts] = useState<StaffMediaAssetRow[]>([]);
   const [geoStateId, setGeoStateId] = useState<number | null>(null);
@@ -332,18 +340,18 @@ export default function StaffEventEdit() {
   }, [dispatch]);
 
   useEffect(() => {
-    if (!isNew && eventId && role) {
+    if (!isNew && eventId && role && user) {
       const cachedId = eventDetail?.event?.id;
       if (cachedId === eventId) return;
       dispatch(fetchStaffEventDetail({ eventId, role }));
     }
-  }, [dispatch, isNew, eventId, role, eventDetail?.event?.id]);
+  }, [dispatch, isNew, eventId, role, user, eventDetail?.event?.id]);
 
   useEffect(() => {
-    if (canManageSponsors && eventId && role) {
+    if (canManageSponsors && eventId && role && user) {
       dispatch(fetchEventSponsors({ eventId, role: role === "admin" ? "admin" : "organizer" }));
     }
-    if (canManageEventContent && eventId && role) {
+    if (canManageEventContent && eventId && role && user) {
       const staffRole = role === "admin" ? "admin" : "organizer";
       dispatch(fetchRegistrationFields({ eventId, role: staffRole }));
       dispatch(fetchEventWaivers({ eventId, role: staffRole }));
@@ -354,7 +362,7 @@ export default function StaffEventEdit() {
       dispatch(fetchEventMedia({ eventId, role: staffRole }));
       dispatch(fetchEventWaitlist({ eventId, role: staffRole }));
     }
-  }, [dispatch, canManageSponsors, canManageEventContent, eventId, role]);
+  }, [dispatch, canManageSponsors, canManageEventContent, eventId, role, user]);
 
   useEffect(() => {
     setMediaDrafts(
@@ -1084,6 +1092,7 @@ export default function StaffEventEdit() {
           discount_type: "percent",
           discount_value: 10,
           applies_to: "registration",
+          max_uses: 50,
         });
       }
     });
@@ -1111,10 +1120,7 @@ export default function StaffEventEdit() {
 
   if (awaitingEventLoad) {
     return (
-      <div className="max-w-4xl mx-auto w-full min-w-0 px-4 py-16 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p>{t("common.loading")}</p>
-      </div>
+      <StaffPageSkeleton variant="form" className="max-w-4xl px-4 py-6" />
     );
   }
 
@@ -1304,31 +1310,75 @@ export default function StaffEventEdit() {
               aria-label={t("staffPortal.eventEdit.sectionsLabel")}
               className="max-h-[min(360px,55vh)] lg:max-h-none shrink-0"
             >
-            <VerticalTabsTrigger value="details">{t("staffPortal.eventEdit.tabDetails")}</VerticalTabsTrigger>
+            <VerticalTabsTrigger value="details">
+              <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.details} />
+              {t("staffPortal.eventEdit.tabDetails")}
+            </VerticalTabsTrigger>
             {!isNew ? (
               <VerticalTabsTrigger value="categories">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.categories} />
                 {t("staffPortal.eventEdit.tabCategories")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="discounts">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.discounts} />
+                {t("staffPortal.eventEdit.tabDiscounts")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="folios">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.folios} />
+                {t("staffPortal.eventEdit.tabFolios")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="waiver">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.waiver} />
+                {t("staffPortal.eventEdit.tabWaiver")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="course">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.course} />
+                {t("staffPortal.eventEdit.tabCourse")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="media">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.media} />
+                {t("staffPortal.eventEdit.tabMedia")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="fields">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.fields} />
+                {t("staffPortal.eventEdit.tabFields")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="waves">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.waves} />
+                {t("staffPortal.eventEdit.tabWaves")}
+              </VerticalTabsTrigger>
+            ) : null}
+            {canManageCategories ? (
+              <VerticalTabsTrigger value="waitlist">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.waitlist} />
+                {t("staffPortal.eventEdit.tabWaitlist")}
               </VerticalTabsTrigger>
             ) : null}
             {!isNew && canManageCategories ? (
               <VerticalTabsTrigger value="extras">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.extras} />
                 {t("staffPortal.eventEdit.tabExtras")}
               </VerticalTabsTrigger>
             ) : null}
             {canManageSponsors ? (
-              <VerticalTabsTrigger value="sponsors">{t("staffPortal.eventEdit.tabSponsors")}</VerticalTabsTrigger>
-            ) : null}
-            {canManageCategories ? (
-              <>
-                <VerticalTabsTrigger value="fields">{t("staffPortal.eventEdit.tabFields")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="waiver">{t("staffPortal.eventEdit.tabWaiver")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="waves">{t("staffPortal.eventEdit.tabWaves")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="course">{t("staffPortal.eventEdit.tabCourse")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="discounts">{t("staffPortal.eventEdit.tabDiscounts")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="folios">{t("staffPortal.eventEdit.tabFolios")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="waitlist">{t("staffPortal.eventEdit.tabWaitlist")}</VerticalTabsTrigger>
-                <VerticalTabsTrigger value="media">{t("staffPortal.eventEdit.tabMedia")}</VerticalTabsTrigger>
-              </>
+              <VerticalTabsTrigger value="sponsors">
+                <EventSetupStepBadge step={EVENT_SETUP_TAB_STEPS.sponsors} />
+                {t("staffPortal.eventEdit.tabSponsors")}
+              </VerticalTabsTrigger>
             ) : null}
           </VerticalTabsList>
             {!isNew ? (
@@ -1345,6 +1395,14 @@ export default function StaffEventEdit() {
 
           <TabsContent value="details" className="mt-0">
             <form onSubmit={formik.handleSubmit} className="card-sport p-6 space-y-5">
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {t("staffPortal.eventEdit.setupGuide.bannerTitle")}
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t("staffPortal.eventEdit.setupGuide.bannerBody")}
+                </p>
+              </div>
               <p className="text-sm text-muted-foreground">
                 {t("staffPortal.eventEdit.detailsHelp")}
               </p>
@@ -1634,6 +1692,23 @@ export default function StaffEventEdit() {
                         </span>
                         <span className="text-muted-foreground text-xs">
                           {t("staffPortal.eventEdit.fieldRequiresWaiverHint")}
+                        </span>
+                      </span>
+                    </label>
+
+                    <label className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-border/60 p-3 cursor-pointer">
+                      <Checkbox
+                        checked={formik.values.auto_deactivate_after_event}
+                        onCheckedChange={(v) =>
+                          formik.setFieldValue("auto_deactivate_after_event", v === true)
+                        }
+                      />
+                      <span className="text-sm leading-snug">
+                        <span className="font-medium block">
+                          {t("staffPortal.eventEdit.fieldAutoDeactivate")}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {t("staffPortal.eventEdit.fieldAutoDeactivateHint")}
                         </span>
                       </span>
                     </label>
@@ -2335,52 +2410,100 @@ export default function StaffEventEdit() {
                 {discountCodesError ? (
                   <p className="text-sm text-destructive">{discountCodesError}</p>
                 ) : null}
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  <Input
-                    placeholder={t("staffPortal.eventEdit.discountCode")}
-                    value={discountDraft.code}
-                    onChange={(e) =>
-                      setDiscountDraft({ ...discountDraft, code: e.target.value.toUpperCase() })
-                    }
-                  />
-                  <Select
-                    value={discountDraft.discount_type ?? "percent"}
-                    onValueChange={(v) =>
-                      setDiscountDraft({
-                        ...discountDraft,
-                        discount_type: v as "percent" | "fixed_cents",
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="percent">{t("staffPortal.eventEdit.discountPercent")}</SelectItem>
-                      <SelectItem value="fixed_cents">{t("staffPortal.eventEdit.discountFixed")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="number"
-                    min={1}
-                    placeholder={t("staffPortal.eventEdit.discountValue")}
-                    value={discountDraft.discount_value}
-                    onChange={(e) =>
-                      setDiscountDraft({
-                        ...discountDraft,
-                        discount_value: Number(e.target.value),
-                      })
-                    }
-                  />
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-muted-foreground">
+                        {t("staffPortal.eventEdit.discountCode")}
+                      </Label>
+                      <Input
+                        className="h-10 font-mono uppercase"
+                        placeholder={t("staffPortal.eventEdit.discountCode")}
+                        value={discountDraft.code}
+                        onChange={(e) =>
+                          setDiscountDraft({
+                            ...discountDraft,
+                            code: e.target.value.toUpperCase(),
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">
+                        {t("staffPortal.eventEdit.discountType")}
+                      </Label>
+                      <Select
+                        value={discountDraft.discount_type ?? "percent"}
+                        onValueChange={(v) =>
+                          setDiscountDraft({
+                            ...discountDraft,
+                            discount_type: v as "percent" | "fixed_cents",
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="percent">
+                            {t("staffPortal.eventEdit.discountPercent")}
+                          </SelectItem>
+                          <SelectItem value="fixed_cents">
+                            {t("staffPortal.eventEdit.discountFixed")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5 min-w-0">
+                        <Label className="text-xs text-muted-foreground">
+                          {t("staffPortal.eventEdit.discountValue")}
+                        </Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          className="h-10"
+                          placeholder={t("staffPortal.eventEdit.discountValue")}
+                          value={discountDraft.discount_value}
+                          onChange={(e) =>
+                            setDiscountDraft({
+                              ...discountDraft,
+                              discount_value: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5 min-w-0">
+                        <Label className="text-xs text-muted-foreground">
+                          {t("staffPortal.eventEdit.discountMaxUses")}
+                        </Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          className="h-10"
+                          placeholder={t("staffPortal.eventEdit.discountMaxUses")}
+                          value={discountDraft.max_uses ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setDiscountDraft({
+                              ...discountDraft,
+                              max_uses: raw === "" ? null : Math.max(1, Number(raw) || 1),
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
                   <Button
                     type="button"
+                    className="h-10 w-full sm:w-auto sm:min-w-[12rem] px-5"
                     onClick={handleCreateDiscount}
                     disabled={savingDiscountCode || !discountDraft.code.trim()}
                   >
                     {savingDiscountCode ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Plus className="w-4 h-4 mr-2" />
+                      <Plus className="w-4 h-4" />
                     )}
                     {t("staffPortal.eventEdit.addDiscount")}
                   </Button>
@@ -2394,10 +2517,12 @@ export default function StaffEventEdit() {
                     {discountCodes.map((dc) => (
                       <div
                         key={dc.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-border/60"
+                        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border bg-card/40 px-4 py-3"
                       >
-                        <div>
-                          <p className="font-mono font-semibold">{dc.code}</p>
+                        <div className="min-w-0 space-y-0.5">
+                          <p className="font-mono font-semibold text-foreground tracking-wide">
+                            {dc.code}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {dc.discount_type === "percent"
                               ? `${dc.discount_value}%`
@@ -2409,11 +2534,12 @@ export default function StaffEventEdit() {
                             })}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
+                            className="h-9"
                             onClick={() =>
                               eventId &&
                               dispatch(
@@ -2434,10 +2560,17 @@ export default function StaffEventEdit() {
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="text-destructive"
+                            className="h-9 w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            aria-label={t("staffPortal.eventEdit.deleteDiscount")}
                             onClick={() =>
                               eventId &&
-                              dispatch(deleteDiscountCode({ eventId, codeId: dc.id, role: staffRole }))
+                              dispatch(
+                                deleteDiscountCode({
+                                  eventId,
+                                  codeId: dc.id,
+                                  role: staffRole,
+                                }),
+                              )
                             }
                           >
                             <Trash2 className="w-4 h-4" />
@@ -2459,11 +2592,30 @@ export default function StaffEventEdit() {
                 onChange={(mode) => formik.setFieldValue("bib_mode", mode)}
                 t={t}
                 strongFolioNote
-                readOnly
               />
-              <p className="text-xs text-muted-foreground px-1">
-                {t("staffPortal.eventEdit.bibMode.saveWithDetails")}
-              </p>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-1">
+                <p className="text-xs text-muted-foreground flex-1">
+                  {t("staffPortal.eventEdit.bibMode.saveWithDetails")}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    savingEvent ||
+                    uploadingAssets ||
+                    sportTypes.length === 0 ||
+                    formik.values.sport_type_id <= 0
+                  }
+                  onClick={() => void formik.submitForm()}
+                >
+                  {savingEvent || uploadingAssets ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-2" />
+                  )}
+                  {t("staffPortal.eventEdit.bibMode.savePolicy")}
+                </Button>
+              </div>
               <StaffEventFolioSegmentsSection
                 segments={folioSegments}
                 categories={eventDetail?.categories ?? []}
@@ -2485,7 +2637,7 @@ export default function StaffEventEdit() {
                 </p>
                 {waitlistError ? <p className="text-sm text-destructive">{waitlistError}</p> : null}
                 {loadingWaitlist ? (
-                  <p className="text-muted-foreground">{t("common.loading")}</p>
+                  <StaffTableSkeleton rows={4} columns={3} />
                 ) : waitlistEntries.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     {t("staffPortal.eventEdit.waitlistEmpty")}
@@ -2568,7 +2720,7 @@ export default function StaffEventEdit() {
                   <p className="text-sm text-destructive">{eventMediaError}</p>
                 ) : null}
                 {loadingEventMedia ? (
-                  <p className="text-muted-foreground">{t("common.loading")}</p>
+                  <StaffFormSkeleton fields={4} />
                 ) : (
                   <div className="space-y-3">
                     {mediaDrafts.map((m, i) => (

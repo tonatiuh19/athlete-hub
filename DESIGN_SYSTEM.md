@@ -14,8 +14,8 @@ Brand reference: **Manual de Marca — Triboo Sport**
 
 ## Light / dark theme
 
-- **Toggle:** `ThemeToggle` in home navbar (desktop), site footer, and staff mobile header. Preference stored in `localStorage` key `triboo-theme` via `next-themes`.
-- **Default:** `system` — follows the browser/OS `prefers-color-scheme`. User override via toggle (footer, staff portal) stored in `localStorage` (`triboo-theme`: `light` | `dark` | `system`).
+- **Toggle:** `ThemeToggle` in home navbar (desktop), site footer, and staff/athlete portal headers. Guest preference stored in `localStorage` key `triboo-theme` via `next-themes`.
+- **Default:** `system` — follows the browser/OS `prefers-color-scheme`. Logged-in staff/athletes persist `preferred_theme` (`light` | `dark` | `system`) on their profile via existing `/me` or `/preferences` PATCH; `/me` hydrates theme on load (same pattern as `preferred_language`).
 - **Tokens:** `:root` = light palette; `.dark` = Triboo dark palette. Use semantic utilities (`bg-background`, `text-foreground`, `bg-card`, `text-muted-foreground`, `border-border`, `primary`, `accent`) — never hardcode `text-white` / `gray-*` on standard page surfaces.
 - **Staff sidebar:** follows theme via `sidebar-*` tokens (`bg-sidebar`, `text-sidebar-foreground`, etc.).
 - **Hero / video overlays:** may keep light text on cinematic media; page content below hero must follow tokens.
@@ -79,22 +79,43 @@ Source URLs documented in `client/constants/tribooBrand.ts`.
 - **Registration workspace:** Staff registration sheet is an ops hub (check-in / bib / cancel / QR / party) for `REGISTRATION_OPS_ROLES` (includes timing). Purchaser **QR wallet** holds passes for managed minors and unclaimed guests after group checkout, in athlete portal, and via group-order email deep link (`?wallet=1`).
 - **Dynamic registration export:** Event registrations **Export CSV** opens a column picker (presets + per-field / per-extra toggles). Server builds the full filtered set via `GET …/export-catalog` + `POST …/registrations/export` — not the current grid page.
 - **Registrations event filter:** Global registrations uses **`StaffEventSearchPicker`** (searchable combobox). Inline bib edit/save is removed from grids — assign bib only in **`StaffRegistrationDetailSheet`** (or bulk CSV import).
+- **Solo registration wizard:** Sticky chrome (`WizardProgress`) always shows **Paso X de Y** + current label + bar; checkout splits into **Tus datos** → **Pago**. Details step uses compact collapsible order summary + sticky bottom CTA. Dialog body scrolls; header stays pinned.
 - **Dialogs:** base `DialogContent` caps width at `min(calc(100vw - 2rem), …)` with vertical scroll only.
+
+## Staff — Loading skeletons
+
+- **Primitives:** `client/components/staff/skeletons/StaffSkeletons.tsx` — `StaffPageSkeleton`, `StaffStatsCardsSkeleton`, `StaffEventCardsSkeleton`, `StaffTableSkeleton`, `StaffChartSkeleton`, `StaffFormSkeleton`, `StaffSheetSkeleton`, `StaffCalendarSkeleton`, `StaffBlogCardsSkeleton`.
+- **When to use:** Replace **initial page/panel** waits (empty data + `loading*`) with layout-matched skeletons. Keep **`Loader2` on buttons** for Save / Publish / Send only.
+- **Lists:** Prefer `DataGrid` `isLoading` (built-in row skeletons). Calendar / custom tables use `StaffCalendarSkeleton` / `StaffTableSkeleton`.
+- **Sheets:** Detail sheets use `StaffSheetSkeleton` instead of a centered spinner.
+- **Suspense:** Staff route chunk fallback uses `StaffPageSkeleton` (not a lone spinner).
+- **Tokens:** Skeletons use `bg-muted` + `animate-pulse` via `Skeleton` — no arbitrary colors.
+- **A11y:** Page skeletons should set `role="status"` / `aria-busy` where they replace the whole content region.
 
 ## Staff — Payouts & Connect (MX)
 
 - **Route:** `/staff/payouts` — organizer owner/finance/organizer roles.
-- **Dual checklist pattern:** Triboo profile (Step 1) then bank verification (Step 2). Use `destructive` border/text for incomplete blocking states; `accent` for ready/CTA. Do not surface third-party payment provider names in UI copy.
+- **Dual checklist pattern:** Triboo profile (Step 1) then bank verification via **Stripe** (Step 2). Use `destructive` border/text for incomplete blocking states; `accent` for ready/CTA. Be transparent with organizers: label providers as **Stripe** and **Mercado Pago** (not euphemisms). Hide Mercado Pago connect/rail controls when `mercadoPagoAvailable` is false (platform keys missing) and show Coming soon.
 - **`StaffFeeCalculatorCard`:** Reusable fee breakdown for **pass-through** (inscription + service fee) and **absorb-all** (public sticker with illustrative IVA slice). Props: `feePresentation`, `serviceFeePercent`. Used on Payouts, admin Connect panel, and create-organizer dialog.
 - **Fee modes:** Organizer default on `/staff/payouts`; optional per-event override on Event Edit (`inherit` | `pass_through` | `absorb_all`). Category price labels change with mode (inscription vs sticker).
 - **Marketplace `from_price_cents`:** Athlete-facing minimum (pass-through includes service fee).
 - **`StaffAdminConnectPanel`:** Admin assisted onboarding in organizer detail sheet — never implies KYC can be skipped.
 - **EventEdit publish gate:** Destructive banner when paid categories exist and `payoutReady` is false (organizer → `/staff/payouts`; admin → `/staff/people?tab=organizers`).
 - **Event approval workflow:** Organizer **Submit for approval** sets `status: pending_approval` (not public). Admin **Publish** only from `pending_approval` → `published`. Admin **Reject** returns to `draft` and stores `approval_rejection_reason`. Use `StaffStatusBadge` / `pending_approval` token in lists and event edit banners.
+- **Event lifecycle:** Prefer **Deactivate listing** (`visibility=unlisted`) over **Delete**. Delete is soft-delete + cancels open regs/waitlist — confirm dialog must warn and recommend deactivate. Event Edit toggle **Auto-deactivate after event day** (`auto_deactivate_after_event`, default on). After event day ends, registrations stay closed even if still listed; first public visit / checkout unlists when the toggle is on (marketplace also hides eligible past events in list queries).
+- **Event setup guide:** `StaffEventPublishChecklist` shows a numbered **suggested order** (1–10) with a required / recommended / optional legend, plus the existing publish readiness checks. Sidebar tabs use `EventSetupStepBadge` and are ordered to match that flow (Details → Categories → Coupons → Folios → …) so coupon codes exist before folio rules attach to them.
 - **Live event alert:** `StaffPaidEventPayoutAlert` on dashboard, events list, and event hub when `payments_available === false` on a published paid event.
 - **Organizer payout nudge:** `StaffOrganizerPayoutSetupBanner` in `StaffLayout` when `payoutReady` is false (hidden on `/staff/payouts`). Proactive `primary` tone — not destructive. Rendered inside the shared `max-w-6xl` staff content shell so it aligns with dashboard headings and cards. **Desktop:** inline card with icon tile, text left, CTA right (`lg:flex-row`). **Mobile:** fixed sticky bar at bottom with matching `max-w-6xl` inner width.
 - **Athlete event page:** `GET /api/events/:slug` returns `payments_available` + `has_paid_categories`. Paid categories show `primary` info banner and disabled purchase UI when `payments_available === false`; free categories remain registerable.
 - **Semantic tokens only** — no arbitrary Tailwind colors on payout/checklist UI.
+
+## Staff — Simulation events
+
+- **Managed inside My events** (`/staff/events`): defaults to **live events**; segmented control Live / Simulations / All. Owners use **Create simulation**; sims show a badge. Legacy `/staff/simulations` redirects to `?simulation=1`.
+- **Event hub:** simulation panel with copy/open magic link, regenerate (owner), and reset/wipe generated data.
+- **Public gated URL:** `/events/sim/:token` — never marketplace-listed; Stripe **test** kit only (no Connect). Banner uses `secondary`/`muted` + `destructive` for do-not-share; badge copy via i18n `simulation.*`.
+- **Quotas:** max 3 active sims/org, 50 regs/sim, TTL 3 days from last activity; cron wipes generated data and keeps the event shell.
+- **Live surfaces:** marketplace, analytics, athlete portal registrations, and global staff payment/registration lists exclude `is_simulation` rows (event-scoped staff views still include them).
 
 ## Staff — Event image crop & previews
 

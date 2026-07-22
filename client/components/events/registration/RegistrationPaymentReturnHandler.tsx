@@ -145,6 +145,7 @@ export default function RegistrationPaymentReturnHandler() {
         slug,
         paymentPublicUuid: session.paymentPublicUuid,
         idempotencyKey: session.idempotencyKey,
+        simulationToken: session.simulationToken,
       }),
     ).then((result) => {
       if (!resumeRegistrationCheckout.fulfilled.match(result)) return;
@@ -281,6 +282,7 @@ export function usePersistRegistrationSession(args: {
   discountCode?: string;
   fieldValues?: Record<string, string | boolean>;
   checkoutPaymentReady?: boolean;
+  simulationToken?: string;
 }) {
   useEffect(() => {
     if (!args.open || !args.eventSlug || args.categoryId == null) return;
@@ -296,6 +298,7 @@ export function usePersistRegistrationSession(args: {
       discountCode: args.discountCode || undefined,
       fieldValues: args.fieldValues,
       checkoutPaymentReady: args.checkoutPaymentReady || undefined,
+      simulationToken: args.simulationToken || undefined,
     });
   }, [
     args.open,
@@ -308,6 +311,7 @@ export function usePersistRegistrationSession(args: {
     args.discountCode,
     args.fieldValues,
     args.checkoutPaymentReady,
+    args.simulationToken,
   ]);
 }
 

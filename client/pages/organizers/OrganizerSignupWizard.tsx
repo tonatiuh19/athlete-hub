@@ -486,6 +486,12 @@ export default function OrganizerSignupWizard() {
             <OtpInput
               value={otpForm.values.code}
               onChange={(code) => otpForm.setFieldValue("code", code)}
+              onComplete={(code) => {
+                if (verifyingOtp) return;
+                void otpForm.setFieldValue("code", code).then(() => {
+                  void otpForm.submitForm();
+                });
+              }}
             />
             {otpForm.submitCount > 0 && otpForm.errors.code && (
               <p className="text-xs text-destructive">{otpForm.errors.code}</p>

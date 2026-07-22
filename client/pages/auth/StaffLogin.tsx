@@ -186,6 +186,12 @@ export default function StaffLogin() {
                 <OtpInput
                   value={codeForm.values.code}
                   onChange={(v) => codeForm.setFieldValue("code", v)}
+                  onComplete={(code) => {
+                    if (verifyingOtp) return;
+                    void codeForm.setFieldValue("code", code).then(() => {
+                      void codeForm.submitForm();
+                    });
+                  }}
                   autoFocus
                   hasError={
                     !!(codeForm.submitCount > 0 && codeForm.errors.code)

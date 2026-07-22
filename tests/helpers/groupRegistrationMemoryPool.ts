@@ -269,7 +269,7 @@ export class GroupRegistrationMemoryPool {
     }
 
     if (q.includes("from events where id = ?")) {
-      return [[{ slug: SCENARIO.slug, starts_at: this.eventStartDate }], []];
+      return [[{ slug: SCENARIO.slug, start_date: this.eventStartDate }], []];
     }
 
     if (q.includes("from event_waivers") && q.includes("is_active = 1")) {

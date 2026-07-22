@@ -4,6 +4,7 @@ import * as Yup from "yup";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, Loader2, Mail, Send } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
+import { StaffFormSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,72 +100,77 @@ export default function StaffMessaging() {
         </div>
       ) : null}
 
-      <form onSubmit={formik.handleSubmit} className="card-sport p-6 space-y-5">
-        <div className="space-y-2">
-          <Label>{t("staffPortal.messaging.event")}</Label>
-          <Select
-            value={formik.values.eventId}
-            onValueChange={(v) => formik.setFieldValue("eventId", v)}
-            disabled={loadingEvents}
+      {loadingEvents ? (
+        <div className="card-sport p-6" aria-busy="true">
+          <StaffFormSkeleton fields={4} />
+        </div>
+      ) : (
+        <form onSubmit={formik.handleSubmit} className="card-sport p-6 space-y-5">
+          <div className="space-y-2">
+            <Label>{t("staffPortal.messaging.event")}</Label>
+            <Select
+              value={formik.values.eventId}
+              onValueChange={(v) => formik.setFieldValue("eventId", v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("staffPortal.messaging.selectEvent")} />
+              </SelectTrigger>
+              <SelectContent>
+                {events.map((ev) => (
+                  <SelectItem key={ev.id} value={String(ev.id)}>
+                    {ev.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formik.touched.eventId && formik.errors.eventId ? (
+              <p className="text-xs text-destructive">{formik.errors.eventId}</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("staffPortal.messaging.subject")}</Label>
+            <Input
+              placeholder={t("staffPortal.messaging.subject")}
+              {...formik.getFieldProps("subject")}
+            />
+            {formik.touched.subject && formik.errors.subject ? (
+              <p className="text-xs text-destructive">{formik.errors.subject}</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("staffPortal.messaging.body")}</Label>
+            <Textarea
+              placeholder={t("staffPortal.messaging.body")}
+              className="min-h-[140px]"
+              {...formik.getFieldProps("body")}
+            />
+            {formik.touched.body && formik.errors.body ? (
+              <p className="text-xs text-destructive">{formik.errors.body}</p>
+            ) : null}
+          </div>
+
+          {bulkMessageError ? (
+            <p className="text-sm text-destructive">{bulkMessageError}</p>
+          ) : null}
+
+          <Button
+            type="submit"
+            disabled={sendingBulkMessage}
+            className="w-full btn-primary rounded-xl"
           >
-            <SelectTrigger>
-              <SelectValue placeholder={t("staffPortal.messaging.selectEvent")} />
-            </SelectTrigger>
-            <SelectContent>
-              {events.map((ev) => (
-                <SelectItem key={ev.id} value={String(ev.id)}>
-                  {ev.title}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {formik.touched.eventId && formik.errors.eventId ? (
-            <p className="text-xs text-destructive">{formik.errors.eventId}</p>
-          ) : null}
-        </div>
-
-        <div className="space-y-2">
-          <Label>{t("staffPortal.messaging.subject")}</Label>
-          <Input
-            placeholder={t("staffPortal.messaging.subject")}
-            {...formik.getFieldProps("subject")}
-          />
-          {formik.touched.subject && formik.errors.subject ? (
-            <p className="text-xs text-destructive">{formik.errors.subject}</p>
-          ) : null}
-        </div>
-
-        <div className="space-y-2">
-          <Label>{t("staffPortal.messaging.body")}</Label>
-          <Textarea
-            placeholder={t("staffPortal.messaging.body")}
-            className="min-h-[140px]"
-            {...formik.getFieldProps("body")}
-          />
-          {formik.touched.body && formik.errors.body ? (
-            <p className="text-xs text-destructive">{formik.errors.body}</p>
-          ) : null}
-        </div>
-
-        {bulkMessageError ? (
-          <p className="text-sm text-destructive">{bulkMessageError}</p>
-        ) : null}
-
-        <Button
-          type="submit"
-          disabled={sendingBulkMessage || loadingEvents}
-          className="w-full btn-primary rounded-xl"
-        >
-          {sendingBulkMessage ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              <Send className="w-4 h-4 mr-2" />
-              {t("staffPortal.messaging.send")}
-            </>
-          )}
-        </Button>
-      </form>
+            {sendingBulkMessage ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Send className="w-4 h-4 mr-2" />
+                {t("staffPortal.messaging.send")}
+              </>
+            )}
+          </Button>
+        </form>
+      )}
     </div>
   );
 }

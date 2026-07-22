@@ -13,6 +13,7 @@ import {
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import StaffRegistrationPurchasedExtras from "@/components/staff/StaffRegistrationPurchasedExtras";
+import { StaffSheetSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import RegistrationQrPass from "@/components/shared/RegistrationQrPass";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import {
   refundStaffPayment,
 } from "@/store/slices/staffPortalSlice";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
+import { isStaffPaymentRefundable } from "@/utils/staffNav";
 import type { StaffRole } from "@shared/api";
 
 interface StaffRegistrationDetailSheetProps {
@@ -169,8 +171,8 @@ export default function StaffRegistrationDetailSheet({
         </SheetHeader>
 
         {loadingStaffRegistrationDetail ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <div className="mt-6" aria-busy="true">
+            <StaffSheetSkeleton />
           </div>
         ) : staffRegistrationDetailError ? (
           <p className="text-sm text-destructive mt-6">{staffRegistrationDetailError}</p>
@@ -431,7 +433,7 @@ export default function StaffRegistrationDetailSheet({
                     </div>
                   ) : null}
                 </div>
-                {allowRefund && payment.status === "succeeded" ? (
+                {allowRefund && isStaffPaymentRefundable(payment) ? (
                   <Button
                     type="button"
                     variant="outline"

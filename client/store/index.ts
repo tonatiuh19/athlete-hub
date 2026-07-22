@@ -17,6 +17,7 @@ import geoReducer from "./slices/geoSlice";
 import organizerSignupReducer from "./slices/organizerSignupSlice";
 import publicSiteReducer from "./slices/publicSiteSlice";
 import siteAdminReducer from "./slices/siteAdminSlice";
+import simulationReducer from "./slices/simulationSlice";
 
 export const store = configureStore({
   reducer: {
@@ -38,6 +39,7 @@ export const store = configureStore({
     organizerSignup: organizerSignupReducer,
     publicSite: publicSiteReducer,
     siteAdmin: siteAdminReducer,
+    simulation: simulationReducer,
   },
 });
 

@@ -12,6 +12,7 @@ export type EventEditFormValues = {
   visibility: string;
   featured: boolean;
   requires_waiver: boolean;
+  auto_deactivate_after_event: boolean;
   start_date: string;
   end_date: string;
   registration_opens_at: string;
@@ -45,6 +46,10 @@ export function buildEventEditFormValues(
     visibility: event?.visibility ?? "public",
     featured: Boolean(event?.featured),
     requires_waiver: Boolean(event?.requires_waiver),
+    auto_deactivate_after_event:
+      event?.auto_deactivate_after_event === undefined
+        ? true
+        : Boolean(event.auto_deactivate_after_event),
     start_date: toDatetimeLocal(event?.start_date),
     end_date: toDatetimeLocal(event?.end_date),
     registration_opens_at: toDatetimeLocal(event?.registration_opens_at),
@@ -89,6 +94,7 @@ export function buildStaffEventBody(
     visibility: values.visibility,
     featured: values.featured,
     requires_waiver: values.requires_waiver,
+    auto_deactivate_after_event: values.auto_deactivate_after_event,
     start_date: fromDatetimeLocal(values.start_date) ?? values.start_date,
     end_date: fromDatetimeLocal(values.end_date),
     registration_opens_at: fromDatetimeLocal(values.registration_opens_at),

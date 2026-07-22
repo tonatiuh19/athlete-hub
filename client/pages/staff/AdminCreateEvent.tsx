@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { useToast } from "@/hooks/use-toast";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import { StaffEventCardsSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -189,9 +190,7 @@ export default function AdminCreateEventPage() {
             />
             <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
               {loadingAdminOrganizers ? (
-                <p className="text-sm text-muted-foreground col-span-2 py-4 text-center">
-                  {t("common.loading")}
-                </p>
+                <StaffEventCardsSkeleton count={4} className="sm:grid-cols-2 col-span-2" />
               ) : adminOrganizers.length === 0 ? (
                 <p className="text-sm text-muted-foreground col-span-2 py-4 text-center">
                   {t("staffPortal.adminCreate.noOrganizers")}

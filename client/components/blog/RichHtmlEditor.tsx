@@ -99,7 +99,12 @@ const RichHtmlEditor = forwardRef<RichHtmlEditorHandle, RichHtmlEditorProps>(
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [2, 3] } }),
+      StarterKit.configure({
+        heading: { levels: [2, 3] },
+        // Custom Link / Underline configs are registered below
+        link: false,
+        underline: false,
+      }),
       Underline,
       Link.configure({ openOnClick: false, HTMLAttributes: { class: "text-primary underline" } }),
       Image.configure({ HTMLAttributes: { class: "rounded-lg max-w-full h-auto my-4" } }),

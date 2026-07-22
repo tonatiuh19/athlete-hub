@@ -28,6 +28,7 @@ import {
 import { getDateFnsLocale } from "@/utils/dateLocale";
 import { canOrganizerManageTeam } from "@/utils/staffNav";
 import { getFormikMissingItems } from "@/utils/staffFormMissing";
+import { StaffTableSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 
 const inviteSchema = Yup.object({
   email: Yup.string().email("Invalid email").required("Required"),
@@ -189,7 +190,7 @@ export default function StaffTeam() {
       )}
 
       {loadingTeam ? (
-        <p className="text-muted-foreground">{t("common.loading")}</p>
+        <StaffTableSkeleton rows={5} columns={5} />
       ) : teamError ? null : (
         <div className="card-sport overflow-hidden">
           <div className="overflow-x-auto">

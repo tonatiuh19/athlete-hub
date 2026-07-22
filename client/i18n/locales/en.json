@@ -39,7 +39,8 @@
     },
     "copied": "Copied",
     "next": "Next",
-    "close": "Close"
+    "close": "Close",
+    "refresh": "Refresh"
   },
   "auth": {
     "athlete": {
@@ -431,6 +432,8 @@
       "loadEvent": "Could not load event",
       "saveEvent": "Could not save event",
       "publishEvent": "Could not publish event",
+      "deactivateEvent": "Could not deactivate event listing",
+      "deleteEvent": "Could not delete event",
       "rejectEvent": "Could not reject event",
       "addCategory": "Could not add category",
       "removeCategory": "Could not remove category",
@@ -444,6 +447,8 @@
       "loadCheckInWindow": "Could not load check-in window",
       "loadPayoutStatus": "Could not load payout status",
       "savePayoutProfile": "Could not save payout profile",
+      "savePayoutRail": "Could not save payout rail",
+      "mpOauthStart": "Could not start Mercado Pago connection",
       "acceptPayoutTerms": "Could not accept payout terms",
       "connectNotEnabled": "Payout verification is not available yet. Ask a Triboo admin to enable the platform payment account.",
       "startPayoutVerification": "Could not start payout verification",
@@ -507,7 +512,8 @@
       "console": "Staff Console",
       "admin": "Administrator",
       "organizer": "Organizer",
-      "exit": "Sign out"
+      "exit": "Sign out",
+      "simulations": "Simulations"
     },
     "dashboard": {
       "titleAdmin": "Platform dashboard",
@@ -635,6 +641,7 @@
       "titleAdmin": "All events",
       "titleOrganizer": "My events",
       "subtitle": "Review status, registrations, and public pages",
+      "subtitleOrganizer": "Your live events by default. Switch to Simulations for Stripe test checkouts.",
       "searchPlaceholder": "Search events…",
       "statusFilter": "Status",
       "statusAll": "All statuses",
@@ -643,7 +650,14 @@
       "statusPublished": "Published",
       "statusCompleted": "Completed",
       "statusCancelled": "Cancelled",
+      "kindFilter": "Type",
+      "kindAll": "All",
+      "kindLive": "Live events",
+      "kindSimulation": "Simulations",
+      "createSimulation": "Create simulation",
       "empty": "No events found.",
+      "emptyLive": "No live events yet. Create an event to get started.",
+      "emptySimulation": "No simulations yet. Create one to test checkout with Stripe test cards.",
       "viewPublic": "Public page",
       "manage": "Manage",
       "create": "Create event",
@@ -663,6 +677,25 @@
       "colCity": "City",
       "colRegistrations": "Registrations",
       "colActions": "Actions",
+      "lifecycle": {
+        "deactivate": "Deactivate listing",
+        "deactivateShort": "Unlist",
+        "deactivateTitle": "Deactivate from listing?",
+        "deactivateBody": "“{{title}}” will be hidden from the public marketplace. Staff can still manage it from the hub.",
+        "deactivateHint": "Registrations already completed stay intact. You can change visibility again in Edit.",
+        "deactivateConfirm": "Deactivate listing",
+        "deactivateSuccess": "Event removed from public listing",
+        "delete": "Delete event",
+        "deleteShort": "Delete",
+        "deleteTitle": "Delete event? This cannot be undone easily",
+        "deleteWarning": "Destructive action: deleting “{{title}}” cancels all open registrations and waitlist entries.",
+        "deleteBody": "The event is soft-deleted (hidden from staff lists as cancelled). Payment records are kept for audit. Confirmed athletes lose their active registration status.",
+        "deleteRecommend": "Prefer deactivating from listing instead if you only want to hide the event from the marketplace.",
+        "preferDeactivate": "Deactivate listing instead",
+        "deleteConfirm": "Yes, delete event",
+        "deleteSuccess": "Event deleted",
+        "deleteSuccessRegs": "{{count}} registration(s) cancelled"
+      },
       "createAdminTitle": "Create event for organizer",
       "createAdminSubmit": "Create draft",
       "createOrganizerId": "Organizer ID"
@@ -671,6 +704,8 @@
       "title": "Event command center",
       "subtitle": "Registrations, check-in, waitlist, and live stats",
       "back": "Back to events",
+      "lifecycleTitle": "Listing & delete",
+      "lifecycleHint": "Hide the event from the marketplace, or permanently soft-delete it (cancels registrations).",
       "tabOverview": "Overview",
       "tabRegistrations": "Registrations",
       "tabWaitlist": "Waitlist",
@@ -733,6 +768,40 @@
       "checklistRequiredPending": "Complete required items before publishing.",
       "checklistRequiredDone": "Required items done · {{done}}/{{total}} recommended complete",
       "checklistRequired": "Required",
+      "setupGuide": {
+        "title": "Suggested order",
+        "subtitle": "Follow the numbered steps. Create coupons before Folios if you’ll attach ranges to a code (e.g. comps).",
+        "bannerTitle": "Step 1 — Event details",
+        "bannerBody": "Save title, sport, and dates first. Then Categories (2), Payouts if priced (3), Coupons (4), and Folios (5) to link Sales/Comps. The numbered guide is in the sidebar.",
+        "legendAria": "Priority legend",
+        "legendRequired": "Required to publish",
+        "legendRecommended": "Recommended",
+        "legendOptional": "Optional",
+        "steps": {
+          "details": "Details",
+          "categories": "Categories & pricing",
+          "payouts": "Payouts (Stripe / Mercado Pago)",
+          "folios": "Folios & bib",
+          "discounts": "Coupons / comps",
+          "waiver": "Waiver",
+          "course": "Course map",
+          "mediaLocation": "Images & location",
+          "polish": "Fields, waves & extras",
+          "submit": "Submit for approval"
+        },
+        "hints": {
+          "details": "Title, sport, race dates. Save before switching tabs.",
+          "categories": "At least one category with a price (or $0). Set distances and capacity.",
+          "payouts": "Required for paid categories. Publishing stays blocked until payouts are ready.",
+          "discounts": "Create codes (e.g. CORTESIA at 100%) before Folios so you can attach them.",
+          "folios": "Choose folio = bib and set Sales vs Comp ranges (link the comp coupon).",
+          "waiver": "Add digital waivers if the event requires them.",
+          "course": "Draw or upload the route for the public map.",
+          "mediaLocation": "Hero/banner under Media; city and coordinates under Details.",
+          "polish": "Form fields, waves, waitlist, extras, and sponsors.",
+          "submit": "When required items are done, submit for Triboo approval (an admin publishes)."
+        }
+      },
       "checklist": {
         "hasTitle": "Event title",
         "hasSport": "Sport type",
@@ -901,6 +970,8 @@
       "fieldMaxRegsPerOrderHint": "Family/group checkout limit (1–20 participants per purchase).",
       "fieldRequiresWaiver": "Require digital waivers at registration",
       "fieldRequiresWaiverHint": "Athletes must accept all active waivers before checkout. Configure them in the Waiver tab.",
+      "fieldAutoDeactivate": "Auto-deactivate after event day",
+      "fieldAutoDeactivateHint": "After the event’s last calendar day ends, hide it from the public marketplace automatically. Registrations are already closed once the event day has passed, even if it is still listed.",
       "bibMode": {
         "title": "Use folio as race bib (dorsal)",
         "subtitle": "Choose how race numbers work for this event. Check-in can find athletes by folio, bib, or QR either way.",
@@ -911,7 +982,8 @@
         "folioStrongNote": "These folio rules create the dorsales athletes will wear. Design sequences that match what you print on shirts.",
         "separateNudge": "Triboo will remind you on Registrations when confirmed athletes still need a dorsal.",
         "changeInDetails": "Change this policy under Details (then save the event).",
-        "saveWithDetails": "Race-number policy is saved with the event Details tab.",
+        "saveWithDetails": "Choose folio = bib or separate, then tap Save policy. You can also edit this under Details.",
+        "savePolicy": "Save policy",
         "missingBibsTitle": "{{count}} athletes still need a dorsal",
         "missingBibsHint": "This event keeps folio and bib separate. Import a CSV or open a registration to assign bibs.",
         "missingBibsImport": "Import bibs",
@@ -1143,12 +1215,7 @@
         ],
         "optionalTitle": "On athlete profile (optional)",
         "optionalHint": "Not required by the default wizard. Add as Campos extra only if you need them required at checkout for this event.",
-        "optionalItems": [
-          "Phone",
-          "Shirt size",
-          "City",
-          "Emergency contact"
-        ],
+        "optionalItems": ["Phone", "Shirt size", "City", "Emergency contact"],
         "goodTitle": "Good custom field examples",
         "goodHint": "Race-day or organizer-specific data that is not already on the athlete profile.",
         "goodExamples": [
@@ -1228,14 +1295,17 @@
       "discountsTitle": "Discount codes",
       "discountsSubtitle": "Promotional codes for this event (no payout setup required)",
       "discountCode": "Code",
+      "discountType": "Type",
       "discountPercent": "Percent off",
       "discountFixed": "Fixed amount (cents)",
       "discountValue": "Value",
+      "discountMaxUses": "Max uses",
       "addDiscount": "Add code",
       "noDiscounts": "No discount codes yet.",
       "discountUses": "{{used}} / {{max}} uses",
       "deactivateDiscount": "Deactivate",
-      "activateDiscount": "Activate"
+      "activateDiscount": "Activate",
+      "deleteDiscount": "Delete discount code"
     },
     "folioSegments": {
       "title": "Custom folio rules",
@@ -1755,8 +1825,10 @@
       "manualSaleEventPlaceholder": "Select event",
       "manualSaleNoCommission": "Platform commission is not charged on manual sales.",
       "manualSaleSubmit": "Record sale",
-      "providerAll": "All providers",
+      "providerAll": "All payment methods",
       "providerManual": "Manual",
+      "providerTriboo": "Stripe",
+      "providerDigitalWallet": "Mercado Pago",
       "providerMock": "Comp / mock",
       "colSeller": "Seller",
       "colSales": "Sales",
@@ -1781,6 +1853,31 @@
       "tribooSectionHint": "Complete your business details before starting bank verification.",
       "bankVerificationSectionTitle": "Step 2 — Bank verification",
       "bankVerificationSectionHint": "We verify your identity and bank details. Triboo cannot skip this step.",
+      "railTitle": "Preferred payment provider",
+      "railHint": "Choose Stripe or Mercado Pago. If the preferred option is not ready, we fall back to the other when available.",
+      "railHintStripeOnly": "Paid registrations use Stripe today. Mercado Pago is coming soon.",
+      "railStripe": "Stripe",
+      "railMercadoPago": "Mercado Pago",
+      "timingTitle": "How long until funds arrive?",
+      "timingStripe": "Stripe: charge confirms instantly; bank deposit follows your verified Stripe account schedule.",
+      "timingMpCard": "Mercado Pago (card / balance): we target instant credit to your Mercado Pago account.",
+      "timingMpOxxo": "Mercado Pago in-store cash (OXXO): athlete pays in cash; funds usually land in ~3 days. Registration confirms only after payment.",
+      "usingFallbackRail": "Using alternate payment provider",
+      "mpComingSoonBadge": "Coming soon",
+      "mpComingSoonBody": "Mercado Pago is not available yet. Complete Stripe setup for now — we will unlock Mercado Pago when it is ready.",
+      "mpComingSoonCta": "Coming soon",
+      "mpSectionTitle": "Step 3 — Mercado Pago",
+      "mpSectionHint": "Connect Mercado Pago to accept cards, balance, and in-store cash (Triboo fee 13%).",
+      "mpItem": {
+        "mp_oauth": "Mercado Pago connected",
+        "mp_configured": "Mercado Pago enabled on Triboo"
+      },
+      "mpConnectTitle": "Connect Mercado Pago",
+      "mpConnectHint": "Authorize Triboo to deposit registrations into your Mercado Pago account.",
+      "mpConnectCta": "Connect Mercado Pago",
+      "mpConnected": "Mercado Pago connected",
+      "mpConnectError": "Could not connect Mercado Pago",
+      "mpReady": "Mercado Pago ready to accept payments",
       "profileFormTitle": "Business profile",
       "fieldLegalName": "Legal business name",
       "fieldBillingEmail": "Billing email",
@@ -2259,7 +2356,7 @@
       },
       "paymentMethodsStripe": {
         "question": "How do I pay for a registration?",
-        "answer": "Paid registrations are processed securely through Stripe with MXN card payments. Pay with a new card at checkout or use a card saved under Payment methods in your portal. Triboo does not store your full card number—Stripe handles PCI-compliant processing."
+        "answer": "Paid registrations are processed securely in Mexican pesos (MXN). Pay with a new card at checkout or use a card saved under Payment methods in your portal. Triboo never stores your full card number."
       },
       "pricesInMxnAndFees": {
         "question": "What currency are prices shown in?",
@@ -2267,7 +2364,7 @@
       },
       "freeEventRegistration": {
         "question": "Do I need a card for free events?",
-        "answer": "No. When your category and add-ons total $0 MXN, checkout skips card entry and confirms your registration immediately. You'll still get a confirmation email and QR code like any other registration."
+        "answer": "No. When your category and add-ons total $0 MXN (including a 100% promo), checkout skips card entry and shows your discount and $0 total. You still tap Confirm registration to finish—then you get the confirmation email and QR like any other registration."
       },
       "refundsAndCancellations": {
         "question": "How do refunds and cancellations work?",
@@ -2299,7 +2396,7 @@
       },
       "hostEventOnTriboo": {
         "question": "I want to organize a race—where do I start?",
-        "answer": "Visit Host an event to learn how Triboo handles registrations, Stripe payments, and QR check-in. Tap Start free to begin self-service organizer signup; events are reviewed before appearing on the public marketplace."
+        "answer": "Visit Host an event to learn how Triboo handles registrations, secure payments, and QR check-in. Tap Start free to begin self-service organizer signup; events are reviewed before appearing on the public marketplace."
       },
       "contactAthleteSupport": {
         "question": "How do I contact Triboo for help?",
@@ -2307,7 +2404,7 @@
       },
       "paymentsUnavailableForEvent": {
         "question": "Why can't I pay online for a paid category?",
-        "answer": "If the organizer hasn't finished Stripe Connect payout setup, paid categories may show online payment temporarily unavailable while free categories can still work. Check back later or contact the organizer—the event page explains when payouts are still being configured."
+        "answer": "If the organizer hasn't finished payout setup, paid categories may show online payment temporarily unavailable while free categories can still work. Check back later or contact the organizer—the event page explains when payouts are still being configured."
       }
     }
   },
@@ -2696,6 +2793,7 @@
     "waiverNotConfigured": "Registration is temporarily unavailable",
     "waiverNotConfiguredHint": "This event requires waivers but none are configured yet. Please contact the organizer.",
     "registrationClosed": "Registration has closed for this event.",
+    "registrationEventPassed": "Registration is closed — this event has already taken place.",
     "registrationNotOpen": "Registration has not opened yet.",
     "alreadyRegisteredTitle": "You're registered for this event",
     "alreadyRegisteredDesc": "{{category}} · Registration #{{number}}",
@@ -2838,7 +2936,11 @@
       "waiver": "Waiver",
       "extras": "Add-ons",
       "checkout": "Details & pay",
-      "result": "Done"
+      "checkoutDetails": "Your details",
+      "checkoutPayment": "Payment",
+      "result": "Done",
+      "stepOf": "Step {{current}} of {{total}}",
+      "nextStep": "Next: {{label}}"
     },
     "auth": {
       "title": "Sign in to continue",
@@ -2887,8 +2989,13 @@
       "selectOption": "Select an option",
       "continueToPayment": "Continue to payment",
       "backToDetails": "Back to registration details",
+      "summaryExpand": "View details",
+      "summaryCollapse": "Hide",
       "paymentSectionHint": "Apply a promo code if you have one, then enter your card details below.",
       "retryPaymentSetup": "Retry payment setup",
+      "resumeIncompleteTitle": "A required step is incomplete",
+      "resumeIncompleteWaiver": "Please accept the waiver again to continue to payment.",
+      "resumeIncompleteFields": "Complete the registration details required by the organizer.",
       "discountLabel": "Discount code",
       "discountPlaceholder": "PROMO2026",
       "discountApply": "Apply",
@@ -2917,8 +3024,9 @@
         "ageIneligible": "You do not meet the age requirements for this category.",
         "notOpen": "Registration has not opened yet.",
         "closed": "Registration has closed for this event.",
+        "eventPassed": "Registration is closed — this event has already taken place.",
         "paymentsUnavailable": "Online payment is temporarily unavailable for this event. Please try again later or contact the organizer.",
-        "paymentSetupFailed": "We could not start card payment. Please try again in a few minutes."
+        "paymentSetupFailed": "We could not start online payment. Please try again in a few minutes."
       }
     },
     "waiver": {
@@ -2938,14 +3046,20 @@
     },
     "payment": {
       "title": "Payment",
-      "preparing": "Preparing secure card form…",
-      "unavailable": "Online card payment is temporarily unavailable. Please try again later or contact the organizer.",
+      "preparing": "Preparing secure payment form…",
+      "unavailable": "Online payment is temporarily unavailable. Please try again later or contact the organizer.",
       "pay": "Pay {{amount}}",
-      "secure": "Secure payment processing · PCI compliant",
+      "confirmFree": "Confirm registration",
+      "freeTitle": "Confirm your free registration",
+      "freeHint": "Review the discount and total below, then confirm. No card is required.",
+      "secure": "Secure payment",
       "useNewCard": "Use a different card",
       "useSavedCard": "Use a saved card",
       "failed": "Payment could not be processed",
       "pending": "Payment is still processing. Please wait.",
+      "mpInitFailed": "Could not start payment. Please try again.",
+      "mpPowered": "",
+      "mpPendingOxxo": "We created your payment reference. Registration confirms after you complete payment in store.",
       "authenticationRequired": "Your bank requires additional verification to complete this payment.",
       "completeAuthentication": "Complete verification",
       "authenticationFailed": "Card verification failed or was canceled.",
@@ -3023,5 +3137,48 @@
     "badgeSelf": "Yours",
     "portalTitle": "Family / guest passes",
     "portalSubtitle": "QR codes you hold for kids and unclaimed guests"
+  },
+  "simulation": {
+    "badge": "Simulation",
+    "bannerTitle": "Simulation checkout (Stripe test mode)",
+    "bannerBody": "This event is for organizer testing only. Use Stripe test cards — no real money moves and Connect is not used.",
+    "doNotShare": "Do not share this link publicly. Anyone with the URL can run test checkouts.",
+    "futureCost": "Note: simulations may become a paid platform feature later.",
+    "expiredTitle": "This simulation has expired",
+    "expiredBody": "Ask the organizer to reset activity or create a new simulation.",
+    "categories": "Categories",
+    "noCategories": "No categories configured yet. Clone from a live event or edit the simulation shell.",
+    "register": "Test registration",
+    "registerGroup": "Test group registration",
+    "testCardsTitle": "Stripe test cards",
+    "notFoundTitle": "Simulation not found",
+    "notFoundBody": "The link is invalid or the simulation was removed.",
+    "backToEvents": "Browse events",
+    "staffTitle": "Simulations",
+    "staffSubtitle": "Up to {{max}} active simulations · {{regs}} regs each · wipe after {{days}} days idle",
+    "createTitle": "Create simulation",
+    "fieldTitle": "Title",
+    "fieldStart": "Start date",
+    "fieldSport": "Sport",
+    "fieldClone": "Clone from event",
+    "pickSport": "Select sport",
+    "noClone": "Blank simulation",
+    "createCta": "Create simulation",
+    "createRequired": "Title, sport, and start date are required (or choose an event to clone).",
+    "defaultTitle": "Simulation event",
+    "created": "Simulation created",
+    "empty": "No simulations yet.",
+    "ownerOnly": "Only the organization owner can manage simulations.",
+    "linkCopied": "Magic link copied",
+    "copyFailed": "Could not copy link",
+    "copyLink": "Copy link",
+    "openLink": "Open magic link",
+    "regenerate": "New link",
+    "reset": "Reset data",
+    "resetDone": "Simulation data wiped",
+    "hubHint": "Test checkout with Stripe test keys. Not listed on the marketplace.",
+    "manageInHub": "Manage simulation",
+    "regCount": "{{count}} test registrations",
+    "expires": "Expires {{date}}"
   }
 }

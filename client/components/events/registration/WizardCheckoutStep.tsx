@@ -13,6 +13,7 @@ import {
 import RegistrationFieldInput from "@/components/events/registration/RegistrationFieldInput";
 import CheckoutDiscountField from "@/components/events/registration/CheckoutDiscountField";
 import StripeCheckout from "@/components/events/registration/StripePaymentForm";
+import MercadoPagoCheckout from "@/components/events/registration/MercadoPagoCheckout";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -28,7 +29,9 @@ import {
 } from "@/store/slices/registrationCheckoutSlice";
 import { formatPriceMxn } from "@/utils/eventFormat";
 import { Link } from "react-router-dom";
+import api, { athleteAuthHeaders } from "@/lib/api";
 import {
+  checkoutErrorIsEligibility,
   checkoutErrorMessage,
   checkoutErrorNeedsProfile,
   type CheckoutErrorPayload,
@@ -37,6 +40,10 @@ import { resolveAppliedDiscountCode } from "@/utils/registrationCheckoutDiscount
 import { registrationCheckoutIsReady } from "@/utils/registrationCheckoutPayment";
 import { buildRegistrationFieldsYupSchema } from "@/utils/registrationFieldsFormik";
 import LegalConsentNotice from "@/components/legal/LegalConsentNotice";
+import {
+  prerequisiteGapFromCheckoutError,
+  type RegistrationPrerequisiteGap,
+} from "@/utils/registrationWizardPrerequisites";
 
 export type CheckoutUiPhase = "details" | "payment";
 
@@ -51,6 +58,11 @@ interface WizardCheckoutStepProps {
   restoredFieldValues?: Record<string, string | boolean> | null;
   checkoutPaymentReady: boolean;
   onCheckoutPaymentReady: (ready: boolean) => void;
+  /** Persist registration details when athlete continues to payment. */
+  onFieldValuesChange?: (values: Record<string, string | boolean>) => void;
+  needsWaiver?: boolean;
+  hasWaiverAcceptance?: boolean;
+  onPrerequisiteMissing?: (gap: RegistrationPrerequisiteGap) => void;
   eventExtras?: EventExtra[];
 }
 
@@ -68,6 +80,8 @@ function CheckoutOrderSummary({
   language,
   extras = [],
   extrasSubtotalCents = 0,
+  /** Compact: total-first row; expand for line items (mobile details step). */
+  compact = false,
 }: {
   eventTitle: string;
   categoryName: string;
@@ -82,9 +96,112 @@ function CheckoutOrderSummary({
   language: string;
   extras?: RegistrationCheckoutExtraLine[];
   extrasSubtotalCents?: number;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const absorbAll = feePresentation === "absorb_all";
+
+  const lineItems = (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      {absorbAll ? (
+        <div className="flex justify-between">
+          <span>{t("registrationWizard.checkout.finalPrice")}</span>
+          <span>{formatPriceMxn(priceCents, language)}</span>
+        </div>
+      ) : (
+        <>
+          <div className="flex justify-between">
+            <span>{t("eventDetail.inscription")}</span>
+            <span>{formatPriceMxn(priceCents, language)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>{t("eventDetail.serviceFee")}</span>
+            <span>{formatPriceMxn(serviceFeeCents, language)}</span>
+          </div>
+        </>
+      )}
+      {extras.map((line) => (
+        <div key={line.extraId} className="flex justify-between pl-2 border-l border-border/60">
+          <span className="truncate pr-2">
+            {line.name}
+            {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+          </span>
+          <span className="shrink-0">{formatPriceMxn(line.totalCents, language)}</span>
+        </div>
+      ))}
+      {extrasSubtotalCents > 0 ? (
+        <div className="flex justify-between text-muted-foreground">
+          <span>{t("registrationWizard.checkout.extrasSubtotal")}</span>
+          <span>{formatPriceMxn(extrasSubtotalCents, language)}</span>
+        </div>
+      ) : null}
+      {discountPreview?.valid && discountPreview.discountAmountCents > 0 ? (
+        <div className="flex justify-between text-accent">
+          <span>{t("registrationWizard.checkout.discountApplied")}</span>
+          <span>−{formatPriceMxn(discountPreview.discountAmountCents, language)}</span>
+        </div>
+      ) : null}
+      {!compact ? (
+        <div className="flex justify-between font-bold text-primary pt-1 border-t border-border">
+          <span>{t("eventDetail.total")}</span>
+          <span>{formatPriceMxn(totalCents, language)}</span>
+        </div>
+      ) : null}
+      {absorbAll && displayIvaCents != null ? (
+        <details className="pt-2 text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer text-muted-foreground">
+            {t("registrationWizard.checkout.invoicePreviewToggle")}
+          </summary>
+          <div className="mt-2 space-y-1 pl-1">
+            <div className="flex justify-between">
+              <span>
+                {t("registrationWizard.checkout.invoiceServiceFeePercent", {
+                  percent: serviceFeePercent,
+                })}
+              </span>
+              <span>{formatPriceMxn(serviceFeeCents, language)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>{t("registrationWizard.checkout.invoiceIva")}</span>
+              <span>{formatPriceMxn(displayIvaCents, language)}</span>
+            </div>
+            {organizerFiscalNetCents != null ? (
+              <div className="flex justify-between">
+                <span>{t("registrationWizard.checkout.invoiceOrganizerPortion")}</span>
+                <span>{formatPriceMxn(organizerFiscalNetCents, language)}</span>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <details className="rounded-xl border border-border bg-muted/40 group">
+        <summary className="flex items-center gap-3 p-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+          <Receipt className="w-4 h-4 text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-muted-foreground truncate">{categoryName}</p>
+            <p className="text-sm font-bold text-primary tabular-nums">
+              {t("eventDetail.total")}: {formatPriceMxn(totalCents, language)}
+            </p>
+          </div>
+          <span className="text-[11px] text-muted-foreground shrink-0 group-open:hidden">
+            {t("registrationWizard.checkout.summaryExpand")}
+          </span>
+          <span className="text-[11px] text-muted-foreground shrink-0 hidden group-open:inline">
+            {t("registrationWizard.checkout.summaryCollapse")}
+          </span>
+        </summary>
+        <div className="px-3 pb-3 pt-0 border-t border-border/60 mt-0">
+          <p className="text-[11px] text-muted-foreground truncate py-2">{eventTitle}</p>
+          {lineItems}
+        </div>
+      </details>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-border bg-card/40 p-4">
@@ -93,79 +210,7 @@ function CheckoutOrderSummary({
         <div className="flex-1 min-w-0">
           <p className="text-xs text-muted-foreground truncate">{eventTitle}</p>
           <p className="text-sm font-bold text-foreground">{categoryName}</p>
-          <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-            {absorbAll ? (
-              <div className="flex justify-between">
-                <span>{t("registrationWizard.checkout.finalPrice")}</span>
-                <span>{formatPriceMxn(priceCents, language)}</span>
-              </div>
-            ) : (
-              <>
-                <div className="flex justify-between">
-                  <span>{t("eventDetail.inscription")}</span>
-                  <span>{formatPriceMxn(priceCents, language)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>{t("eventDetail.serviceFee")}</span>
-                  <span>{formatPriceMxn(serviceFeeCents, language)}</span>
-                </div>
-              </>
-            )}
-            {extras.map((line) => (
-              <div key={line.extraId} className="flex justify-between pl-2 border-l border-border/60">
-                <span className="truncate pr-2">
-                  {line.name}
-                  {line.quantity > 1 ? ` ×${line.quantity}` : ""}
-                </span>
-                <span className="shrink-0">{formatPriceMxn(line.totalCents, language)}</span>
-              </div>
-            ))}
-            {extrasSubtotalCents > 0 ? (
-              <div className="flex justify-between text-muted-foreground">
-                <span>{t("registrationWizard.checkout.extrasSubtotal")}</span>
-                <span>{formatPriceMxn(extrasSubtotalCents, language)}</span>
-              </div>
-            ) : null}
-            {discountPreview?.valid && discountPreview.discountAmountCents > 0 ? (
-              <div className="flex justify-between text-accent">
-                <span>{t("registrationWizard.checkout.discountApplied")}</span>
-                <span>
-                  −{formatPriceMxn(discountPreview.discountAmountCents, language)}
-                </span>
-              </div>
-            ) : null}
-            <div className="flex justify-between font-bold text-primary pt-1 border-t border-border">
-              <span>{t("eventDetail.total")}</span>
-              <span>{formatPriceMxn(totalCents, language)}</span>
-            </div>
-            {absorbAll && displayIvaCents != null ? (
-              <details className="pt-2 text-[11px] text-muted-foreground">
-                <summary className="cursor-pointer text-muted-foreground">
-                  {t("registrationWizard.checkout.invoicePreviewToggle")}
-                </summary>
-                <div className="mt-2 space-y-1 pl-1">
-                  <div className="flex justify-between">
-                    <span>
-                      {t("registrationWizard.checkout.invoiceServiceFeePercent", {
-                        percent: serviceFeePercent,
-                      })}
-                    </span>
-                    <span>{formatPriceMxn(serviceFeeCents, language)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>{t("registrationWizard.checkout.invoiceIva")}</span>
-                    <span>{formatPriceMxn(displayIvaCents, language)}</span>
-                  </div>
-                  {organizerFiscalNetCents != null ? (
-                    <div className="flex justify-between">
-                      <span>{t("registrationWizard.checkout.invoiceOrganizerPortion")}</span>
-                      <span>{formatPriceMxn(organizerFiscalNetCents, language)}</span>
-                    </div>
-                  ) : null}
-                </div>
-              </details>
-            ) : null}
-          </div>
+          <div className="mt-3">{lineItems}</div>
         </div>
       </div>
     </div>
@@ -183,6 +228,10 @@ export default function WizardCheckoutStep({
   restoredFieldValues,
   checkoutPaymentReady,
   onCheckoutPaymentReady,
+  onFieldValuesChange,
+  needsWaiver = false,
+  hasWaiverAcceptance = false,
+  onPrerequisiteMissing,
   eventExtras = [],
 }: WizardCheckoutStepProps) {
   const { t, i18n } = useTranslation();
@@ -204,6 +253,7 @@ export default function WizardCheckoutStep({
     pending3dsClientSecret,
     selectedExtras,
     extraFieldAnswers,
+    simulationToken,
   } = useAppSelector((s) => s.registrationCheckout);
   const athleteEmail = useAppSelector((s) => s.athleteAuth.user?.email);
 
@@ -214,6 +264,7 @@ export default function WizardCheckoutStep({
   >(null);
   const [waitlistOffered, setWaitlistOffered] = useState(false);
   const [checkoutNeedsProfile, setCheckoutNeedsProfile] = useState(false);
+  const [checkoutIsEligibility, setCheckoutIsEligibility] = useState(false);
   const [discountRevalidateAttempted, setDiscountRevalidateAttempted] = useState(false);
   const checkoutEnsureInFlight = useRef(false);
 
@@ -276,7 +327,12 @@ export default function WizardCheckoutStep({
 
   const handleCheckout = useCallback(
     async (values: Record<string, string | boolean>) => {
+      if (needsWaiver && !hasWaiverAcceptance) {
+        onPrerequisiteMissing?.("waiver");
+        return;
+      }
       const fieldValues = normalizeCheckoutFieldValues(values, normalizedFields);
+      onFieldValuesChange?.(fieldValues);
       const result = await dispatch(
         createRegistrationCheckout({
           slug,
@@ -288,20 +344,14 @@ export default function WizardCheckoutStep({
           waitlistEntryId: waitlistClaimMode ? waitlistEntryId ?? undefined : undefined,
           selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
           extraFieldAnswers: extraFieldAnswers.length > 0 ? extraFieldAnswers : undefined,
+          simulationToken: simulationToken || undefined,
         }),
       );
       if (createRegistrationCheckout.fulfilled.match(result)) {
         setFieldsLocked(true);
         setWaitlistOffered(false);
         onCheckoutPaymentReady(true);
-        if (result.payload.amountCents === 0 && result.payload.paymentPublicUuid) {
-          await dispatch(
-            confirmRegistration({
-              slug,
-              paymentPublicUuid: result.payload.paymentPublicUuid,
-            }),
-          );
-        }
+        // Never auto-confirm $0 — athlete must review discount / free total and tap Confirm.
       } else if (createRegistrationCheckout.rejected.match(result)) {
         const payload = result.payload as CheckoutErrorPayload;
         if (payload === "WAITLIST_AVAILABLE") {
@@ -312,17 +362,30 @@ export default function WizardCheckoutStep({
           dispatch(setPaymentFailure(t("registrationWizard.checkout.alreadyRegistered")));
           return;
         }
+        const message = checkoutErrorMessage(payload, t);
+        const gap = prerequisiteGapFromCheckoutError(
+          typeof payload === "string" ? payload : payload?.message ?? message,
+        );
+        if (gap && onPrerequisiteMissing) {
+          onPrerequisiteMissing(gap);
+          return;
+        }
         setCheckoutNeedsProfile(checkoutErrorNeedsProfile(payload));
-        dispatch(setCheckoutError(checkoutErrorMessage(payload, t)));
+        setCheckoutIsEligibility(checkoutErrorIsEligibility(payload));
+        dispatch(setCheckoutError(message));
       }
     },
     [
       appliedDiscountCode,
       category.id,
       dispatch,
+      hasWaiverAcceptance,
       idempotencyKey,
+      needsWaiver,
       normalizedFields,
       onCheckoutPaymentReady,
+      onFieldValuesChange,
+      onPrerequisiteMissing,
       slug,
       t,
       waitlistClaimMode,
@@ -330,6 +393,7 @@ export default function WizardCheckoutStep({
       waiverAcceptance,
       selectedExtras,
       extraFieldAnswers,
+      simulationToken,
     ],
   );
 
@@ -341,13 +405,26 @@ export default function WizardCheckoutStep({
     },
     validationSchema: buildRegistrationFieldsYupSchema(normalizedFields, t),
     onSubmit: async (values) => {
+      if (needsWaiver && !hasWaiverAcceptance) {
+        onPrerequisiteMissing?.("waiver");
+        return;
+      }
       const normalized = normalizeCheckoutFieldValues(values, normalizedFields);
       setPendingFieldValues(normalized);
+      onFieldValuesChange?.(normalized);
       setFieldsLocked(true);
       onCheckoutPaymentReady(true);
+      setCheckoutIsEligibility(false);
       dispatch(setCheckoutError(null));
     },
   });
+
+  useEffect(() => {
+    if (uiPhase !== "payment") return;
+    if (needsWaiver && !hasWaiverAcceptance) {
+      onPrerequisiteMissing?.("waiver");
+    }
+  }, [uiPhase, needsWaiver, hasWaiverAcceptance, onPrerequisiteMissing]);
 
   useEffect(() => {
     if (checkout) {
@@ -413,6 +490,16 @@ export default function WizardCheckoutStep({
     );
   };
 
+  const handleFreeConfirm = async () => {
+    if (!checkout || checkout.amountCents > 0 || loadingConfirm) return;
+    await dispatch(
+      confirmRegistration({
+        slug,
+        paymentPublicUuid: checkout.paymentPublicUuid,
+      }),
+    );
+  };
+
   const handleStripeError = (message: string) => {
     dispatch(setPaymentFailure(message));
   };
@@ -430,14 +517,28 @@ export default function WizardCheckoutStep({
   const handleDiscountInputChange = (value: string) => {
     setDiscountInput(value);
     dispatch(setDiscountCodeInput(value));
+    setCheckoutIsEligibility(false);
     dispatch(setCheckoutError(null));
   };
 
   const handleBackToDetails = () => {
     if (loadingCheckout || loadingConfirm) return;
+    const keep =
+      pendingFieldValues ??
+      checkout?.fieldValues ??
+      restoredFieldValues ??
+      normalizeCheckoutFieldValues(formik.values, normalizedFields);
     dispatch(resetCheckoutSession());
     setFieldsLocked(false);
     onCheckoutPaymentReady(false);
+    if (keep && Object.keys(keep).length > 0) {
+      setPendingFieldValues(keep);
+      onFieldValuesChange?.(keep);
+      void formik.setValues({
+        ...buildRegistrationFieldInitialValues(normalizedFields),
+        ...keep,
+      });
+    }
   };
 
   const handlePreparePayment = useCallback(async () => {
@@ -448,10 +549,20 @@ export default function WizardCheckoutStep({
     await handleCheckout(values);
   }, [pendingFieldValues, checkout?.fieldValues, formik.values, normalizedFields, handleCheckout]);
 
+  const showMp = Boolean(
+    registrationCheckoutIsReady(checkout, totalCents, appliedDiscountCode) &&
+      checkout &&
+      checkout.amountCents > 0 &&
+      checkout.provider === "mercadopago" &&
+      checkout.mpPreferenceId &&
+      checkout.mpPublicKey,
+  );
+
   const showStripe = Boolean(
     registrationCheckoutIsReady(checkout, totalCents, appliedDiscountCode) &&
       checkout &&
       checkout.amountCents > 0 &&
+      checkout.provider !== "mercadopago" &&
       checkout.clientSecret &&
       paymentConfig?.publishableKey,
   );
@@ -481,7 +592,11 @@ export default function WizardCheckoutStep({
       checkout?.fieldValues ??
       normalizeCheckoutFieldValues(formik.values, normalizedFields);
 
-    if (totalCents > 0 && !paymentConfig?.publishableKey) return;
+    // Stripe needs publishable key; MP does not use Stripe config
+    const needsStripeKey = checkout?.provider !== "mercadopago";
+    if (totalCents > 0 && needsStripeKey && !paymentConfig?.publishableKey && !checkout) {
+      // still allow first checkout create — server decides rail
+    }
 
     checkoutEnsureInFlight.current = true;
     void handleCheckout(values).finally(() => {
@@ -502,6 +617,53 @@ export default function WizardCheckoutStep({
     normalizedFields,
     handleCheckout,
   ]);
+
+  const handleMpCardPay = async (payload: {
+    token: string;
+    paymentMethodId: string;
+    installments: number;
+  }) => {
+    if (!checkout) return;
+    try {
+      const { data } = await api.post<{
+        success?: boolean;
+        pending?: boolean;
+        error?: string;
+      }>(
+        `/events/${slug}/register/mp/pay`,
+        {
+          paymentPublicUuid: checkout.paymentPublicUuid,
+          token: payload.token,
+          paymentMethodId: payload.paymentMethodId,
+          installments: payload.installments,
+        },
+        { headers: athleteAuthHeaders },
+      );
+      if (data.pending) {
+        dispatch(setCheckoutError(t("registrationWizard.payment.mpPendingOxxo")));
+        return;
+      }
+      if (data.success) {
+        await dispatch(
+          confirmRegistration({
+            slug,
+            paymentPublicUuid: checkout.paymentPublicUuid,
+          }),
+        );
+      } else {
+        dispatch(
+          setPaymentFailure(data.error || t("registrationWizard.payment.failed")),
+        );
+      }
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } } };
+      dispatch(
+        setPaymentFailure(
+          ax.response?.data?.error || t("registrationWizard.payment.failed"),
+        ),
+      );
+    }
+  };
 
   const renderWaitlistOffer = () =>
     waitlistOffered ? (
@@ -544,7 +706,7 @@ export default function WizardCheckoutStep({
         </div>
       ) : null}
       {uiPhase === "details" ? (
-        <>
+        <div className="space-y-4 pb-24">
           <CheckoutOrderSummary
             eventTitle={eventTitle}
             categoryName={category.name}
@@ -559,10 +721,15 @@ export default function WizardCheckoutStep({
             language={i18n.language}
             extras={previewExtraLines}
             extrasSubtotalCents={previewExtrasSubtotal}
+            compact
           />
 
           {normalizedFields.length > 0 ? (
-            <form onSubmit={formik.handleSubmit} className="space-y-4">
+            <form
+              id="registration-details-form"
+              onSubmit={formik.handleSubmit}
+              className="space-y-4"
+            >
               <h3 className="text-sm font-bold text-foreground">
                 {t("registrationWizard.checkout.prerequisites")}
               </h3>
@@ -615,40 +782,47 @@ export default function WizardCheckoutStep({
               {renderWaitlistOffer()}
 
               <LegalConsentNotice variant="checkout" />
-
-              <Button
-                type="submit"
-                disabled={fieldsLocked || hasBlockingFileField}
-                className="w-full bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
-              >
-                {t("registrationWizard.checkout.continueToPayment")}
-              </Button>
             </form>
           ) : (
             <div className="space-y-3">
               {waitlistClaimMode ? (
-                <div className="rounded-xl border border-cyan/30 bg-cyan/5 p-3 text-sm text-primary">
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm text-primary">
                   {t("registrationWizard.checkout.claimHint")}
                 </div>
               ) : null}
               {renderCheckoutError()}
               {renderWaitlistOffer()}
               <LegalConsentNotice variant="checkout" />
+            </div>
+          )}
+
+          <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-gradient-to-t from-background via-background to-background/80 border-t border-border/60">
+            {normalizedFields.length > 0 ? (
+              <Button
+                type="submit"
+                form="registration-details-form"
+                disabled={fieldsLocked || hasBlockingFileField}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-md"
+              >
+                {t("registrationWizard.checkout.continueToPayment")}
+              </Button>
+            ) : (
               <Button
                 type="button"
                 onClick={() => {
                   setPendingFieldValues({});
+                  onFieldValuesChange?.({});
                   setFieldsLocked(true);
                   onCheckoutPaymentReady(true);
                   dispatch(setCheckoutError(null));
                 }}
-                className="w-full bg-cyan/10 text-primary border border-cyan/40 hover:bg-cyan hover:text-navy-deep"
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-md"
               >
                 {t("registrationWizard.checkout.continueToPayment")}
               </Button>
-            </div>
-          )}
-        </>
+            )}
+          </div>
+        </div>
       ) : (
         <>
           {!loadingCheckout && !loadingConfirm ? (
@@ -711,13 +885,75 @@ export default function WizardCheckoutStep({
 
             {!preparingPayment &&
             totalCents > 0 &&
-            !paymentConfig?.publishableKey ? (
+            !showStripe &&
+            !showMp &&
+            !paymentConfig?.publishableKey &&
+            checkout?.provider !== "mercadopago" ? (
               <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
                 {t("registrationWizard.payment.unavailable")}
               </p>
             ) : null}
 
             <LegalConsentNotice variant="checkout" />
+
+            {!preparingPayment &&
+            checkout &&
+            checkout.amountCents === 0 &&
+            registrationCheckoutIsReady(checkout, totalCents, appliedDiscountCode) ? (
+              <div className="space-y-3 rounded-xl border border-accent/40 bg-accent/5 p-4">
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">
+                    {t("registrationWizard.payment.freeTitle")}
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t("registrationWizard.payment.freeHint")}
+                  </p>
+                </div>
+                {(checkout.discountAmountCents ?? discountPreview?.discountAmountCents ?? 0) >
+                0 ? (
+                  <div className="flex justify-between text-sm font-semibold text-accent">
+                    <span>{t("registrationWizard.checkout.discountApplied")}</span>
+                    <span>
+                      −
+                      {formatPriceMxn(
+                        checkout.discountAmountCents ??
+                          discountPreview?.discountAmountCents ??
+                          0,
+                        i18n.language,
+                      )}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between text-sm font-bold text-primary border-t border-border/60 pt-2">
+                  <span>{t("eventDetail.total")}</span>
+                  <span>{formatPriceMxn(0, i18n.language)}</span>
+                </div>
+                <Button
+                  type="button"
+                  disabled={loadingConfirm || paymentLocked}
+                  onClick={() => void handleFreeConfirm()}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {loadingConfirm ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    t("registrationWizard.payment.confirmFree")
+                  )}
+                </Button>
+              </div>
+            ) : null}
+
+            {showMp && checkout?.mpPreferenceId && checkout.mpPublicKey ? (
+              <MercadoPagoCheckout
+                publicKey={checkout.mpPublicKey}
+                preferenceId={checkout.mpPreferenceId}
+                amountCents={totalCents}
+                amountLabel={amountLabel}
+                loading={loadingConfirm}
+                onSubmitCard={handleMpCardPay}
+                onError={(message) => dispatch(setPaymentFailure(message))}
+              />
+            ) : null}
 
             {showStripe && checkout && paymentConfig ? (
               <StripeCheckout
@@ -732,7 +968,12 @@ export default function WizardCheckoutStep({
               />
             ) : null}
 
-            {!preparingPayment && !showStripe && error && error !== "WAITLIST_AVAILABLE" ? (
+            {!preparingPayment &&
+            !showStripe &&
+            !showMp &&
+            error &&
+            error !== "WAITLIST_AVAILABLE" &&
+            !checkoutIsEligibility ? (
               <Button
                 type="button"
                 disabled={loadingCheckout}

@@ -200,10 +200,17 @@ export default function StaffEventFolioSegmentsSection({
                   isShadowed && "border-destructive/40",
                 )}
               >
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-2 p-3 text-left hover:bg-muted/20 transition-colors"
+                <div
+                  className="w-full flex items-center gap-2 p-3 text-left hover:bg-muted/20 transition-colors cursor-pointer"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setExpandedIndex(isExpanded ? null : index)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setExpandedIndex(isExpanded ? null : index);
+                    }
+                  }}
                 >
                   <span className="text-xs text-muted-foreground w-6">#{index + 1}</span>
                   <div className="flex-1 min-w-0">
@@ -254,7 +261,7 @@ export default function StaffEventFolioSegmentsSection({
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
-                </button>
+                </div>
 
                 {isExpanded ? (
                   <div className="border-t border-border/60 p-4 space-y-4">

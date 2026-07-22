@@ -257,8 +257,8 @@ describe("HTTP smoke: resume & pending checkout", () => {
     expect(db.payments[0].registration_id).toBeNull();
   });
 
-  it("POST resume on $0 mock auto-completes registration", async () => {
-    const { app, authHeader } = await mountRegistrationScenario(seeds.freeOpen());
+  it("POST resume on $0 mock returns checkout (no auto-confirm)", async () => {
+    const { app, authHeader, db } = await mountRegistrationScenario(seeds.freeOpen());
 
     const checkout = await request(app)
       .post(`/api/events/${SCENARIO.slug}/register/checkout`)
@@ -278,8 +278,19 @@ describe("HTTP smoke: resume & pending checkout", () => {
       });
 
     expect(resumed.status).toBe(200);
-    expect(resumed.body.status).toBe("complete");
-    expect(resumed.body.registration.status).toBe("confirmed");
+    expect(resumed.body.status).toBe("checkout");
+    expect(resumed.body.checkout.paymentPublicUuid).toBe(checkout.body.paymentPublicUuid);
+    expect(resumed.body.checkout.amountCents).toBe(0);
+    expect(db.registrations).toHaveLength(0);
+
+    const confirmed = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/confirm`)
+      .set("Authorization", authHeader)
+      .send({ paymentPublicUuid: checkout.body.paymentPublicUuid });
+
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.success).toBe(true);
+    expect(confirmed.body.registration.status).toBe("confirmed");
 
     const again = await request(app)
       .post(`/api/events/${SCENARIO.slug}/register/resume`)
@@ -314,7 +325,9 @@ describe("HTTP smoke: paid path without Stripe configured", () => {
       });
 
     expect(res.status).toBe(503);
-    expect(res.body.error).toMatch(/payment service unavailable/i);
+    expect(res.body.error).toMatch(
+      /payment service unavailable|temporarily unavailable/i,
+    );
     expect(res.status).not.toBe(500);
   });
 
@@ -331,6 +344,8 @@ describe("HTTP smoke: paid path without Stripe configured", () => {
       });
 
     expect(res.status).toBe(503);
-    expect(res.body.error).toMatch(/payment service unavailable/i);
+    expect(res.body.error).toMatch(
+      /payment service unavailable|temporarily unavailable/i,
+    );
   });
 });

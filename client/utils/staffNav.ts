@@ -1,8 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import {
-    canOrganizerCreateEvents as sharedCanOrganizerCreateEvents,
+  canOrganizerCreateEvents as sharedCanOrganizerCreateEvents,
   canOrganizerEditEvents as sharedCanOrganizerEditEvents,
   canOrganizerManageRegistrations as sharedCanOrganizerManageRegistrations,
+  canOrganizerManageSimulations as sharedCanOrganizerManageSimulations,
   canOrganizerRecordManualSale as sharedCanOrganizerRecordManualSale,
   canOrganizerViewAllPayments as sharedCanOrganizerViewAllPayments,
   canOrganizerViewPayments as sharedCanOrganizerViewPayments,
@@ -126,7 +127,17 @@ function organizerNav(role: string): StaffNavItem[] {
     case "organizer":
     default:
       return withMessagingNav(
-        [dashboard, events, BLOG_NAV, registrations, payments, payouts, analytics, team, settings],
+        [
+          dashboard,
+          events,
+          BLOG_NAV,
+          registrations,
+          payments,
+          payouts,
+          analytics,
+          team,
+          settings,
+        ],
         role,
       );
   }
@@ -162,6 +173,10 @@ export function canOrganizerCreateEvents(role: string): boolean {
   return sharedCanOrganizerCreateEvents(role);
 }
 
+export function canOrganizerManageSimulations(role: string): boolean {
+  return sharedCanOrganizerManageSimulations(role);
+}
+
 export function canOrganizerRecordManualSale(role: string): boolean {
   return sharedCanOrganizerRecordManualSale(role);
 }
@@ -191,4 +206,12 @@ export function canAccessStaffPayouts(isAdmin: boolean, organizerRole?: string):
 export function canRefundStaffPayments(isAdmin: boolean, organizerRole?: string): boolean {
   if (isAdmin) return true;
   return ["owner", "organizer", "finance"].includes(organizerRole ?? "");
+}
+
+/** $0 / free / coupon-covered payments have nothing to refund. */
+export function isStaffPaymentRefundable(payment: {
+  status: string;
+  amount_cents: number;
+}): boolean {
+  return payment.status === "succeeded" && Number(payment.amount_cents) > 0;
 }

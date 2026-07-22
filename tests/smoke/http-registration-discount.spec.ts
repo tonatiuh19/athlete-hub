@@ -123,4 +123,50 @@ describe("HTTP smoke: registration discount in payment flow", () => {
     expect(confirm.status).toBe(200);
     expect(confirm.body.success).toBe(true);
   });
+
+  it("paid Stripe checkout resume with 100% discount converts to mock and confirms", async () => {
+    const { app, authHeader, db } = await mountRegistrationScenario(
+      seeds.freeWithFullDiscount(),
+    );
+
+    db.seedPendingStripeCheckout({
+      publicUuid: "pay-paid-to-free",
+      idempotencyKey: "idem-paid-to-free",
+      amountCents: 55500,
+      metadata: {
+        categoryId: SCENARIO.categoryId,
+        categoryName: "10K Elite",
+        fieldValues: {},
+      },
+    });
+
+    const checkout = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/checkout`)
+      .set("Authorization", authHeader)
+      .send({
+        categoryId: SCENARIO.categoryId,
+        fieldValues: {},
+        idempotencyKey: "idem-paid-to-free",
+        discountCode: "FREE100",
+      });
+
+    expect(checkout.status).toBe(200);
+    expect(checkout.body.amountCents).toBe(0);
+    expect(checkout.body.clientSecret).toBeNull();
+    expect(checkout.body.provider).toBe("mock");
+
+    const pay = db.payments.find((p) => p.public_uuid === "pay-paid-to-free");
+    expect(pay?.provider).toBe("mock");
+    expect(pay?.status).toBe("succeeded");
+    expect(pay?.amount_cents).toBe(0);
+    expect(pay?.stripe_payment_intent_id).toBeNull();
+
+    const confirm = await request(app)
+      .post(`/api/events/${SCENARIO.slug}/register/confirm`)
+      .set("Authorization", authHeader)
+      .send({ paymentPublicUuid: "pay-paid-to-free" });
+
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.success).toBe(true);
+  });
 });

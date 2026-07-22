@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import { StaffPageSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import BlogImageUpload from "@/components/blog/BlogImageUpload";
 import BlogPublishPreviewDialog from "@/components/blog/BlogPublishPreviewDialog";
 import RichHtmlEditor from "@/components/blog/RichHtmlEditor";
@@ -481,12 +482,7 @@ export default function BlogEditor() {
   }
 
   if (!isNew && staffPostLoading) {
-    return (
-      <div className="flex items-center justify-center py-24 text-muted-foreground gap-3">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        <span>{t("staffPortal.blog.loading")}</span>
-      </div>
-    );
+    return <StaffPageSkeleton variant="form" className="max-w-4xl py-6" />;
   }
 
   const slugError = formik.touched.slug && formik.errors.slug;

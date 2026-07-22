@@ -21,7 +21,14 @@ import StaffEventRegistrationsPanel from "@/components/staff/StaffEventRegistrat
 import StaffPaidEventPayoutAlert, {
   eventNeedsPayoutAlert,
 } from "@/components/staff/StaffPaidEventPayoutAlert";
+import StaffSimulationEventPanel from "@/components/staff/StaffSimulationEventPanel";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import StaffEventLifecycleActions from "@/components/staff/StaffEventLifecycleActions";
+import {
+  StaffPageHeaderSkeleton,
+  StaffStatsCardsSkeleton,
+  StaffTableSkeleton,
+} from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
@@ -38,6 +45,9 @@ import {
   revokeWaitlistEntry,
 } from "@/store/slices/staffPortalSlice";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
+import {
+  canOrganizerEditEvents,
+} from "@/utils/staffNav";
 import type { StaffRole } from "@shared/api";
 
 export default function StaffEventHub() {
@@ -45,8 +55,16 @@ export default function StaffEventHub() {
   const eventId = Number(eventIdParam);
   const { t, i18n } = useTranslation();
   const dispatch = useAppDispatch();
-  const { role } = useAppSelector((s) => s.staffAuth);
+  const { role, user } = useAppSelector((s) => s.staffAuth);
   const staffRole: StaffRole = role === "admin" ? "admin" : "organizer";
+  const isAdmin = role === "admin";
+  const canDeactivate =
+    isAdmin ||
+    (user?.type === "organizer" && canOrganizerEditEvents(user.role));
+  const canDeleteEvent =
+    isAdmin ||
+    (user?.type === "organizer" &&
+      (user.role === "owner" || user.role === "organizer"));
   const {
     eventDetail,
     eventHubSummary,
@@ -89,7 +107,6 @@ export default function StaffEventHub() {
   const event = eventDetail?.event;
   const summary = eventHubSummary;
   const isLoading = loadingEventDetail && !event;
-  const isAdmin = role === "admin";
   const showPaymentsUnavailableAlert = eventNeedsPayoutAlert({
     status: event?.status,
     has_paid_categories: event?.has_paid_categories ?? eventHubSummary?.has_paid_categories,
@@ -119,12 +136,17 @@ export default function StaffEventHub() {
             {t("staffPortal.eventHub.back")}
           </Link>
           {isLoading ? (
-            <p className="text-muted-foreground">{t("common.loading")}</p>
+            <StaffPageHeaderSkeleton />
           ) : event ? (
             <>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold truncate">{event.title}</h1>
                 <StaffStatusBadge status={event.status} />
+                {Number(event.is_simulation) === 1 ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+                    {t("simulation.badge")}
+                  </span>
+                ) : null}
               </div>
               <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {event.sport_name ? <span>{event.sport_name}</span> : null}
@@ -146,7 +168,7 @@ export default function StaffEventHub() {
 
         {event ? (
           <div className="flex flex-wrap gap-2 shrink-0">
-            {event.status === "published" ? (
+            {event.status === "published" && Number(event.is_simulation) !== 1 ? (
               <Button asChild variant="outline" size="sm">
                 <Link to={`/events/${event.slug}`} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="w-4 h-4 mr-2" />
@@ -170,12 +192,45 @@ export default function StaffEventHub() {
         ) : null}
       </div>
 
+      {event && Number(event.is_simulation) !== 1 && (canDeactivate || canDeleteEvent) ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-border bg-card/40 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              {t("staffPortal.eventHub.lifecycleTitle")}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t("staffPortal.eventHub.lifecycleHint")}
+            </p>
+          </div>
+          <StaffEventLifecycleActions
+            eventId={event.id}
+            eventTitle={event.title}
+            role={staffRole}
+            visibility={event.visibility}
+            status={event.status}
+            canDeactivate={canDeactivate}
+            canDelete={canDeleteEvent}
+            onDone={reload}
+          />
+        </div>
+      ) : null}
+
       <PortalErrorAlert error={loadError} onRetry={reload} />
 
       {showPaymentsUnavailableAlert ? (
         <StaffPaidEventPayoutAlert
           isAdmin={isAdmin}
           eventEditPath={`/staff/events/${eventId}/edit`}
+        />
+      ) : null}
+
+      {event ? (
+        <StaffSimulationEventPanel
+          eventId={eventId}
+          staffRole={staffRole}
+          isSimulation={Number(event.is_simulation) === 1}
+          accessToken={event.simulation_access_token}
+          expiresAt={event.simulation_expires_at}
         />
       ) : null}
 
@@ -200,7 +255,7 @@ export default function StaffEventHub() {
 
           <TabsContent value="overview" className="mt-4 space-y-4">
             {loadingEventHubSummary && !summary ? (
-              <p className="text-muted-foreground">{t("common.loading")}</p>
+              <StaffStatsCardsSkeleton />
             ) : summary ? (
               <>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -315,7 +370,7 @@ export default function StaffEventHub() {
               </p>
               {waitlistError ? <p className="text-sm text-destructive">{waitlistError}</p> : null}
               {loadingWaitlist ? (
-                <p className="text-muted-foreground">{t("common.loading")}</p>
+                <StaffTableSkeleton rows={4} columns={3} />
               ) : waitlistEntries.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {t("staffPortal.eventEdit.waitlistEmpty")}

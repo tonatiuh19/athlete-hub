@@ -4,6 +4,7 @@ import { Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import StaffRegistrationDetailSheet from "@/components/staff/StaffRegistrationDetailSheet";
+import { StaffSheetSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -71,8 +72,8 @@ export default function StaffAthleteDetailSheet({
           </SheetHeader>
 
           {loadingAthleteDetail ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <div className="mt-6" aria-busy="true">
+              <StaffSheetSkeleton />
             </div>
           ) : athleteDetailError ? (
             <div className="mt-6 space-y-3">

@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
-import { FileText, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import { StaffBlogCardsSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Badge } from "@/components/ui/badge";
 import { BlogOriginBadge } from "@/components/blog/BlogOriginBadge";
 import { Button } from "@/components/ui/button";
@@ -87,10 +88,7 @@ export default function BlogPosts() {
       ) : null}
 
       {staffLoading ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground gap-3">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <span>{t("staffPortal.blog.loading")}</span>
-        </div>
+        <StaffBlogCardsSkeleton count={4} />
       ) : staffPosts.length === 0 ? (
         <div className="card-sport p-10 text-center text-muted-foreground">
           <p>{t("staffPortal.blog.empty")}</p>

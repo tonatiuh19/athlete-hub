@@ -4,6 +4,7 @@ import { CalendarDays, CreditCard, ExternalLink, Loader2, RotateCcw, User } from
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import { StaffSheetSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -19,6 +20,7 @@ import {
   refundStaffPayment,
 } from "@/store/slices/staffPortalSlice";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
+import { isStaffPaymentRefundable } from "@/utils/staffNav";
 import type { StaffRole } from "@shared/api";
 
 interface StaffPaymentDetailSheetProps {
@@ -77,8 +79,8 @@ export default function StaffPaymentDetailSheet({
         </SheetHeader>
 
         {loadingStaffPaymentDetail ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <div className="py-4" aria-busy="true">
+            <StaffSheetSkeleton />
           </div>
         ) : staffPaymentDetailError ? (
           <p className="text-sm text-destructive py-6">{staffPaymentDetailError}</p>
@@ -260,7 +262,7 @@ export default function StaffPaymentDetailSheet({
               </dl>
             </section>
 
-            {allowRefund && payment.status === "succeeded" ? (
+            {allowRefund && payment && isStaffPaymentRefundable(payment) ? (
               <div className="space-y-2">
                 {refundPaymentError ? (
                   <p className="text-sm text-destructive">{refundPaymentError}</p>

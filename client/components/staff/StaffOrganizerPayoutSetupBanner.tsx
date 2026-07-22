@@ -42,17 +42,27 @@ export default function StaffOrganizerPayoutSetupBanner({
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const location = useLocation();
-  const { payoutStatus, loadingPayoutStatus } = useAppSelector((s) => s.staffPortal);
+  const { payoutStatus, loadingPayoutStatus, payoutStatusError } = useAppSelector(
+    (s) => s.staffPortal,
+  );
 
   const canShow = canAccessStaffPayouts(false, organizerRole);
   const onPayoutsPage = location.pathname.startsWith("/staff/payouts");
 
   useEffect(() => {
     if (!canShow || onPayoutsPage) return;
-    if (!payoutStatus && !loadingPayoutStatus) {
+    // Do not retry-loop on failure — that flooded prod with Stripe 500s.
+    if (!payoutStatus && !loadingPayoutStatus && !payoutStatusError) {
       void dispatch(fetchOrganizerPayoutStatus());
     }
-  }, [canShow, dispatch, loadingPayoutStatus, onPayoutsPage, payoutStatus]);
+  }, [
+    canShow,
+    dispatch,
+    loadingPayoutStatus,
+    onPayoutsPage,
+    payoutStatus,
+    payoutStatusError,
+  ]);
 
   if (!canShow || onPayoutsPage) return null;
   if (loadingPayoutStatus && !payoutStatus) return null;

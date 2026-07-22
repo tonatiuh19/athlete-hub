@@ -308,51 +308,57 @@ describe("HTTP smoke: athlete auth — validation & edge cases", () => {
     expect(res.body.code).toBe("social_account_exists");
   });
 
-  it("inactive and deleted athletes are treated as unknown on check-email and login", async () => {
+  it("suspended athletes are unknown on check-email/login and can re-register", async () => {
     const hash = await hashForDb(STRONG_PASSWORD);
-
-    const { app: inactiveApp } = await mountAthleteAuthScenario({
+    const { app } = await mountAthleteAuthScenario({
       passwordHash: hash,
       status: "suspended",
     });
-    const inactiveCheck = await request(inactiveApp)
+
+    const check = await request(app)
       .post("/api/auth/athlete/check-email")
       .send({ email: AUTH_SCENARIO.email });
-    expect(inactiveCheck.body.exists).toBe(false);
-    const inactiveLogin = await request(inactiveApp).post("/api/auth/athlete/login").send({
+    expect(check.status).toBe(200);
+    expect(check.body.exists).toBe(false);
+
+    const login = await request(app).post("/api/auth/athlete/login").send({
       email: AUTH_SCENARIO.email,
       password: STRONG_PASSWORD,
     });
-    expect(inactiveLogin.status).toBe(401);
+    expect(login.status).toBe(401);
 
-    const reactivate = await request(inactiveApp)
+    const reactivate = await request(app)
       .post("/api/auth/athlete/register")
       .send(registerBody(AUTH_SCENARIO.email));
     expect(reactivate.status).toBe(200);
     expect(reactivate.body.reactivated).toBe(true);
     expect(reactivate.body.athlete.dateOfBirth).toBe("1995-03-10");
+  });
 
-    await teardownAthleteAuthScenario();
-
-    const { app: deletedApp } = await mountAthleteAuthScenario({
+  it("soft-deleted athletes are unknown on check-email/login and can re-register", async () => {
+    const hash = await hashForDb(STRONG_PASSWORD);
+    const { app } = await mountAthleteAuthScenario({
       passwordHash: hash,
       deleted: true,
     });
-    const deletedCheck = await request(deletedApp)
+
+    const check = await request(app)
       .post("/api/auth/athlete/check-email")
       .send({ email: AUTH_SCENARIO.email });
-    expect(deletedCheck.body.exists).toBe(false);
-    const deletedLogin = await request(deletedApp).post("/api/auth/athlete/login").send({
+    expect(check.status).toBe(200);
+    expect(check.body.exists).toBe(false);
+
+    const login = await request(app).post("/api/auth/athlete/login").send({
       email: AUTH_SCENARIO.email,
       password: STRONG_PASSWORD,
     });
-    expect(deletedLogin.status).toBe(401);
+    expect(login.status).toBe(401);
 
-    const reactivateDeleted = await request(deletedApp)
+    const reactivate = await request(app)
       .post("/api/auth/athlete/register")
       .send(registerBody(AUTH_SCENARIO.email));
-    expect(reactivateDeleted.status).toBe(200);
-    expect(reactivateDeleted.body.reactivated).toBe(true);
+    expect(reactivate.status).toBe(200);
+    expect(reactivate.body.reactivated).toBe(true);
   });
 
   it("forgot-password rejects invalid email but always ok for unknown", async () => {

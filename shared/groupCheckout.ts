@@ -1,6 +1,7 @@
 import type { CheckoutBreakdownSnapshot } from "./checkoutBreakdown.js";
 import type { WaiverSignatureInput } from "./api.js";
 import type { ResolvedExtraLine } from "./eventExtras.js";
+import { ageOnReferenceDate } from "./categoryEligibility.js";
 
 export type GroupParticipantType = "self" | "account" | "guest";
 
@@ -105,14 +106,10 @@ export function normalizeParticipantEmail(email: string): string {
 }
 
 export function isMinorOnReferenceDate(
-  dateOfBirth: string,
-  referenceDate: string,
+  dateOfBirth: string | Date,
+  referenceDate: string | Date,
   adultAge = 18,
 ): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) return false;
-  const [by, bm, bd] = dateOfBirth.split("-").map(Number);
-  const [ry, rm, rd] = referenceDate.split("-").map(Number);
-  let age = ry - by;
-  if (rm < bm || (rm === bm && rd < bd)) age -= 1;
-  return age < adultAge;
+  const age = ageOnReferenceDate(dateOfBirth, referenceDate);
+  return age != null && age < adultAge;
 }

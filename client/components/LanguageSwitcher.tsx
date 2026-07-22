@@ -5,18 +5,24 @@ import { normalizeLocale, type AppLocale, LOCALE_LABELS } from "@shared/i18n";
 interface LanguageSwitcherProps {
   variant?: "default" | "compact" | "ghost";
   className?: string;
+  /** Persist locale (e.g. staff/athlete preferred_language). Called after i18n updates. */
+  onLanguageChange?: (locale: AppLocale) => void | Promise<void>;
 }
 
 export default function LanguageSwitcher({
   variant = "default",
   className = "",
+  onLanguageChange,
 }: LanguageSwitcherProps) {
   const { i18n, t } = useTranslation();
   const current = normalizeLocale(i18n.language);
 
   const toggle = () => {
     const next: AppLocale = current === "es" ? "en" : "es";
-    void i18n.changeLanguage(next);
+    void (async () => {
+      await i18n.changeLanguage(next);
+      await onLanguageChange?.(next);
+    })();
   };
 
   const base =

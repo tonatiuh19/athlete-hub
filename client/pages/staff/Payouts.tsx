@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
 import StaffFormMissingChips from "@/components/staff/StaffFormMissingChips";
+import { StaffFormSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,8 @@ import {
   fetchOrganizerPayoutStatus,
   loginOrganizerPayoutDashboard,
   onboardOrganizerPayouts,
+  setOrganizerPayoutRail,
+  startMercadoPagoOauth,
   syncOrganizerPayouts,
   updateOrganizerPayoutProfile,
 } from "@/store/slices/staffPortalSlice";
@@ -117,7 +120,17 @@ export default function StaffPayouts() {
     if (connect === "return" || connect === "refresh") {
       void dispatch(syncOrganizerPayouts());
     }
-  }, [dispatch, searchParams]);
+    const mp = searchParams.get("mp");
+    if (mp === "connected") {
+      void dispatch(fetchOrganizerPayoutStatus());
+      toast({ title: t("staffPortal.payouts.mpConnected") });
+    } else if (mp === "error") {
+      toast({
+        variant: "destructive",
+        title: t("staffPortal.payouts.mpConnectError"),
+      });
+    }
+  }, [dispatch, searchParams, t, toast]);
 
   if (!canAccess || !role) {
     return <Navigate to="/staff" replace />;
@@ -236,9 +249,8 @@ export default function StaffPayouts() {
       </div>
 
       {loadingPayoutStatus && !payoutStatus ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          {t("staffPortal.payouts.loading")}
+        <div className="card-sport p-5 sm:p-6" aria-busy="true">
+          <StaffFormSkeleton fields={5} />
         </div>
       ) : null}
 
@@ -268,8 +280,66 @@ export default function StaffPayouts() {
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {t(`staffPortal.payouts.connectStatus.${org?.stripe_connect_status ?? "not_started"}`)}
+                {payoutStatus.railFallback
+                  ? ` · ${t("staffPortal.payouts.usingFallbackRail")}`
+                  : ""}
               </p>
             </div>
+          </div>
+
+          <div className="card-sport p-5 space-y-4">
+            <div>
+              <h2 className="font-semibold">{t("staffPortal.payouts.railTitle")}</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                {payoutStatus.mercadoPagoAvailable
+                  ? t("staffPortal.payouts.railHint")
+                  : t("staffPortal.payouts.railHintStripeOnly")}
+              </p>
+            </div>
+            {payoutStatus.mercadoPagoAvailable ? (
+              <>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    type="button"
+                    variant={org?.payout_rail !== "mercadopago" ? "default" : "outline"}
+                    onClick={() => void dispatch(setOrganizerPayoutRail("stripe"))}
+                  >
+                    {t("staffPortal.payouts.railStripe")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={org?.payout_rail === "mercadopago" ? "default" : "outline"}
+                    onClick={() => void dispatch(setOrganizerPayoutRail("mercadopago"))}
+                  >
+                    {t("staffPortal.payouts.railMercadoPago")}
+                  </Button>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">{t("staffPortal.payouts.timingTitle")}</p>
+                  <p>{t("staffPortal.payouts.timingStripe")}</p>
+                  <p>{t("staffPortal.payouts.timingMpCard")}</p>
+                  <p>{t("staffPortal.payouts.timingMpOxxo")}</p>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-muted/20 p-4 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {t("staffPortal.payouts.railMercadoPago")}
+                  </p>
+                  <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+                    {t("staffPortal.payouts.mpComingSoonBadge")}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t("staffPortal.payouts.mpComingSoonBody")}
+                </p>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground mb-1">{t("staffPortal.payouts.timingTitle")}</p>
+                  <p>{t("staffPortal.payouts.timingStripe")}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <ChecklistSection
@@ -408,6 +478,62 @@ export default function StaffPayouts() {
             items={payoutStatus.stripeChecklist.items}
             itemKeyPrefix="staffPortal.payouts.bankVerificationItem"
           />
+
+          {payoutStatus.mercadoPagoAvailable && payoutStatus.mercadoPagoChecklist ? (
+            <ChecklistSection
+              title={t("staffPortal.payouts.mpSectionTitle")}
+              hint={t("staffPortal.payouts.mpSectionHint")}
+              items={payoutStatus.mercadoPagoChecklist.items}
+              itemKeyPrefix="staffPortal.payouts.mpItem"
+            />
+          ) : null}
+
+          {payoutStatus.mercadoPagoAvailable ? (
+          <div className="card-sport p-5 space-y-3">
+            <h2 className="font-semibold">{t("staffPortal.payouts.mpConnectTitle")}</h2>
+            <p className="text-xs text-muted-foreground">
+              {t("staffPortal.payouts.mpConnectHint")}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                const result = await dispatch(startMercadoPagoOauth());
+                if (startMercadoPagoOauth.fulfilled.match(result) && result.payload.url) {
+                  window.location.href = result.payload.url;
+                } else if (startMercadoPagoOauth.rejected.match(result)) {
+                  toast({
+                    variant: "destructive",
+                    title: result.payload || t("staffPortal.errors.mpOauthStart"),
+                  });
+                }
+              }}
+            >
+              {t("staffPortal.payouts.mpConnectCta")}
+            </Button>
+            {org?.mp_oauth_status === "ready" ? (
+              <p className="text-xs text-accent flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {t("staffPortal.payouts.mpReady")}
+              </p>
+            ) : null}
+          </div>
+          ) : (
+            <div className="card-sport p-5 space-y-3 border-dashed">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-semibold">{t("staffPortal.payouts.mpConnectTitle")}</h2>
+                <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+                  {t("staffPortal.payouts.mpComingSoonBadge")}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {t("staffPortal.payouts.mpComingSoonBody")}
+              </p>
+              <Button type="button" variant="outline" disabled>
+                {t("staffPortal.payouts.mpComingSoonCta")}
+              </Button>
+            </div>
+          )}
 
           {eventuallyDue.length > 0 ? (
             <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/30 px-3 py-2">

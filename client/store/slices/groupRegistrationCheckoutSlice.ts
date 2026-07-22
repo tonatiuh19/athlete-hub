@@ -28,6 +28,7 @@ interface GroupRegistrationCheckoutState {
   open: boolean;
   step: GroupWizardStep;
   eventSlug: string | null;
+  simulationToken: string | null;
   participantCount: number;
   includeSelf: boolean;
   currentParticipantIndex: number;
@@ -48,6 +49,7 @@ const initialState: GroupRegistrationCheckoutState = {
   open: false,
   step: "auth",
   eventSlug: null,
+  simulationToken: null,
   participantCount: 2,
   includeSelf: true,
   currentParticipantIndex: 0,
@@ -73,6 +75,7 @@ export const createGroupRegistrationCheckout = createAsyncThunk<
     lineItems: GroupCheckoutLineItemInput[];
     idempotencyKey: string;
     discountCode?: string;
+    simulationToken?: string | null;
   },
   { rejectValue: string | { code?: string; message: string } }
 >("groupRegistration/createCheckout", async (payload, { rejectWithValue }) => {
@@ -84,6 +87,7 @@ export const createGroupRegistrationCheckout = createAsyncThunk<
         fieldValues: {},
         idempotencyKey: payload.idempotencyKey,
         discountCode: payload.discountCode,
+        simulationToken: payload.simulationToken || undefined,
       },
       athleteRequest,
     );
@@ -131,10 +135,14 @@ const slice = createSlice({
   name: "groupRegistration",
   initialState,
   reducers: {
-    openGroupRegistrationWizard(state, action: PayloadAction<{ slug: string }>) {
+    openGroupRegistrationWizard(
+      state,
+      action: PayloadAction<{ slug: string; simulationToken?: string | null }>,
+    ) {
       Object.assign(state, initialState);
       state.open = true;
       state.eventSlug = action.payload.slug;
+      state.simulationToken = action.payload.simulationToken ?? null;
       state.step = "auth";
     },
     closeGroupRegistrationWizard(state) {

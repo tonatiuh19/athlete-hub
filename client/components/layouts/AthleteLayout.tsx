@@ -24,10 +24,18 @@ import TribooLogo from "@/components/brand/TribooLogo";
 import EventRegistrationWizard from "@/components/events/registration/EventRegistrationWizard";
 import GroupRegistrationWizard from "@/components/events/registration/GroupRegistrationWizard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchAthleteMe } from "@/store/slices/athleteAuthSlice";
+import {
+  fetchAthleteMe,
+  updateAthleteLanguage,
+  updateAthleteTheme,
+} from "@/store/slices/athleteAuthSlice";
 import { claimGuestRegistration } from "@/store/slices/athletePortalSlice";
 import { useAthleteLogout } from "@/hooks/useAthleteLogout";
 import { dismissRegistrationWizard } from "@/utils/dismissRegistrationWizard";
+import type { AppLocale } from "@shared/i18n";
+import { normalizeTheme, type AppTheme } from "@shared/theme";
+import { useTheme } from "next-themes";
+import ThemeToggle from "@/components/ThemeToggle";
 import { athleteNeedsProfileCompletion } from "@/utils/athleteProfileCompletion";
 
 /** Routes where incomplete-profile redirect is skipped (must stay in sync with App.tsx). */
@@ -54,6 +62,20 @@ export default function AthleteLayout() {
   );
   const [mobileOpen, setMobileOpen] = useState(false);
   const { logout: handleLogout, loggingOut } = useAthleteLogout();
+  const { setTheme } = useTheme();
+
+  const persistLanguage = (locale: AppLocale) => {
+    void dispatch(updateAthleteLanguage(locale));
+  };
+
+  const persistTheme = (theme: AppTheme) => {
+    void dispatch(updateAthleteTheme(theme));
+  };
+
+  useEffect(() => {
+    if (!user?.preferredTheme) return;
+    setTheme(normalizeTheme(user.preferredTheme));
+  }, [user?.preferredTheme, setTheme]);
 
   // Success modal must not follow athletes into the portal.
   useEffect(() => {
@@ -238,7 +260,8 @@ export default function AthleteLayout() {
             className="h-8 max-w-[150px]"
           />
           <div className="flex items-center gap-2">
-            <LanguageSwitcher variant="compact" />
+            <LanguageSwitcher variant="compact" onLanguageChange={persistLanguage} />
+            <ThemeToggle variant="compact" onThemeChange={persistTheme} />
             <button type="button" onClick={() => setMobileOpen(!mobileOpen)}>
               {mobileOpen ? (
                 <X className="w-6 h-6" />
@@ -266,8 +289,9 @@ export default function AthleteLayout() {
         )}
 
         <main className="flex-1 p-4 md:p-8 min-w-0 w-full max-w-full overflow-x-clip">
-          <div className="hidden lg:flex justify-end mb-4">
-            <LanguageSwitcher variant="ghost" />
+          <div className="hidden lg:flex justify-end gap-2 mb-4">
+            <ThemeToggle variant="ghost" onThemeChange={persistTheme} />
+            <LanguageSwitcher variant="ghost" onLanguageChange={persistLanguage} />
           </div>
           <Suspense fallback={<AthletePageFallback />}>
             <Outlet />

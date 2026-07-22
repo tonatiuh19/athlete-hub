@@ -30,6 +30,11 @@ export function canOrganizerCreateEvents(role: string): boolean {
   return EVENT_EDITOR_ROLES.has(role);
 }
 
+/** Simulation events: organization owner only (not other editor roles). */
+export function canOrganizerManageSimulations(role: string): boolean {
+  return role === "owner";
+}
+
 export function canOrganizerEditEvents(role: string): boolean {
   return EVENT_EDITOR_ROLES.has(role);
 }

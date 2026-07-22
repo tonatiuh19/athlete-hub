@@ -5,12 +5,14 @@ import {
 } from "../shared/passwordPolicy.js";
 
 const SCRYPT_KEY_LEN = 64;
-const SCRYPT_OPTIONS: crypto.ScryptOptions = {
-  N: 16384,
-  r: 8,
-  p: 1,
-  maxmem: 64 * 1024 * 1024,
-};
+
+/** Production params; lighter in vitest so parallel forks don't starve CI (flakes as socket hang-up). */
+function scryptOptions(): crypto.ScryptOptions {
+  if (process.env.ATHLETE_HUB_TEST_MODE === "1") {
+    return { N: 1024, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
+  }
+  return { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+}
 
 export async function hashAthletePassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(16);
@@ -47,7 +49,7 @@ function scryptAsync(
   keyLen: number,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    crypto.scrypt(password, salt, keyLen, SCRYPT_OPTIONS, (err, derivedKey) => {
+    crypto.scrypt(password, salt, keyLen, scryptOptions(), (err, derivedKey) => {
       if (err) reject(err);
       else resolve(derivedKey);
     });

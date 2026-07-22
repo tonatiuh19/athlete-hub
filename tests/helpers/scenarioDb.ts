@@ -115,6 +115,11 @@ export type OrganizerConnectSeed = {
   stripe_connect_onboarding_mode?: string | null;
   payout_terms_accepted_at?: string | null;
   payout_fee_acknowledged_at?: string | null;
+  payout_rail?: "stripe" | "mercadopago";
+  mp_user_id?: string | null;
+  mp_oauth_status?: string;
+  mp_oauth_connected_at?: string | null;
+  mp_oauth_last_synced_at?: string | null;
 };
 
 export interface ScenarioSeed {
@@ -127,10 +132,16 @@ export interface ScenarioSeed {
     start_date?: string;
     end_date?: string | null;
     status?: string;
+    visibility?: string;
+    auto_deactivate_after_event?: boolean;
     check_in_opens_at?: string | null;
     check_in_closes_at?: string | null;
     max_registrations_per_order?: number;
     bib_mode?: "folio" | "separate";
+    is_simulation?: boolean;
+    simulation_access_token?: string | null;
+    simulation_expires_at?: string | null;
+    simulation_last_activity_at?: string | null;
   };
   category?: {
     name?: string;
@@ -176,6 +187,26 @@ export interface ScenarioSeed {
 
 function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Catch column-name drift that real MySQL would reject but string-match mocks
+ * used to silently accept (e.g. events.starts_at — real column is start_date).
+ */
+function assertEventsTableColumnNames(q: string, sql: string): void {
+  const touchesEvents =
+    /\bfrom\s+events\b/.test(q) ||
+    /\bjoin\s+events\b/.test(q) ||
+    /\bupdate\s+events\b/.test(q) ||
+    /\binto\s+events\b/.test(q);
+  if (!touchesEvents) return;
+  // Schedule waves legitimately use starts_at — only flag events-table queries.
+  if (/\bevent_schedule_waves\b/.test(q)) return;
+  if (/\bstarts_at\b/.test(q)) {
+    throw new Error(
+      `[ScenarioDb] Schema mismatch: \`events\` has \`start_date\`, not \`starts_at\`. SQL: ${sql.slice(0, 200)}`,
+    );
+  }
 }
 
 function eventDayOpenForCheckIn(): { start_date: string; end_date: string } {
@@ -358,6 +389,16 @@ export class RegistrationScenarioDb {
       max_registrations_per_order:
         seed.maxRegistrationsPerOrder ?? seed.event?.max_registrations_per_order ?? 10,
       bib_mode: seed.event?.bib_mode ?? "separate",
+      is_simulation: seed.event?.is_simulation ? 1 : 0,
+      simulation_access_token: seed.event?.simulation_access_token ?? null,
+      simulation_expires_at: seed.event?.simulation_expires_at ?? null,
+      simulation_last_activity_at: seed.event?.simulation_last_activity_at ?? null,
+      visibility: seed.event?.visibility ?? "public",
+      auto_deactivate_after_event:
+        seed.event?.auto_deactivate_after_event === false ? 0 : 1,
+      featured: 0,
+      sport_type_id: 1,
+      deleted_at: null,
     } as RowDataPacket;
 
     this.athleteProfiles.set(SCENARIO.athleteId, { ...this.athleteProfile });
@@ -463,6 +504,11 @@ export class RegistrationScenarioDb {
       stripe_connect_onboarding_mode: org.stripe_connect_onboarding_mode ?? null,
       payout_terms_accepted_at: org.payout_terms_accepted_at ?? null,
       payout_fee_acknowledged_at: org.payout_fee_acknowledged_at ?? null,
+      payout_rail: org.payout_rail ?? "stripe",
+      mp_user_id: org.mp_user_id ?? null,
+      mp_oauth_status: org.mp_oauth_status ?? "not_started",
+      mp_oauth_connected_at: org.mp_oauth_connected_at ?? null,
+      mp_oauth_last_synced_at: org.mp_oauth_last_synced_at ?? null,
       deleted_at: null,
     } as RowDataPacket;
 
@@ -510,6 +556,7 @@ export class RegistrationScenarioDb {
       payment_id: null,
       deleted_at: null,
       waiver_signed_at: null,
+      is_simulation: Number(this.event?.is_simulation ?? 0),
     } as RegistrationRow;
   }
 
@@ -542,9 +589,20 @@ export class RegistrationScenarioDb {
       stripe_charges_enabled: this.organizer.stripe_charges_enabled,
       stripe_payouts_enabled: this.organizer.stripe_payouts_enabled,
       org_fee_percent: this.organizer.service_fee_percent,
+      org_service_fee_percent: this.organizer.service_fee_percent,
       org_fee_presentation: this.organizer.fee_presentation ?? "pass_through",
       fee_presentation: this.event.fee_presentation ?? null,
+      organizer_name: "Test Organizer",
+      organizer_slug: "test-organizer",
+      sport_slug: "running",
+      sport_name: "Running",
     } as RowDataPacket;
+  }
+
+  private isSimulationExpired(): boolean {
+    const expires = this.event.simulation_expires_at;
+    if (expires == null) return false;
+    return new Date(String(expires)).getTime() <= Date.now();
   }
 
   private registrationLookupRow(reg: RegistrationRow): RowDataPacket {
@@ -574,6 +632,7 @@ export class RegistrationScenarioDb {
     params: unknown[] = [],
   ): Promise<[unknown, unknown]> => {
     const q = normalizeSql(sql);
+    assertEventsTableColumnNames(q, sql);
 
     const extrasHit = handleExtrasScenarioSql(q, params, this.extrasSqlContext());
     if (extrasHit?.type === "rows") return [extrasHit.rows, []];
@@ -605,7 +664,143 @@ export class RegistrationScenarioDb {
     }
 
     if (q.includes("from events e") && q.includes("join organizers o") && q.includes("slug")) {
+      // Public sim resolve by token (JOIN sport_types)
+      if (q.includes("simulation_access_token = ?") && !q.includes("e.slug = ?")) {
+        const token = String(params[0] ?? "");
+        if (
+          Number(this.event.is_simulation) === 1 &&
+          String(this.event.simulation_access_token ?? "") === token
+        ) {
+          return [[this.eventWithOrganizer()], []];
+        }
+        return [[], []];
+      }
+
+      // Checkout: simulation with matching slug + token (+ expiry gate in SQL)
+      if (q.includes("is_simulation = 1") && q.includes("simulation_access_token = ?")) {
+        const slug = String(params[0] ?? "");
+        const token = String(params[1] ?? "");
+        if (
+          String(this.event.slug) === slug &&
+          Number(this.event.is_simulation) === 1 &&
+          String(this.event.simulation_access_token ?? "") === token &&
+          !this.isSimulationExpired()
+        ) {
+          return [[this.eventWithOrganizer()], []];
+        }
+        return [[], []];
+      }
+
+      // Live published checkout — never return simulations
+      if (q.includes("status = 'published'")) {
+        if (Number(this.event.is_simulation) === 1) return [[], []];
+        if (String(this.event.status) !== "published") return [[], []];
+        return [[this.eventWithOrganizer()], []];
+      }
+
       return [[this.eventWithOrganizer()], []];
+    }
+
+    if (
+      q.includes("update events") &&
+      q.includes("simulation_last_activity_at") &&
+      q.includes("is_simulation = 1")
+    ) {
+      const eventId = Number(params[2] ?? params[params.length - 1]);
+      if (eventId === SCENARIO.eventId && Number(this.event.is_simulation) === 1) {
+        this.event.simulation_last_activity_at = String(params[0]);
+        this.event.simulation_expires_at = String(params[1]);
+      }
+      return [header(0, 1), []];
+    }
+
+    if (
+      q.includes("select count(*) as cnt from registrations") &&
+      q.includes("is_simulation = 1")
+    ) {
+      const eventId = Number(params[0]);
+      const cnt = this.registrations.filter(
+        (r) =>
+          r.event_id === eventId &&
+          Number((r as RegistrationRow & { is_simulation?: number }).is_simulation ?? 0) === 1 &&
+          !r.deleted_at &&
+          ["confirmed", "pending_payment"].includes(r.status),
+      ).length;
+      return [[{ cnt }], []];
+    }
+
+    if (
+      q.includes("select id from events") &&
+      q.includes("is_simulation = 1") &&
+      q.includes("simulation_expires_at")
+    ) {
+      if (
+        Number(this.event.is_simulation) === 1 &&
+        this.isSimulationExpired() &&
+        !this.event.deleted_at
+      ) {
+        return [[{ id: SCENARIO.eventId }], []];
+      }
+      return [[], []];
+    }
+
+    if (
+      q.includes("from registrations r") &&
+      q.includes("join events e on e.id = r.event_id") &&
+      q.includes("r.athlete_id = ?") &&
+      q.includes("r.status = 'confirmed'")
+    ) {
+      const athleteId = Number(params[0]);
+      const excludeSim = q.includes("is_simulation");
+      const rows = this.registrations
+        .filter((r) => {
+          if (r.athlete_id !== athleteId || r.deleted_at || r.status !== "confirmed") {
+            return false;
+          }
+          if (excludeSim) {
+            return Number((r as RegistrationRow & { is_simulation?: number }).is_simulation ?? 0) === 0;
+          }
+          return true;
+        })
+        .map((r) => ({
+          ...this.registrationLookupRow(r),
+          public_uuid: r.public_uuid,
+          order_id: r.order_id ?? null,
+          purchaser_athlete_id: (r as RegistrationRow & { purchaser_athlete_id?: number | null })
+            .purchaser_athlete_id ?? null,
+          guest_claim_token: r.guest_claim_token ?? null,
+          athlete_id: r.athlete_id,
+          allows_transfers: 0,
+        }));
+      return [rows, []];
+    }
+
+    if (
+      q.includes("update registrations set is_simulation = 1") &&
+      q.includes("payment_id")
+    ) {
+      const eventId = Number(params[0]);
+      const paymentId = Number(params[1]);
+      let n = 0;
+      for (const r of this.registrations) {
+        if (r.event_id === eventId && r.payment_id === paymentId) {
+          (r as RegistrationRow & { is_simulation?: number }).is_simulation = 1;
+          n += 1;
+        }
+      }
+      return [header(0, n), []];
+    }
+
+    if (q.includes("update registration_orders set is_simulation = 1")) {
+      const paymentId = Number(params[0]);
+      let n = 0;
+      for (const o of this.registrationOrders) {
+        if (Number(o.payment_id) === paymentId) {
+          o.is_simulation = 1;
+          n += 1;
+        }
+      }
+      return [header(0, n), []];
     }
 
     if (
@@ -888,7 +1083,36 @@ export class RegistrationScenarioDb {
       return [header(0, 1), []];
     }
 
-    if (q.startsWith("update organizers set") && q.includes("stripe_connect_status")) {
+    // clearOrganizerStripeConnectAccount — literals, only id param
+    if (
+      q.startsWith("update organizers set") &&
+      q.includes("stripe_account_id = null") &&
+      q.includes("stripe_connect_status = 'not_started'")
+    ) {
+      const organizerId = Number(params[0]);
+      if (organizerId === SCENARIO.organizerId) {
+        if (this.organizer.stripe_connect_status !== "disabled") {
+          this.organizer.stripe_account_id = null;
+          this.organizer.stripe_onboarding_complete = 0;
+          this.organizer.stripe_connect_status = "not_started";
+          this.organizer.stripe_charges_enabled = 0;
+          this.organizer.stripe_payouts_enabled = 0;
+          this.organizer.stripe_details_submitted = 0;
+          this.organizer.stripe_connect_onboarded_at = null;
+          this.organizer.stripe_connect_last_synced_at = null;
+          this.organizer.stripe_connect_onboarding_mode = null;
+        }
+      }
+      return [header(0, 1), []];
+    }
+
+    // persistOrganizerConnectFromStripeAccount
+    if (
+      q.startsWith("update organizers set") &&
+      q.includes("stripe_account_id = ?") &&
+      q.includes("stripe_onboarding_complete = ?") &&
+      q.includes("stripe_connect_status = ?")
+    ) {
       this.organizer.stripe_account_id = String(params[0]);
       this.organizer.stripe_onboarding_complete = Number(params[1]);
       this.organizer.stripe_connect_status = String(params[2]);
@@ -902,6 +1126,45 @@ export class RegistrationScenarioDb {
       if (params[7] != null) {
         this.organizer.stripe_connect_onboarding_mode = params[7];
       }
+      return [header(0, 1), []];
+    }
+
+    // ensureStripeConnectAccount create
+    if (
+      q.startsWith("update organizers set") &&
+      q.includes("stripe_account_id = ?") &&
+      q.includes("stripe_connect_status = 'pending'")
+    ) {
+      this.organizer.stripe_account_id = String(params[0]);
+      this.organizer.stripe_connect_status = "pending";
+      this.organizer.stripe_connect_onboarding_mode = params[1] ?? null;
+      this.organizer.stripe_connect_last_synced_at = new Date().toISOString();
+      return [header(0, 1), []];
+    }
+
+    if (q.startsWith("update organizers set") && q.includes("stripe_connect_status = 'restricted'")) {
+      if (String(params[0]) === String(this.organizer.stripe_account_id)) {
+        this.organizer.stripe_connect_status = "restricted";
+        this.organizer.stripe_charges_enabled = 0;
+        this.organizer.stripe_payouts_enabled = 0;
+        this.organizer.stripe_onboarding_complete = 0;
+        this.organizer.stripe_connect_last_synced_at = new Date().toISOString();
+      }
+      return [header(0, 1), []];
+    }
+
+    if (q.startsWith("update organizers set") && q.includes("stripe_connect_status = 'disabled'")) {
+      this.organizer.stripe_connect_status = "disabled";
+      this.organizer.stripe_onboarding_complete = 0;
+      return [header(0, 1), []];
+    }
+
+    if (
+      q.startsWith("update organizers set") &&
+      q.includes("stripe_connect_status = 'not_started'") &&
+      !q.includes("stripe_account_id")
+    ) {
+      this.organizer.stripe_connect_status = "not_started";
       return [header(0, 1), []];
     }
 
@@ -1289,6 +1552,46 @@ export class RegistrationScenarioDb {
       return [header(0, pay ? 1 : 0), []];
     }
 
+    // Paid → $0 discount resume: convert Stripe PI checkout to mock free payment
+    if (
+      q.startsWith("update payments set") &&
+      q.includes("provider = 'mock'") &&
+      q.includes("where public_uuid")
+    ) {
+      const registrationAmountCents = Number(params[0]);
+      const serviceFeeCents = Number(params[1]);
+      const metadata = String(params[2]);
+      const uuid = String(params[3]);
+      const pay = this.findPaymentByUuid(uuid);
+      if (pay) {
+        pay.provider = "mock";
+        pay.status = "succeeded";
+        pay.stripe_payment_intent_id = null;
+        pay.paid_at = pay.paid_at ?? new Date().toISOString();
+        pay.amount_cents = 0;
+        pay.registration_amount_cents = registrationAmountCents;
+        pay.service_fee_cents = serviceFeeCents;
+        pay.metadata_json = metadata;
+      }
+      return [header(0, pay ? 1 : 0), []];
+    }
+
+    if (
+      q.startsWith("update payments set") &&
+      q.includes("provider = 'mock'") &&
+      q.includes("where id")
+    ) {
+      const payId = Number(params[0]);
+      const pay = this.payments.find((p) => p.id === payId);
+      if (pay) {
+        pay.provider = "mock";
+        pay.status = "succeeded";
+        pay.stripe_payment_intent_id = null;
+        pay.paid_at = pay.paid_at ?? new Date().toISOString();
+      }
+      return [header(0, pay ? 1 : 0), []];
+    }
+
     if (q.includes("update discount_codes set used_count = used_count + 1")) {
       const id = Number(params[0]);
       const row = this.discountCodes.find((d) => d.id === id);
@@ -1300,6 +1603,23 @@ export class RegistrationScenarioDb {
     }
 
     if (q.startsWith("insert into payments")) {
+      const hasSimCol = q.includes("is_simulation");
+      const hasStripePiCol = q.includes("stripe_payment_intent_id");
+      const hasPaidAt = q.includes("paid_at");
+      let metadataIdx = 12;
+      let simIdx = -1;
+      let stripePiIdx = -1;
+      if (hasStripePiCol && !hasPaidAt) {
+        stripePiIdx = 12;
+        metadataIdx = 13;
+        simIdx = hasSimCol ? 14 : -1;
+      } else if (hasPaidAt) {
+        metadataIdx = 12;
+        simIdx = hasSimCol ? 13 : -1;
+      } else if (hasSimCol) {
+        metadataIdx = 12;
+        simIdx = 13;
+      }
       const pay: PaymentRow = {
         id: this.nextPaymentId++,
         public_uuid: String(params[0]),
@@ -1314,13 +1634,17 @@ export class RegistrationScenarioDb {
         currency: String(params[9]),
         status: String(params[10]),
         provider: String(params[11]),
-        metadata_json: String(params[12]),
-        stripe_payment_intent_id: null,
+        metadata_json: String(params[metadataIdx]),
+        stripe_payment_intent_id:
+          stripePiIdx >= 0 && params[stripePiIdx] != null
+            ? String(params[stripePiIdx])
+            : null,
         stripe_charge_id: null,
         stripe_transfer_id: null,
         stripe_application_fee_id: null,
-        paid_at: q.includes("paid_at") ? new Date().toISOString() : null,
+        paid_at: hasPaidAt ? new Date().toISOString() : null,
         created_at: new Date().toISOString(),
+        is_simulation: simIdx >= 0 ? Number(params[simIdx] ?? 0) : 0,
       } as PaymentRow;
       this.payments.push(pay);
       return [header(pay.id, 1), []];
@@ -1361,6 +1685,8 @@ export class RegistrationScenarioDb {
                 provider: pay.provider,
                 status: pay.status,
                 amount_cents: pay.amount_cents,
+                is_simulation: Number((pay as PaymentRow & { is_simulation?: number }).is_simulation ?? 0),
+                event_id: pay.event_id,
               },
             ]
           : [],
@@ -1368,11 +1694,26 @@ export class RegistrationScenarioDb {
       ];
     }
 
-    if (q.includes("select provider, amount_cents from payments")) {
+    if (
+      q.includes("select provider, amount_cents") &&
+      q.includes("from payments") &&
+      q.includes("public_uuid")
+    ) {
       const uuid = String(params[0]);
       const athleteId = Number(params[1]);
       const pay = this.payments.find((p) => p.public_uuid === uuid && p.athlete_id === athleteId);
-      return [pay ? [{ provider: pay.provider, amount_cents: pay.amount_cents }] : [], []];
+      return [
+        pay
+          ? [
+              {
+                provider: pay.provider,
+                amount_cents: pay.amount_cents,
+                is_simulation: Number((pay as PaymentRow & { is_simulation?: number }).is_simulation ?? 0),
+              },
+            ]
+          : [],
+        [],
+      ];
     }
 
     if (q.includes("from payments p") && q.includes("join events e") && q.includes("where p.public_uuid = ? and p.athlete_id = ? limit 1")) {
@@ -1553,15 +1894,80 @@ export class RegistrationScenarioDb {
     }
 
     if (
-      q.includes("select slug, starts_at from events where id") ||
-      q.includes("select slug, start_date from events where id")
+      q.includes("select id, start_date, end_date, visibility, status, auto_deactivate_after_event") &&
+      q.includes("from events where id")
+    ) {
+      const eventId = Number(params[0]);
+      if (eventId !== SCENARIO.eventId || this.event.deleted_at) return [[], []];
+      return [
+        [
+          {
+            id: this.event.id,
+            start_date: this.event.start_date,
+            end_date: this.event.end_date ?? null,
+            visibility: this.event.visibility ?? "public",
+            status: this.event.status ?? "published",
+            auto_deactivate_after_event: Number(
+              this.event.auto_deactivate_after_event ?? 1,
+            ),
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (
+      q.includes("select visibility from events where id") ||
+      (q.includes("select start_date, end_date, registration_opens_at, registration_closes_at") &&
+        q.includes("from events where id"))
+    ) {
+      const eventId = Number(params[0]);
+      if (eventId !== SCENARIO.eventId || this.event.deleted_at) return [[], []];
+      if (q.includes("select visibility")) {
+        return [[{ visibility: this.event.visibility ?? "public" }], []];
+      }
+      return [
+        [
+          {
+            start_date: this.event.start_date,
+            end_date: this.event.end_date ?? null,
+            registration_opens_at: this.event.registration_opens_at ?? null,
+            registration_closes_at: this.event.registration_closes_at ?? null,
+          },
+        ],
+        [],
+      ];
+    }
+
+    if (
+      q.includes("update events set visibility = 'unlisted'") &&
+      q.includes("visibility = 'public'")
+    ) {
+      const eventId = Number(params[0]);
+      if (
+        eventId === SCENARIO.eventId &&
+        !this.event.deleted_at &&
+        String(this.event.visibility ?? "public") === "public"
+      ) {
+        this.event.visibility = "unlisted";
+        this.event.featured = 0;
+        return [header(0, 1), []];
+      }
+      return [header(0, 0), []];
+    }
+
+    if (
+      q.includes("select slug, start_date from events where id") ||
+      (q.includes("select slug") &&
+        q.includes("start_date") &&
+        q.includes("from events where id"))
     ) {
       return [
         [
           {
             slug: SCENARIO.slug,
-            starts_at: this.event.start_date ?? "2026-09-01T10:00:00.000Z",
             start_date: this.event.start_date ?? "2026-09-01T10:00:00.000Z",
+            is_simulation: Number((this.event as { is_simulation?: number }).is_simulation ?? 0),
           },
         ],
         [],
@@ -1702,7 +2108,12 @@ export class RegistrationScenarioDb {
 
     if (q.startsWith("insert into registrations")) {
       const hasBibCol = sql.toLowerCase().includes("bib_number");
+      const hasSimCol = sql.toLowerCase().includes("is_simulation");
       const bibOffset = hasBibCol ? 1 : 0;
+      const isGroup =
+        sql.toLowerCase().includes("order_id") &&
+        sql.toLowerCase().includes("purchaser_athlete_id");
+      const paymentIdIdx = 14 + bibOffset;
       const reg: RegistrationRow = {
         id: this.nextRegistrationId++,
         public_uuid: String(params[0]),
@@ -1719,16 +2130,29 @@ export class RegistrationScenarioDb {
         discount_code_id: params[11 + bibOffset] as number | null,
         currency: String(params[12 + bibOffset]),
         source: String(params[13 + bibOffset]),
-        payment_id: Number(params[14 + bibOffset]),
-        order_id: params[15 + bibOffset] != null ? Number(params[15 + bibOffset]) : null,
+        payment_id: Number(params[paymentIdIdx]),
+        order_id: isGroup && params[paymentIdIdx + 1] != null
+          ? Number(params[paymentIdIdx + 1])
+          : null,
         purchaser_athlete_id:
-          params[16 + bibOffset] != null ? Number(params[16 + bibOffset]) : null,
+          isGroup && params[paymentIdIdx + 2] != null
+            ? Number(params[paymentIdIdx + 2])
+            : null,
         guest_claim_token:
-          params[17 + bibOffset] != null && String(params[17 + bibOffset]).trim()
-            ? String(params[17 + bibOffset])
+          isGroup &&
+          params[paymentIdIdx + 3] != null &&
+          String(params[paymentIdIdx + 3]).trim()
+            ? String(params[paymentIdIdx + 3])
             : null,
         deleted_at: null,
         waiver_signed_at: null,
+        is_simulation: hasSimCol
+          ? Number(
+              params[
+                isGroup ? paymentIdIdx + 4 : paymentIdIdx + 1
+              ] ?? 0,
+            )
+          : 0,
       } as RegistrationRow;
       (reg as RegistrationRow & { folio_segment_id?: number | null }).folio_segment_id =
         params[5] != null ? Number(params[5]) : null;
@@ -2026,6 +2450,40 @@ export const seeds = {
   freeOpen: (): ScenarioSeed => ({
     requiresWaiver: false,
     category: { price_cents: 0, capacity: 100 },
+  }),
+  /** Draft simulation event gated by magic token (Stripe test kit path). */
+  simulationFreeOpen: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    event: {
+      status: "draft",
+      is_simulation: true,
+      simulation_access_token: "a".repeat(64),
+      simulation_expires_at: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 19).replace("T", " "),
+      simulation_last_activity_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+    },
+  }),
+  simulationExpired: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    event: {
+      status: "draft",
+      is_simulation: true,
+      simulation_access_token: "b".repeat(64),
+      simulation_expires_at: "2020-01-01 00:00:00",
+      simulation_last_activity_at: "2020-01-01 00:00:00",
+    },
+  }),
+  simulationAtRegQuota: (): ScenarioSeed => ({
+    requiresWaiver: false,
+    category: { price_cents: 0, capacity: 100 },
+    confirmedRegistrationCount: 50,
+    event: {
+      status: "draft",
+      is_simulation: true,
+      simulation_access_token: "c".repeat(64),
+      simulation_expires_at: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 19).replace("T", " "),
+    },
   }),
   groupFreeMaxTwo: (): ScenarioSeed => ({
     requiresWaiver: false,

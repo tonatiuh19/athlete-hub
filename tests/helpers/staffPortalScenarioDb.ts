@@ -69,6 +69,11 @@ type EventRow = RowDataPacket & {
   deleted_at: string | null;
   submitted_for_approval_at: string | null;
   approval_rejection_reason: string | null;
+  is_simulation?: number;
+  simulation_access_token?: string | null;
+  simulation_expires_at?: string | null;
+  simulation_last_activity_at?: string | null;
+  cloned_from_event_id?: number | null;
 };
 
 type CategoryRow = RowDataPacket & {
@@ -154,8 +159,13 @@ export interface StaffPortalSeed {
     slug?: string;
     title?: string;
     requires_waiver?: boolean;
+    is_simulation?: boolean;
+    simulation_access_token?: string | null;
+    simulation_expires_at?: string | null;
     categories?: Array<{ price_cents?: number; is_active?: number }>;
   }>;
+  /** Pre-seed N active simulation shells for quota tests. */
+  activeSimulationCount?: number;
   manualPayments?: ManualPaymentSeed[];
   registrations?: Array<{
     event_id?: number;
@@ -209,6 +219,13 @@ function defaultEvent(partial: StaffPortalSeed["events"] extends (infer E)[] | u
     submitted_for_approval_at:
       partial.status === "pending_approval" ? new Date().toISOString() : null,
     approval_rejection_reason: null,
+    is_simulation: partial.is_simulation ? 1 : 0,
+    simulation_access_token: partial.simulation_access_token ?? null,
+    simulation_expires_at: partial.simulation_expires_at ?? null,
+    simulation_last_activity_at: partial.is_simulation
+      ? new Date().toISOString()
+      : null,
+    cloned_from_event_id: null,
   } as EventRow;
 }
 
@@ -475,6 +492,25 @@ export class StaffPortalScenarioDb {
       }
     }
 
+    const activeSimCount = seed.activeSimulationCount ?? 0;
+    for (let i = 0; i < activeSimCount; i++) {
+      const id = this.nextEventId++;
+      const row = defaultEvent({
+        id,
+        status: "draft",
+        title: `Active Sim ${i + 1}`,
+        slug: `active-sim-${i + 1}`,
+        is_simulation: true,
+        simulation_access_token: `${"d".repeat(60)}${String(i).padStart(4, "0")}`,
+        simulation_expires_at: new Date(Date.now() + 86400000)
+          .toISOString()
+          .slice(0, 19)
+          .replace("T", " "),
+      });
+      row.id = id;
+      this.events.push(row);
+    }
+
     for (const pay of seed.manualPayments ?? []) {
       const eventId = seed.events?.[0]?.id ?? STAFF_SCENARIO.defaultEventId;
       this.payments.push({
@@ -594,6 +630,12 @@ export class StaffPortalScenarioDb {
         ? params.slice(0, -2)
         : params;
     let i = 0;
+
+    if (q.includes("coalesce(e.is_simulation, 0) = 1")) {
+      rows = rows.filter((e) => Number(e.is_simulation ?? 0) === 1);
+    } else if (q.includes("coalesce(e.is_simulation, 0) = 0")) {
+      rows = rows.filter((e) => Number(e.is_simulation ?? 0) === 0);
+    }
 
     if (q.includes("e.organizer_id = ?") && i < trailingLimitOffset.length) {
       const organizerId = Number(trailingLimitOffset[i++]);
@@ -787,6 +829,37 @@ export class StaffPortalScenarioDb {
 
     if (q.includes("insert into events")) {
       const id = this.nextEventId++;
+      const isSimInsert = q.includes("is_simulation");
+      if (isSimInsert) {
+        const row = defaultEvent({
+          id,
+          title: String(params[4]),
+          slug: String(params[3]),
+          status: "draft",
+          is_simulation: true,
+          simulation_access_token: String(params[26] ?? ""),
+          simulation_expires_at: String(params[27] ?? ""),
+        });
+        row.id = id;
+        row.public_uuid = String(params[0]);
+        row.organizer_id = Number(params[1]);
+        row.sport_type_id = Number(params[2]);
+        row.short_description = (params[5] as string | null) ?? null;
+        row.description = (params[6] as string | null) ?? null;
+        row.visibility = String(params[8] ?? "unlisted");
+        row.start_date = String(params[10]);
+        row.requires_waiver = Number(params[22] ?? 1);
+        row.max_registrations_per_order = Number(params[23] ?? 10);
+        row.bib_mode = String(params[24] ?? "folio");
+        row.is_simulation = 1;
+        row.simulation_access_token = String(params[26] ?? "");
+        row.simulation_expires_at = String(params[27] ?? "");
+        row.simulation_last_activity_at = String(params[28] ?? "");
+        row.cloned_from_event_id =
+          params[29] != null ? Number(params[29]) : null;
+        this.events.push(row);
+        return [header(id, 1), []];
+      }
       const row = defaultEvent({
         title: String(params[5]),
         slug: String(params[4]),
@@ -824,12 +897,21 @@ export class StaffPortalScenarioDb {
     }
 
     if (
-      q.includes("select status from events where id = ? and organizer_id = ? and deleted_at is null")
+      q.includes("from events where id = ? and organizer_id = ? and deleted_at is null") &&
+      q.includes("select status")
     ) {
       const eventId = Number(params[0]);
       const event = this.getEvent(eventId);
       if (!event || event.organizer_id !== Number(params[1])) return [[], []];
-      return [[{ status: event.status }], []];
+      return [
+        [
+          {
+            status: event.status,
+            is_simulation: Number((event as { is_simulation?: number }).is_simulation ?? 0),
+          },
+        ],
+        [],
+      ];
     }
 
     if (
@@ -977,6 +1059,7 @@ export class StaffPortalScenarioDb {
         sport_name: "Running",
         organizer_name:
           this.organizers.find((o) => o.id === e.organizer_id)?.name ?? "Org",
+        is_simulation: Number(e.is_simulation ?? 0) === 1,
       }));
       return [pageRows, []];
     }
@@ -1459,6 +1542,159 @@ export class StaffPortalScenarioDb {
       return [header(0, 1), []];
     }
 
+    if (
+      q.includes("select count(*) as cnt from events") &&
+      q.includes("is_simulation = 1")
+    ) {
+      const organizerId = Number(params[0]);
+      const cnt = this.events.filter(
+        (e) =>
+          e.organizer_id === organizerId &&
+          Number(e.is_simulation ?? 0) === 1 &&
+          !e.deleted_at &&
+          (e.simulation_expires_at == null ||
+            new Date(String(e.simulation_expires_at)).getTime() > Date.now()),
+      ).length;
+      return [[{ cnt }], []];
+    }
+
+    if (
+      q.includes("from events e") &&
+      q.includes("is_simulation = 1") &&
+      q.includes("organizer_id = ?") &&
+      q.includes("join sport_types")
+    ) {
+      const organizerId = Number(params[0]);
+      const rows = this.events
+        .filter(
+          (e) =>
+            e.organizer_id === organizerId &&
+            Number(e.is_simulation ?? 0) === 1 &&
+            !e.deleted_at,
+        )
+        .map((e) => ({
+          ...e,
+          sport_name: "Running",
+          registration_count: 0,
+        }));
+      return [rows, []];
+    }
+
+    if (
+      q.includes("from events e") &&
+      q.includes("is_simulation = 1") &&
+      q.includes("join organizers o") &&
+      q.includes("limit 200")
+    ) {
+      const rows = this.events
+        .filter((e) => Number(e.is_simulation ?? 0) === 1 && !e.deleted_at)
+        .map((e) => ({
+          ...e,
+          sport_name: "Running",
+          organizer_name: "Test Organizer",
+          registration_count: 0,
+        }));
+      return [rows, []];
+    }
+
+    if (
+      q.includes("select * from events") &&
+      q.includes("is_simulation = 1") &&
+      q.includes("organizer_id = ?")
+    ) {
+      const eventId = Number(params[0]);
+      const organizerId = Number(params[1]);
+      const event = this.events.find(
+        (e) =>
+          e.id === eventId &&
+          e.organizer_id === organizerId &&
+          Number(e.is_simulation ?? 0) === 1 &&
+          !e.deleted_at,
+      );
+      return [event ? [event] : [], []];
+    }
+
+    if (
+      q.includes("select id from events where slug = ? and deleted_at is null")
+    ) {
+      const slug = String(params[0]);
+      const hit = this.events.find((e) => e.slug === slug && !e.deleted_at);
+      return [hit ? [{ id: hit.id }] : [], []];
+    }
+
+    if (
+      q.includes("update events set simulation_access_token = ?") &&
+      q.includes("is_simulation = 1")
+    ) {
+      const token = String(params[0]);
+      const eventId = Number(params[1]);
+      const event = this.getEvent(eventId);
+      if (!event || Number(event.is_simulation ?? 0) !== 1) return [header(0, 0), []];
+      event.simulation_access_token = token;
+      return [header(0, 1), []];
+    }
+
+    if (
+      q.includes("update events") &&
+      q.includes("simulation_last_activity_at") &&
+      q.includes("is_simulation = 1")
+    ) {
+      const eventId = Number(params[2] ?? params[params.length - 1]);
+      const event = this.getEvent(eventId);
+      if (event && Number(event.is_simulation ?? 0) === 1) {
+        event.simulation_last_activity_at = String(params[0]);
+        event.simulation_expires_at = String(params[1]);
+      }
+      return [header(0, 1), []];
+    }
+
+    if (
+      q.includes("select count(*) as cnt from registrations") &&
+      q.includes("is_simulation = 1")
+    ) {
+      return [[{ cnt: 0 }], []];
+    }
+
+    if (
+      q.includes("update registrations set deleted_at") ||
+      q.includes("delete from registration_field_values") ||
+      q.includes("delete from registration_waiver_signatures") ||
+      q.includes("delete from registration_extras") ||
+      q.includes("delete from registration_extra_field_values") ||
+      q.includes("delete from registration_status_history") ||
+      q.includes("delete from check_in_logs") ||
+      q.includes("delete from registrations") ||
+      q.includes("delete from registration_orders") ||
+      q.includes("delete from athletes") ||
+      q.includes("delete from payments") ||
+      q.includes("delete from athlete_sessions") ||
+      q.includes("update registrations set payment_id = null") ||
+      q.includes("update events set registration_count = 0") ||
+      q.includes("update event_categories set sold_count = 0") ||
+      q.includes("update event_extras set sold_count = 0") ||
+      q.includes("delete from waitlist_entries") ||
+      q.includes("delete from payment_refunds") ||
+      (q.includes("from payments") && q.includes("is_simulation = 1")) ||
+      (q.includes("update payments") && q.includes("is_simulation")) ||
+      (q.includes("from registrations") &&
+        q.includes("where event_id = ?") &&
+        q.includes("deleted_at is null") &&
+        q.includes("select id, athlete_id")) ||
+      (q.includes("from athletes") && q.includes("is_simulation")) ||
+      (q.includes("from registrations") &&
+        q.includes("is_simulation = 0") &&
+        q.includes("athlete_id = ?"))
+    ) {
+      if (q.includes("select")) {
+        return [[], []];
+      }
+      return [header(0, 0), []];
+    }
+
+    if (q.includes("from sport_types")) {
+      return [[{ id: STAFF_SCENARIO.sportTypeId, name: "Running", slug: "running" }], []];
+    }
+
     throw new Error(`Unmocked SQL in staff portal test: ${sql.slice(0, 160)}…`);
   };
 
@@ -1518,5 +1754,30 @@ export const staffSeeds = {
   },
   empty(): StaffPortalSeed {
     return { events: [] };
+  },
+  simulationShell(): StaffPortalSeed {
+    return {
+      events: [
+        {
+          id: STAFF_SCENARIO.defaultEventId,
+          status: "draft",
+          title: "Sim Shell",
+          slug: "sim-shell",
+          is_simulation: true,
+          simulation_access_token: "e".repeat(64),
+          simulation_expires_at: new Date(Date.now() + 86400000)
+            .toISOString()
+            .slice(0, 19)
+            .replace("T", " "),
+          categories: [{ price_cents: 0, is_active: 1 }],
+        },
+      ],
+    };
+  },
+  simulationQuotaFull(): StaffPortalSeed {
+    return { events: [], activeSimulationCount: 3 };
+  },
+  organizerNotOwner(): StaffPortalSeed {
+    return { memberRole: "organizer", events: [] };
   },
 };

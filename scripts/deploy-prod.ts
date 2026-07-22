@@ -3,6 +3,7 @@ import "dotenv/config";
 import { spawn } from "child_process";
 import { createInterface } from "readline/promises";
 import mysql from "mysql2/promise";
+import { checkDeployVersion } from "../shared/deployVersion";
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -54,21 +55,27 @@ async function promptForVersion(
   try {
     const currentLabel = currentVersion?.trim() || "not set";
     console.log(`\n🏷️  Current production version: ${currentLabel}`);
+    console.log(
+      "   Use MAJOR.MINOR.PATCH. Only the next patch, next minor (.0), or next major (.0.0) is allowed.\n",
+    );
 
     while (true) {
       const input = await rl.question("✏️  Enter deploy version: ");
       const version = normalizeVersion(input);
-      if (!version) {
-        console.log("❌ Version cannot be empty.");
+      const check = checkDeployVersion(version, currentVersion);
+      if (!check.ok) {
+        console.log(`❌ ${check.reason}`);
         continue;
       }
 
       const confirm = await rl.question(
-        `❓ Deploy version ${version} to production and update app_version after success? (y/N): `,
+        `❓ Deploy version ${check.version} to production and update app_version after success? (y/N): `,
       );
       if (confirm.trim().toLowerCase() === "y") {
-        console.log(`✅ Confirmed. Proceeding with version ${version}...`);
-        return version;
+        console.log(
+          `✅ Confirmed. Proceeding with version ${check.version}...`,
+        );
+        return check.version;
       }
       console.log(
         "❌ Deploy cancelled. Please enter a new version or Ctrl+C to abort.",
@@ -92,7 +99,9 @@ async function main() {
   const explicitVersion =
     filteredArgs.find((arg) => !arg.startsWith("-")) ?? "";
   const vercelArgs = explicitVersion
-    ? filteredArgs.filter((arg, index) => index !== filteredArgs.indexOf(explicitVersion))
+    ? filteredArgs.filter(
+        (arg, index) => index !== filteredArgs.indexOf(explicitVersion),
+      )
     : filteredArgs;
 
   const conn = await mysql.createConnection({
@@ -118,8 +127,9 @@ async function main() {
       ? normalizeVersion(explicitVersion)
       : await promptForVersion(currentVersion);
 
-    if (!deployVersion) {
-      throw new Error("Deploy version cannot be empty.");
+    const versionCheck = checkDeployVersion(deployVersion, currentVersion);
+    if (!versionCheck.ok) {
+      throw new Error(versionCheck.reason);
     }
 
     if (!skipTests) {
@@ -134,7 +144,7 @@ async function main() {
     }
 
     console.log(
-      `\n🚀 Starting Vercel production deploy for version ${deployVersion}...\n`,
+      `\n🚀 Starting Vercel production deploy for version ${versionCheck.version}...\n`,
     );
 
     await runCommand(
@@ -143,15 +153,15 @@ async function main() {
         "vercel",
         "--prod",
         "--build-env",
-        `VITE_APP_VERSION=${deployVersion}`,
+        `VITE_APP_VERSION=${versionCheck.version}`,
         "--build-env",
-        `APP_VERSION=${deployVersion}`,
+        `APP_VERSION=${versionCheck.version}`,
         ...vercelArgs,
       ],
       {
         ...process.env,
-        VITE_APP_VERSION: deployVersion,
-        APP_VERSION: deployVersion,
+        VITE_APP_VERSION: versionCheck.version,
+        APP_VERSION: versionCheck.version,
       },
     );
 
@@ -166,11 +176,11 @@ async function main() {
          setting_value = VALUES(setting_value),
          description = VALUES(description),
          updated_at = NOW()`,
-      [deployVersion],
+      [versionCheck.version],
     );
 
     console.log(
-      `\n🎉 Production deploy succeeded! app_version updated to ${deployVersion}.`,
+      `\n🎉 Production deploy succeeded! app_version updated to ${versionCheck.version}.`,
     );
   } finally {
     await conn.end();

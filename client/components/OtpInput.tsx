@@ -3,6 +3,8 @@ import { useRef, KeyboardEvent, ClipboardEvent, ChangeEvent } from "react";
 interface OtpInputProps {
   value: string;
   onChange: (value: string) => void;
+  /** Fires once the 6-digit code is complete (type or paste). */
+  onComplete?: (code: string) => void;
   autoFocus?: boolean;
   hasError?: boolean;
 }
@@ -10,23 +12,42 @@ interface OtpInputProps {
 export default function OtpInput({
   value,
   onChange,
+  onComplete,
   autoFocus = false,
   hasError = false,
 }: OtpInputProps) {
   const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const lastCompletedRef = useRef<string>("");
   const digits = Array.from({ length: 6 }, (_, i) => value[i] ?? "");
 
   const focus = (i: number) => refs.current[i]?.focus();
 
+  const commit = (next: string) => {
+    onChange(next);
+    if (/^\d{6}$/.test(next) && next !== lastCompletedRef.current) {
+      lastCompletedRef.current = next;
+      onComplete?.(next);
+    }
+    if (next.length < 6) {
+      lastCompletedRef.current = "";
+    }
+  };
+
   const update = (index: number, char: string) => {
     const next = digits.slice();
     next[index] = char;
-    onChange(next.join(""));
+    commit(next.join(""));
   };
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>, i: number) => {
     const raw = e.target.value.replace(/\D/g, "");
     if (!raw) return;
+    // Mobile autofill / paste into a single box may send multiple digits
+    if (raw.length >= 6) {
+      commit(raw.slice(0, 6));
+      focus(5);
+      return;
+    }
     const char = raw[raw.length - 1];
     update(i, char);
     if (i < 5) focus(i + 1);
@@ -48,7 +69,7 @@ export default function OtpInput({
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (!pasted) return;
-    onChange(Array.from({ length: 6 }, (_, i) => pasted[i] ?? "").join(""));
+    commit(Array.from({ length: 6 }, (_, i) => pasted[i] ?? "").join(""));
     focus(Math.min(pasted.length, 5));
   };
 
@@ -62,6 +83,7 @@ export default function OtpInput({
           }}
           type="text"
           inputMode="numeric"
+          autoComplete={i === 0 ? "one-time-code" : "off"}
           maxLength={1}
           value={digit}
           autoFocus={autoFocus && i === 0}

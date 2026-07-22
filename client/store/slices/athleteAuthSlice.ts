@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import api, { athleteAuthHeaders, getAthleteToken, setAthleteToken } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
+import { normalizeTheme } from "@shared/theme";
 import type {
   AthleteAuthSessionResponse,
   AthleteCheckEmailResponse,
@@ -227,6 +228,24 @@ export const updateAthleteLanguage = createAsyncThunk<
   }
 });
 
+export const updateAthleteTheme = createAsyncThunk<
+  { preferred_theme: string },
+  string,
+  { rejectValue: string }
+>("athleteAuth/updateTheme", async (theme, { rejectWithValue }) => {
+  try {
+    const { data } = await api.patch(
+      "/athlete/preferences",
+      { preferred_theme: normalizeTheme(theme) },
+      athleteRequest,
+    );
+    return data;
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Error");
+  }
+});
+
 export const uploadAthleteAvatar = createAsyncThunk<
   { avatar_url: string },
   { image: string },
@@ -401,6 +420,12 @@ const slice = createSlice({
     b.addCase(updateAthleteLanguage.fulfilled, (s, a) => {
       if (s.user) {
         s.user.preferredLanguage = a.payload.preferred_language;
+      }
+    });
+
+    b.addCase(updateAthleteTheme.fulfilled, (s, a) => {
+      if (s.user) {
+        s.user.preferredTheme = a.payload.preferred_theme;
       }
     });
 

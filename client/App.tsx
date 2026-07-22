@@ -24,16 +24,22 @@ import AthleteLayout from "@/components/layouts/AthleteLayout";
 const Index = lazy(() => import("./pages/Index"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const AthleteLogin = lazy(() => import("./pages/auth/AthleteLogin"));
-const AthleteResetPassword = lazy(() => import("./pages/auth/AthleteResetPassword"));
+const AthleteResetPassword = lazy(
+  () => import("./pages/auth/AthleteResetPassword"),
+);
 const StaffLogin = lazy(() => import("./pages/auth/StaffLogin"));
 const SsoCallback = lazy(() => import("./pages/auth/SsoCallback"));
 const AthleteDashboard = lazy(() => import("./pages/athlete/Dashboard"));
-const AthleteRegistrations = lazy(() => import("./pages/athlete/Registrations"));
+const AthleteRegistrations = lazy(
+  () => import("./pages/athlete/Registrations"),
+);
 const AthleteEvents = lazy(() => import("./pages/athlete/Events"));
 const AthleteResults = lazy(() => import("./pages/athlete/Results"));
 const AthleteProfile = lazy(() => import("./pages/athlete/Profile"));
 const CompleteProfile = lazy(() => import("./pages/athlete/CompleteProfile"));
-const AthletePaymentMethods = lazy(() => import("./pages/athlete/PaymentMethods"));
+const AthletePaymentMethods = lazy(
+  () => import("./pages/athlete/PaymentMethods"),
+);
 const AthleteTeams = lazy(() => import("./pages/athlete/Teams"));
 const AthleteAchievements = lazy(() => import("./pages/athlete/Achievements"));
 const StaffDashboard = lazy(() => import("./pages/staff/Dashboard"));
@@ -55,10 +61,19 @@ const StaffProfile = lazy(() => import("./pages/staff/Profile"));
 const StaffMessaging = lazy(() => import("./pages/staff/Messaging"));
 const EventsBrowse = lazy(() => import("./pages/events/EventsBrowse"));
 const EventDetail = lazy(() => import("./pages/events/EventDetail"));
-const CommunitiesBrowse = lazy(() => import("./pages/communities/CommunitiesBrowse"));
-const CommunityDetail = lazy(() => import("./pages/communities/CommunityDetail"));
+const SimulationEventPage = lazy(
+  () => import("./pages/events/SimulationEventPage"),
+);
+const CommunitiesBrowse = lazy(
+  () => import("./pages/communities/CommunitiesBrowse"),
+);
+const CommunityDetail = lazy(
+  () => import("./pages/communities/CommunityDetail"),
+);
 const OrganizerStart = lazy(() => import("./pages/organizers/OrganizerStart"));
-const OrganizerSignupWizard = lazy(() => import("./pages/organizers/OrganizerSignupWizard"));
+const OrganizerSignupWizard = lazy(
+  () => import("./pages/organizers/OrganizerSignupWizard"),
+);
 const StaffOnboarding = lazy(() => import("./pages/staff/StaffOnboarding"));
 const StaffSiteSettings = lazy(() => import("./pages/staff/StaffSiteSettings"));
 const LegalDocumentPage = lazy(() => import("./pages/legal/LegalDocumentPage"));
@@ -89,13 +104,20 @@ function AppRoutes() {
           <Route element={<PublicSiteLayout />}>
             <Route path="/" element={<Index />} />
             <Route path="/events" element={<EventsBrowse />} />
+            <Route
+              path="/events/sim/:token"
+              element={<SimulationEventPage />}
+            />
             <Route path="/events/:slug" element={<EventDetail />} />
             <Route path="/communities" element={<CommunitiesBrowse />} />
             <Route path="/communities/:slug" element={<CommunityDetail />} />
             <Route path="/blog" element={<BlogIndex />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
             <Route path="/organizers/start" element={<OrganizerStart />} />
-            <Route path="/organizers/signup" element={<OrganizerSignupWizard />} />
+            <Route
+              path="/organizers/signup"
+              element={<OrganizerSignupWizard />}
+            />
             <Route path="/legal/:documentId" element={<LegalDocumentPage />} />
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/help" element={<HelpPage />} />
@@ -126,6 +148,10 @@ function AppRoutes() {
             <Route path="payments" element={<StaffPayments />} />
             <Route path="payouts" element={<StaffPayouts />} />
             <Route path="events" element={<StaffEvents />} />
+            <Route
+              path="simulations"
+              element={<Navigate to="/staff/events?simulation=1" replace />}
+            />
             <Route path="blog" element={<StaffBlogPosts />} />
             <Route path="blog/new" element={<StaffBlogEditor />} />
             <Route path="blog/:postId/edit" element={<StaffBlogEditor />} />
@@ -133,7 +159,10 @@ function AppRoutes() {
             <Route path="events/new" element={<StaffEventEdit />} />
             <Route path="events/:eventId" element={<StaffEventHub />} />
             <Route path="events/:eventId/edit" element={<StaffEventEdit />} />
-            <Route path="events/:eventId/results" element={<StaffEventResults />} />
+            <Route
+              path="events/:eventId/results"
+              element={<StaffEventResults />}
+            />
             <Route path="team" element={<StaffTeam />} />
             <Route path="registrations" element={<StaffRegistrations />} />
             <Route path="analytics" element={<StaffAnalytics />} />
@@ -144,7 +173,10 @@ function AppRoutes() {
             <Route path="site-settings" element={<StaffSiteSettings />} />
           </Route>
 
-          <Route path="/admin/login" element={<Navigate to="/staff/login" replace />} />
+          <Route
+            path="/admin/login"
+            element={<Navigate to="/staff/login" replace />}
+          />
           <Route path="/admin" element={<Navigate to="/staff" replace />} />
 
           <Route path="*" element={<NotFound />} />

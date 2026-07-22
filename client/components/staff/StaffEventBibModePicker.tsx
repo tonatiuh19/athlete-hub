@@ -46,20 +46,24 @@ export default function StaffEventBibModePicker({
       <div className="flex flex-col gap-2">
         <label
           className={cn(
-            "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm cursor-pointer transition-colors",
+            "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors",
             value === "folio"
               ? "border-primary/40 bg-primary/10"
               : "border-border/70 bg-background",
-            readOnly && "cursor-default",
+            readOnly
+              ? "cursor-default opacity-90 pointer-events-none"
+              : "cursor-pointer",
           )}
         >
           <input
             type="radio"
             name={groupName}
-            className="mt-1"
+            className="mt-1 accent-primary"
             checked={value === "folio"}
             disabled={readOnly}
-            onChange={() => onChange("folio")}
+            onChange={() => {
+              if (!readOnly) onChange("folio");
+            }}
           />
           <span>
             <span className="font-medium block">
@@ -73,20 +77,24 @@ export default function StaffEventBibModePicker({
 
         <label
           className={cn(
-            "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm cursor-pointer transition-colors",
+            "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors",
             value === "separate"
               ? "border-primary/40 bg-primary/10"
               : "border-border/70 bg-background",
-            readOnly && "cursor-default",
+            readOnly
+              ? "cursor-default opacity-90 pointer-events-none"
+              : "cursor-pointer",
           )}
         >
           <input
             type="radio"
             name={groupName}
-            className="mt-1"
+            className="mt-1 accent-primary"
             checked={value === "separate"}
             disabled={readOnly}
-            onChange={() => onChange("separate")}
+            onChange={() => {
+              if (!readOnly) onChange("separate");
+            }}
           />
           <span>
             <span className="font-medium block">

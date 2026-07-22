@@ -2,7 +2,10 @@
  * Shared types between client and server
  */
 
-import type { CheckoutBreakdownSnapshot, FeePresentation } from "./checkoutBreakdown.js";
+import type {
+  CheckoutBreakdownSnapshot,
+  FeePresentation,
+} from "./checkoutBreakdown.js";
 
 export type { CheckoutBreakdownSnapshot, FeePresentation };
 
@@ -366,7 +369,14 @@ export interface EventRegistrationField {
   id: number;
   field_key: string;
   label: string;
-  field_type: "text" | "textarea" | "select" | "checkbox" | "number" | "date" | "file";
+  field_type:
+    | "text"
+    | "textarea"
+    | "select"
+    | "checkbox"
+    | "number"
+    | "date"
+    | "file";
   options_json?: string[] | null;
   is_required: boolean | number;
   sort_order: number;
@@ -429,6 +439,7 @@ export interface AthleteUser {
   emergencyContactPhone?: string | null;
   avatarUrl?: string;
   preferredLanguage?: string;
+  preferredTheme?: string;
 }
 
 export type AthleteGender = "male" | "female" | "other" | "prefer_not_to_say";
@@ -498,6 +509,9 @@ export function mapAthleteApiRow(a: Record<string, unknown>): AthleteUser {
     preferredLanguage: (a.preferred_language ?? a.preferredLanguage) as
       | string
       | undefined,
+    preferredTheme: (a.preferred_theme ?? a.preferredTheme) as
+      | string
+      | undefined,
   };
 }
 
@@ -525,6 +539,7 @@ export interface AdminUser {
   phone?: string | null;
   avatarUrl?: string | null;
   preferredLanguage?: string;
+  preferredTheme?: string;
   lastLoginAt?: string | null;
   createdAt?: string;
 }
@@ -541,6 +556,7 @@ export interface OrganizerMemberUser {
   phone?: string | null;
   avatarUrl?: string | null;
   preferredLanguage?: string;
+  preferredTheme?: string;
   lastLoginAt?: string | null;
   createdAt?: string;
 }
@@ -550,6 +566,7 @@ export interface StaffProfileUpdateRequest {
   last_name?: string;
   phone?: string | null;
   preferred_language?: string;
+  preferred_theme?: string;
 }
 
 export type StaffUser = AdminUser | OrganizerMemberUser;
@@ -570,6 +587,7 @@ export interface AthleteProfile {
   emergency_contact_phone?: string | null;
   avatar_url?: string;
   preferred_language: string;
+  preferred_theme?: string;
   created_at: string;
 }
 
@@ -815,6 +833,12 @@ export interface RegistrationCheckoutResponse {
   orderPublicUuid?: string;
   itemCount?: number;
   lineItems?: GroupCheckoutLineItemInput[];
+  /** Checkout rail used for this payment */
+  provider?: "stripe" | "mercadopago" | "mock";
+  /** Mercado Pago Payment Brick */
+  mpPreferenceId?: string | null;
+  mpPublicKey?: string | null;
+  mpInitPoint?: string | null;
 }
 
 export interface RegistrationResumeResponse {
@@ -1063,6 +1087,7 @@ export interface StaffEventRow {
   slug: string;
   title: string;
   status: string;
+  visibility?: string;
   start_date: string;
   registration_count: number;
   organizer_id?: number;
@@ -1071,6 +1096,7 @@ export interface StaffEventRow {
   location_city?: string;
   has_paid_categories?: boolean;
   payments_available?: boolean;
+  is_simulation?: boolean;
 }
 
 export interface PaginatedStaffEventsResponse {
@@ -1391,6 +1417,8 @@ export interface StaffEventDetail {
   max_registrations_per_order?: number;
   /** folio = registration number is also the bib; separate = staff assigns bib later */
   bib_mode?: "folio" | "separate";
+  /** When true, after the event day ends the event is auto-unlisted from the marketplace. Default true. */
+  auto_deactivate_after_event?: boolean | number;
   requires_waiver?: boolean | number;
   fee_presentation?: FeePresentation | null;
   organizer_fee_presentation?: FeePresentation;
@@ -1402,6 +1430,10 @@ export interface StaffEventDetail {
   organizer_name?: string;
   has_paid_categories?: boolean;
   payments_available?: boolean;
+  is_simulation?: boolean | number;
+  simulation_access_token?: string | null;
+  simulation_expires_at?: string | null;
+  simulation_last_activity_at?: string | null;
 }
 
 export interface StaffEventCategory {
@@ -1553,6 +1585,8 @@ export interface StaffEventUpsertRequest {
   bib_mode?: "folio" | "separate";
   /** null = inherit organizer default */
   fee_presentation?: FeePresentation | null;
+  /** Auto-unlist from marketplace after the event day ends. Default true. */
+  auto_deactivate_after_event?: boolean;
 }
 
 export interface StaffEventCategoryInput {
@@ -1928,6 +1962,11 @@ export interface OrganizerConnectInfo {
   tax_regime?: string | null;
   service_fee_percent: number;
   fee_presentation: FeePresentation;
+  payout_rail?: "stripe" | "mercadopago";
+  mp_user_id?: string | null;
+  mp_oauth_status?: string;
+  mp_oauth_connected_at?: string | null;
+  mp_oauth_last_synced_at?: string | null;
   stripe_account_id?: string | null;
   stripe_onboarding_complete?: boolean | number;
   stripe_connect_status: StripeConnectStatus;
@@ -1948,9 +1987,19 @@ export interface OrganizerPayoutStatusResponse {
   organizer: OrganizerConnectInfo;
   tribooChecklist: { items: PayoutChecklistItem[]; complete: boolean };
   stripeChecklist: { items: PayoutChecklistItem[]; complete: boolean };
+  mercadoPagoChecklist?: { items: PayoutChecklistItem[]; complete: boolean };
+  /** False when platform MP env keys are missing — hide digital-wallet UI. */
+  mercadoPagoAvailable?: boolean;
   payoutReady: boolean;
+  preferredRail?: "stripe" | "mercadopago";
+  effectiveRail?: "stripe" | "mercadopago" | null;
+  railFallback?: boolean;
   serviceFeePercent: number;
+  stripeServiceFeePercent?: number;
+  mpServiceFeePercent?: number;
   feePresentation: FeePresentation;
+  stripeReady?: boolean;
+  mpReady?: boolean;
 }
 
 export interface OrganizerPayoutOnboardResponse extends OrganizerPayoutStatusResponse {
@@ -2079,7 +2128,11 @@ export interface StaffDiscountCodePatch {
   is_active?: boolean;
 }
 
-export type FolioCouponScope = "any" | "none" | "any_coupon" | "specific_coupon";
+export type FolioCouponScope =
+  | "any"
+  | "none"
+  | "any_coupon"
+  | "specific_coupon";
 
 export type FolioCounterScope = "segment" | "event" | "category";
 

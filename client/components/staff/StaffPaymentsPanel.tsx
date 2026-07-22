@@ -26,7 +26,7 @@ import {
 } from "@/store/slices/staffPortalSlice";
 import { useGridListState } from "@/hooks/useGridListState";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
-import { canRefundStaffPayments, canViewAllStaffPayments } from "@/utils/staffNav";
+import { canRefundStaffPayments, canViewAllStaffPayments, isStaffPaymentRefundable } from "@/utils/staffNav";
 import type { AdminPaymentRow, StaffRole } from "@shared/api";
 
 interface StaffPaymentsPanelProps {
@@ -348,7 +348,7 @@ export default function StaffPaymentsPanel({
         label: "",
         shrink: true,
         render: (p) =>
-          p.status === "succeeded" ? (
+          isStaffPaymentRefundable(p) ? (
             <Button
               type="button"
               size="sm"
@@ -453,7 +453,8 @@ export default function StaffPaymentsPanel({
             <SelectContent>
               <SelectItem value="all">{t("staffPortal.finance.providerAll")}</SelectItem>
               <SelectItem value="manual">{t("staffPortal.finance.providerManual")}</SelectItem>
-              <SelectItem value="stripe">Stripe</SelectItem>
+              <SelectItem value="stripe">{t("staffPortal.finance.providerTriboo")}</SelectItem>
+              <SelectItem value="mercadopago">{t("staffPortal.finance.providerDigitalWallet")}</SelectItem>
               <SelectItem value="mock">{t("staffPortal.finance.providerMock")}</SelectItem>
             </SelectContent>
           </Select>

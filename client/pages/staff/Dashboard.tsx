@@ -14,6 +14,10 @@ import {
 } from "@/store/slices/staffPortalSlice";
 import { Calendar, ChevronRight, DollarSign, Users, Trophy, QrCode } from "lucide-react";
 import { getNumberLocale } from "@/utils/dateLocale";
+import {
+  StaffEventCardsSkeleton,
+  StaffStatsCardsSkeleton,
+} from "@/components/staff/skeletons/StaffSkeletons";
 
 export default function StaffDashboard() {
   const { t, i18n } = useTranslation();
@@ -89,6 +93,14 @@ export default function StaffDashboard() {
             {t("staffPortal.dashboard.reviewPendingEvents")}
           </Link>
         </div>
+      ) : null}
+
+      {isAdmin && (loadingDashboard && !dashboardStats) ? (
+        <StaffStatsCardsSkeleton />
+      ) : null}
+
+      {!isAdmin && (loadingAnalytics && !organizerAnalytics) ? (
+        <StaffStatsCardsSkeleton />
       ) : null}
 
       {isAdmin && dashboardStats && (
@@ -193,7 +205,7 @@ export default function StaffDashboard() {
             </div>
           </div>
           {loadingEvents ? (
-            <p className="text-muted-foreground">{t("common.loading")}</p>
+            <StaffEventCardsSkeleton count={3} />
           ) : eventsError ? null : events.length === 0 ? (
             <p className="text-muted-foreground">{t("staffPortal.dashboard.noEvents")}</p>
           ) : (
@@ -226,17 +238,6 @@ export default function StaffDashboard() {
             </Link>
           ) : null}
         </div>
-      )}
-
-      {loadingDashboard && isAdmin && !dashboardStats && (
-        <p className="text-muted-foreground text-sm">
-          {t("staffPortal.dashboard.loadingMetrics")}
-        </p>
-      )}
-      {loadingAnalytics && !isAdmin && !organizerAnalytics && (
-        <p className="text-muted-foreground text-sm">
-          {t("staffPortal.dashboard.loadingMetrics")}
-        </p>
       )}
     </div>
   );

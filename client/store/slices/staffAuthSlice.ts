@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import api, { getStaffToken, setStaffToken, staffAuthHeaders } from "@/lib/api";
 import { getStoredLocale, normalizeLocale } from "@shared/i18n";
+import { normalizeTheme } from "@shared/theme";
 import type { StaffProfileUpdateRequest, StaffRole, StaffUser } from "@shared/api";
 import i18n from "@/i18n";
 
@@ -18,6 +19,9 @@ function setStoredStaffRole(r: StaffRole | null) {
 
 function mapStaffUser(role: StaffRole, data: Record<string, unknown>): StaffUser {
   const source = role === "admin" ? (data.admin as Record<string, unknown>) : (data.member as Record<string, unknown>);
+  if (!source || typeof source !== "object") {
+    throw new Error("Invalid staff profile response");
+  }
   const base = {
     id: source.id as number,
     email: source.email as string,
@@ -27,6 +31,7 @@ function mapStaffUser(role: StaffRole, data: Record<string, unknown>): StaffUser
     phone: (source.phone as string | null | undefined) ?? null,
     avatarUrl: (source.avatarUrl ?? source.avatar_url ?? null) as string | null,
     preferredLanguage: (source.preferredLanguage ?? source.preferred_language) as string | undefined,
+    preferredTheme: (source.preferredTheme ?? source.preferred_theme) as string | undefined,
     lastLoginAt: (source.lastLoginAt ?? source.last_login_at ?? null) as string | null,
     createdAt: (source.createdAt ?? source.created_at) as string | undefined,
   };
@@ -55,11 +60,15 @@ interface StaffAuthState {
   otpSentTo: string | null;
 }
 
+const initialStoredRole = getStoredStaffRole();
+const initialStoredToken = getStaffToken();
+
 const initialState: StaffAuthState = {
   user: null,
-  role: getStoredStaffRole(),
-  token: getStaffToken(),
-  loading: false,
+  role: initialStoredRole,
+  token: initialStoredToken,
+  // Only block on /me when we can actually hydrate (token + role).
+  loading: Boolean(initialStoredToken && initialStoredRole),
   requestingOtp: false,
   verifyingOtp: false,
   updatingProfile: false,
@@ -171,6 +180,22 @@ export const updateStaffLanguage = createAsyncThunk<
   }
 });
 
+export const updateStaffTheme = createAsyncThunk<
+  { preferred_theme: string; role: StaffRole },
+  { theme: string; role: StaffRole },
+  { rejectValue: string }
+>("staffAuth/updateTheme", async ({ theme, role }, { rejectWithValue }) => {
+  try {
+    const normalized = normalizeTheme(theme);
+    const path = role === "admin" ? "/auth/admin/me" : "/auth/organizer/me";
+    await api.patch(path, { preferred_theme: normalized }, staffRequest);
+    return { preferred_theme: normalized, role };
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    return rejectWithValue(err?.response?.data?.error || "Error");
+  }
+});
+
 export const uploadStaffAvatar = createAsyncThunk<
   string,
   { image: string; role: StaffRole },
@@ -241,6 +266,7 @@ const slice = createSlice({
     });
     b.addCase(verifyStaffOtp.fulfilled, (s, a) => {
       s.verifyingOtp = false;
+      s.loading = false;
       s.token = a.payload.token;
       s.user = a.payload.user;
       s.role = a.payload.role;
@@ -252,7 +278,8 @@ const slice = createSlice({
     });
 
     b.addCase(fetchStaffMe.pending, (s) => {
-      s.loading = true;
+      // Keep the shell usable if we already hydrated from OTP / prior /me.
+      if (!s.user) s.loading = true;
     });
     b.addCase(fetchStaffMe.fulfilled, (s, a) => {
       s.loading = false;
@@ -264,6 +291,8 @@ const slice = createSlice({
     });
     b.addCase(fetchStaffMe.rejected, (s) => {
       s.loading = false;
+      // Keep an already-authenticated user (e.g. just verified OTP) on transient /me failures.
+      if (s.user) return;
       s.token = null;
       s.user = null;
       s.role = null;
@@ -316,6 +345,12 @@ const slice = createSlice({
     b.addCase(updateStaffLanguage.fulfilled, (s, a) => {
       if (s.user) {
         s.user.preferredLanguage = a.payload.preferred_language;
+      }
+    });
+
+    b.addCase(updateStaffTheme.fulfilled, (s, a) => {
+      if (s.user) {
+        s.user.preferredTheme = a.payload.preferred_theme;
       }
     });
   },

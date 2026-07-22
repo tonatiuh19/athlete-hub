@@ -13,29 +13,40 @@ import ThemeToggle from "@/components/ThemeToggle";
 import StaffOrganizerPayoutSetupBanner, {
   useOrganizerPayoutSetupBannerVisible,
 } from "@/components/staff/StaffOrganizerPayoutSetupBanner";
+import { StaffPageSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { staffLogout, fetchStaffMe } from "@/store/slices/staffAuthSlice";
+import { staffLogout, fetchStaffMe, updateStaffLanguage, updateStaffTheme } from "@/store/slices/staffAuthSlice";
 import { getStaffNav } from "@/utils/staffNav";
 import { cn } from "@/lib/utils";
+import type { AppLocale } from "@shared/i18n";
+import { normalizeTheme, type AppTheme } from "@shared/theme";
+import { useTheme } from "next-themes";
 
 function StaffPageFallback() {
-  return (
-    <div className="flex min-h-[40vh] items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-    </div>
-  );
+  return <StaffPageSkeleton variant="default" className="py-4" />;
 }
 
 export default function StaffLayout() {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { token, user, role, loading } = useAppSelector((s) => s.staffAuth);
+  const { token, user, role } = useAppSelector((s) => s.staffAuth);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { setTheme } = useTheme();
 
   useEffect(() => {
-    if (token && role && !user) dispatch(fetchStaffMe(role));
+    // Orphaned token without a stored role never hydrates and used to spin forever.
+    if (token && !role) {
+      void dispatch(staffLogout());
+      return;
+    }
+    if (token && role && !user) void dispatch(fetchStaffMe(role));
   }, [token, role, user, dispatch]);
+
+  useEffect(() => {
+    if (!user?.preferredTheme) return;
+    setTheme(normalizeTheme(user.preferredTheme));
+  }, [user?.preferredTheme, setTheme]);
 
   const organizerRole = user?.type === "organizer" ? user.role : undefined;
   const showPayoutSticky = useOrganizerPayoutSetupBannerVisible(organizerRole);
@@ -44,7 +55,9 @@ export default function StaffLayout() {
     return <Navigate to="/staff/login" replace />;
   }
 
-  if ((loading && !user) || !role) {
+  // Do not gate on `loading` once we already have a user (e.g. just verified OTP).
+  // A hung/in-flight /me would otherwise leave the portal on this spinner forever.
+  if (!role || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -61,6 +74,16 @@ export default function StaffLayout() {
   const handleLogout = async () => {
     await dispatch(staffLogout());
     navigate("/staff/login", { replace: true });
+  };
+
+  const persistLanguage = (locale: AppLocale) => {
+    if (!role) return;
+    void dispatch(updateStaffLanguage({ locale, role }));
+  };
+
+  const persistTheme = (theme: AppTheme) => {
+    if (!role) return;
+    void dispatch(updateStaffTheme({ theme, role }));
   };
 
   const displayName =
@@ -164,8 +187,8 @@ export default function StaffLayout() {
         <header className="lg:hidden sticky top-0 z-40 bg-background border-b px-4 h-14 flex items-center justify-between gap-2 min-w-0">
           <span className="font-bold text-sm truncate">{t("staffPortal.nav.console")}</span>
           <div className="flex items-center gap-2 shrink-0">
-            <LanguageSwitcher variant="compact" />
-            <ThemeToggle variant="compact" />
+            <LanguageSwitcher variant="compact" onLanguageChange={persistLanguage} />
+            <ThemeToggle variant="compact" onThemeChange={persistTheme} />
             <button
               type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
@@ -228,8 +251,8 @@ export default function StaffLayout() {
         >
           <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6">
             <div className="hidden lg:flex justify-end gap-2">
-              <ThemeToggle variant="ghost" />
-              <LanguageSwitcher variant="ghost" />
+              <ThemeToggle variant="ghost" onThemeChange={persistTheme} />
+              <LanguageSwitcher variant="ghost" onLanguageChange={persistLanguage} />
             </div>
             {!isAdmin ? (
               <StaffOrganizerPayoutSetupBanner

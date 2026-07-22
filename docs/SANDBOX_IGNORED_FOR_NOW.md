@@ -1,18 +1,20 @@
 # Triboo Sandbox Environment
 
+- **IMPORTANT: This needs to be ignored for NOW**
+
 ## What this is (and is not)
 
 **Sandbox** is a **second production deployment** of the same Triboo codebase — not a pre-production gate and not a throwaway preview.
 
-| | Production | Sandbox |
-|---|------------|---------|
-| **Purpose** | Real athletes, real money, real operations | Experiment, demo, QA, training — **same real stack** |
-| **URL** | `https://www.triboosport.com` | `https://sandbox.triboosport.com` |
-| **Database** | TiDB (shared) | **Same TiDB** (by design) |
-| **Code** | `main` (or release branch) | Same branch or `sandbox` — your choice |
-| **Stripe** | Live keys (`sk_live_`) | **Test keys only** (`sk_test_`) |
-| **Emails** | Normal Triboo templates | Same templates + **Sandbox badge** + subject prefix |
-| **Audience** | Public | Team + invited testers |
+|              | Production                                 | Sandbox                                              |
+| ------------ | ------------------------------------------ | ---------------------------------------------------- |
+| **Purpose**  | Real athletes, real money, real operations | Experiment, demo, QA, training — **same real stack** |
+| **URL**      | `https://www.triboosport.com`              | `https://sandbox.triboosport.com`                    |
+| **Database** | TiDB (shared)                              | **Same TiDB** (by design)                            |
+| **Code**     | `main` (or release branch)                 | Same branch or `sandbox` — your choice               |
+| **Stripe**   | Live keys (`sk_live_`)                     | **Test keys only** (`sk_test_`)                      |
+| **Emails**   | Normal Triboo templates                    | Same templates + **Sandbox badge** + subject prefix  |
+| **Audience** | Public                                     | Team + invited testers                               |
 
 Because the database is shared, sandbox actions **can affect production records**. The strategy below minimizes confusion and makes test activity **visually and operationally obvious** — especially on payment confirmations and transactional email.
 
@@ -80,10 +82,10 @@ Fix local `.vercel/project.json` to the team that owns Triboo, then configure **
 
 ### 2. Domains
 
-| Hostname | Vercel environment |
-|----------|-------------------|
-| `www.triboosport.com` | Production |
-| `sandbox.triboosport.com` | Production* |
+| Hostname                  | Vercel environment |
+| ------------------------- | ------------------ |
+| `www.triboosport.com`     | Production         |
+| `sandbox.triboosport.com` | Production\*       |
 
 \* Deploy sandbox with `vercel --prod` **scoped to sandbox env vars**, aliased to `sandbox.triboosport.com`. It is “production build” quality, not a ephemeral preview URL.
 
@@ -97,29 +99,29 @@ sandbox.triboosport.com  CNAME  cname.vercel-dns.com
 
 Copy Production → Sandbox scope, then **override** these:
 
-| Variable | Sandbox value |
-|----------|---------------|
-| `APP_ENV` | `sandbox` |
-| `VITE_APP_ENV` | `sandbox` |
-| `PUBLIC_APP_URL` | `https://sandbox.triboosport.com` |
-| `VITE_PUBLIC_APP_URL` | `https://sandbox.triboosport.com` |
-| `JWT_SECRET` | **Unique** (not prod secret) |
-| `STRIPE_SECRET_KEY` | `sk_test_...` |
-| `STRIPE_PUBLISHABLE_KEY` | `pk_test_...` |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | `pk_test_...` |
-| `STRIPE_WEBHOOK_SECRET` | Separate webhook endpoint secret for sandbox URL |
-| `CLERK_SECRET_KEY` | `sk_test_...` (recommended) or live with sandbox Paths |
-| `VITE_CLERK_PUBLISHABLE_KEY` | matching publishable key |
-| `CLERK_AUTHORIZED_PARTIES` | `https://sandbox.triboosport.com` |
+| Variable                      | Sandbox value                                          |
+| ----------------------------- | ------------------------------------------------------ |
+| `APP_ENV`                     | `sandbox`                                              |
+| `VITE_APP_ENV`                | `sandbox`                                              |
+| `PUBLIC_APP_URL`              | `https://sandbox.triboosport.com`                      |
+| `VITE_PUBLIC_APP_URL`         | `https://sandbox.triboosport.com`                      |
+| `JWT_SECRET`                  | **Unique** (not prod secret)                           |
+| `STRIPE_SECRET_KEY`           | `sk_test_...`                                          |
+| `STRIPE_PUBLISHABLE_KEY`      | `pk_test_...`                                          |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | `pk_test_...`                                          |
+| `STRIPE_WEBHOOK_SECRET`       | Separate webhook endpoint secret for sandbox URL       |
+| `CLERK_SECRET_KEY`            | `sk_test_...` (recommended) or live with sandbox Paths |
+| `VITE_CLERK_PUBLISHABLE_KEY`  | matching publishable key                               |
+| `CLERK_AUTHORIZED_PARTIES`    | `https://sandbox.triboosport.com`                      |
 
 **Keep the same** `DB_*` credentials as production (shared database).
 
 Optional sandbox-only toggles:
 
-| Variable | Purpose |
-|----------|---------|
-| `SANDBOX_EMAIL_BADGE=1` | Force badge even if `APP_ENV` mis-set (belt + suspenders) |
-| `SANDBOX_SUBJECT_PREFIX=1` | Prefix all outbound email subjects |
+| Variable                   | Purpose                                                   |
+| -------------------------- | --------------------------------------------------------- |
+| `SANDBOX_EMAIL_BADGE=1`    | Force badge even if `APP_ENV` mis-set (belt + suspenders) |
+| `SANDBOX_SUBJECT_PREFIX=1` | Prefix all outbound email subjects                        |
 
 ### 4. Stripe webhook (sandbox)
 
@@ -208,13 +210,26 @@ Insert a prominent, on-brand banner:
 <!-- Sandbox badge — email clients safe table layout -->
 <tr>
   <td align="center" style="padding:0 32px 16px;">
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <table
+      role="presentation"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      width="100%"
+    >
       <tr>
-        <td align="center" style="padding:10px 16px;background:linear-gradient(135deg,#FF6B00 0%,#E63946 100%);border-radius:10px;border:1px solid #FF8533;">
-          <span style="font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#FFFFFF;">
+        <td
+          align="center"
+          style="padding:10px 16px;background:linear-gradient(135deg,#FF6B00 0%,#E63946 100%);border-radius:10px;border:1px solid #FF8533;"
+        >
+          <span
+            style="font-size:11px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#FFFFFF;"
+          >
             &#9888; Sandbox
           </span>
-          <span style="display:block;margin-top:4px;font-size:12px;font-weight:500;color:#FFE8D6;line-height:1.4;">
+          <span
+            style="display:block;margin-top:4px;font-size:12px;font-weight:500;color:#FFE8D6;line-height:1.4;"
+          >
             Test environment · Shared database · No real charges
           </span>
         </td>
@@ -264,17 +279,17 @@ Use design tokens only: `primary`, `accent`, `destructive`, `muted` — no arbit
 
 ## What you can test on sandbox (full prod stack)
 
-| Flow | Sandbox behavior |
-|------|------------------|
-| Athlete email/password login | Real DB users |
-| Google SSO | Clerk dev app + sandbox URLs |
-| Event marketplace | Same published events as www |
-| Registration wizard | Full flow |
-| Paid checkout | Stripe test card `4242…` — **real registration row**, test payment row |
-| Connect payouts UI | Stripe Connect test accounts |
-| Staff console | Same organizers/admins (JWT isolated by secret) |
-| Confirmation email | **Badge + [Sandbox] subject** |
-| Webhooks | Sandbox endpoint + test mode |
+| Flow                         | Sandbox behavior                                                       |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| Athlete email/password login | Real DB users                                                          |
+| Google SSO                   | Clerk dev app + sandbox URLs                                           |
+| Event marketplace            | Same published events as www                                           |
+| Registration wizard          | Full flow                                                              |
+| Paid checkout                | Stripe test card `4242…` — **real registration row**, test payment row |
+| Connect payouts UI           | Stripe Connect test accounts                                           |
+| Staff console                | Same organizers/admins (JWT isolated by secret)                        |
+| Confirmation email           | **Badge + [Sandbox] subject**                                          |
+| Webhooks                     | Sandbox endpoint + test mode                                           |
 
 ---
 

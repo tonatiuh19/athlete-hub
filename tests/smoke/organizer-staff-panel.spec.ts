@@ -23,6 +23,7 @@ const baseFormValues = {
   visibility: "public",
   featured: false,
   requires_waiver: false,
+  auto_deactivate_after_event: true,
   start_date: "2026-11-01T09:00",
   end_date: "",
   registration_opens_at: "",

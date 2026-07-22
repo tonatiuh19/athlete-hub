@@ -67,6 +67,7 @@ const VerticalTabsTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       "w-full justify-start rounded-lg px-3 py-2.5 text-left text-sm font-medium",
+      "flex items-center",
       "text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-colors",
       "border-l-2 border-transparent",
       "data-[state=active]:bg-cyan/10 data-[state=active]:text-primary data-[state=active]:border-l-cyan",

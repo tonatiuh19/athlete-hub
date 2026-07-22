@@ -1,7 +1,11 @@
 import axios, { type AxiosRequestHeaders } from "axios";
 import { normalizeLocale, LOCALE_HTML_LANG } from "@shared/i18n";
 
-const api = axios.create({ baseURL: "/api" });
+const api = axios.create({
+  baseURL: "/api",
+  // Prevent infinite staff/athlete hydrate spinners when the API hangs.
+  timeout: 25_000,
+});
 
 const ATHLETE_TOKEN_KEY = "athlete_hub_athlete_token";
 const STAFF_TOKEN_KEY = "athlete_hub_staff_token";

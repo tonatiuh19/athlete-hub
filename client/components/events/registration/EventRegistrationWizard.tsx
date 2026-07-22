@@ -31,12 +31,17 @@ import {
   fetchAthleteRegistrations,
   fetchAthleteWaitlist,
 } from "@/store/slices/athletePortalSlice";
-import { cn } from "@/lib/utils";
+import WizardProgress from "@/components/events/registration/WizardProgress";
 import {
   eventRequiresWaiver,
   getRegistrationWaivers,
   isWaiverMisconfigured,
 } from "@/utils/eventRegistrationWaivers";
+import {
+  prerequisiteGapToWizardStep,
+  resolveFirstIncompleteRegistrationStep,
+  type RegistrationPrerequisiteGap,
+} from "@/utils/registrationWizardPrerequisites";
 
 export default function EventRegistrationWizard() {
   const { t } = useTranslation();
@@ -46,6 +51,7 @@ export default function EventRegistrationWizard() {
     open,
     step,
     eventSlug,
+    simulationToken,
     category,
     paymentFailed,
     failureMessage,
@@ -66,6 +72,10 @@ export default function EventRegistrationWizard() {
     Record<string, string | boolean> | null
   >(null);
   const [checkoutPaymentReady, setCheckoutPaymentReady] = useState(false);
+  /** Last known registration details — survives payment failure / retry. */
+  const lastFieldValuesRef = useRef<Record<string, string | boolean> | null>(null);
+  const [resumeHint, setResumeHint] = useState<RegistrationPrerequisiteGap | null>(null);
+  const wizardBodyRef = useRef<HTMLDivElement>(null);
 
   const registrationWaivers = useMemo(
     () => getRegistrationWaivers(eventDetail),
@@ -104,6 +114,8 @@ export default function EventRegistrationWizard() {
     if (!open) {
       resumeAttempted.current = false;
       setCheckoutPaymentReady(false);
+      lastFieldValuesRef.current = null;
+      setResumeHint(null);
     }
   }, [open]);
 
@@ -115,7 +127,10 @@ export default function EventRegistrationWizard() {
     onRestoreWaiver: (signatures) => dispatch(setWaiverAcceptance(signatures)),
     onRestoreStep: (s) => dispatch(setWizardStep(s)),
     onRestoreSession: (saved) => {
-      if (saved.fieldValues) setRestoredFieldValues(saved.fieldValues);
+      if (saved.fieldValues) {
+        setRestoredFieldValues(saved.fieldValues);
+        lastFieldValuesRef.current = saved.fieldValues;
+      }
       if (saved.checkoutPaymentReady) setCheckoutPaymentReady(true);
     },
   });
@@ -131,6 +146,7 @@ export default function EventRegistrationWizard() {
         slug: eventSlug,
         paymentPublicUuid: saved.paymentPublicUuid,
         idempotencyKey: saved.idempotencyKey,
+        simulationToken: simulationToken || saved.simulationToken,
       }),
     ).then((result) => {
       if (!resumeRegistrationCheckout.fulfilled.match(result)) return;
@@ -143,9 +159,13 @@ export default function EventRegistrationWizard() {
         result.payload.checkout?.fieldValues
       ) {
         setRestoredFieldValues(result.payload.checkout.fieldValues);
+        lastFieldValuesRef.current = result.payload.checkout.fieldValues;
       }
     });
-  }, [open, eventSlug, token, category?.id, dispatch]);
+  }, [open, eventSlug, token, category?.id, dispatch, simulationToken]);
+
+  const persistedFieldValues =
+    checkout?.fieldValues ?? restoredFieldValues ?? lastFieldValuesRef.current ?? undefined;
 
   usePersistRegistrationSession({
     open,
@@ -156,7 +176,8 @@ export default function EventRegistrationWizard() {
     paymentPublicUuid: checkout?.paymentPublicUuid,
     waiverAcceptance,
     discountCode,
-    fieldValues: checkout?.fieldValues ?? restoredFieldValues ?? undefined,
+    simulationToken: simulationToken || undefined,
+    fieldValues: persistedFieldValues,
     checkoutPaymentReady: checkoutPaymentReady || Boolean(checkout),
   });
 
@@ -182,18 +203,54 @@ export default function EventRegistrationWizard() {
   );
 
   const progressSteps = stepsMeta.filter((s) => s.key !== "result");
-  const stepIndex = Math.max(0, progressSteps.findIndex((s) => s.key === step));
+
+  /** Expand checkout into Datos → Pago so athletes always know the sub-phase. */
+  const displaySteps = useMemo(() => {
+    return progressSteps.flatMap((s) => {
+      if (s.key !== "checkout") return [s];
+      return [
+        { key: "checkout-details", label: t("registrationWizard.steps.checkoutDetails") },
+        { key: "checkout-payment", label: t("registrationWizard.steps.checkoutPayment") },
+      ];
+    });
+  }, [progressSteps, t]);
+
+  const displayStepIndex = useMemo(() => {
+    if (step === "checkout") {
+      const paymentIdx = displaySteps.findIndex((s) => s.key === "checkout-payment");
+      const detailsIdx = displaySteps.findIndex((s) => s.key === "checkout-details");
+      if (checkoutPaymentReady || Boolean(checkout)) {
+        return Math.max(paymentIdx, 0);
+      }
+      return Math.max(detailsIdx, 0);
+    }
+    const idx = displaySteps.findIndex((s) => s.key === step);
+    return Math.max(idx, 0);
+  }, [step, displaySteps, checkoutPaymentReady, checkout]);
+
+  const stepOfLabel = t("registrationWizard.steps.stepOf", {
+    current: displayStepIndex + 1,
+    total: Math.max(displaySteps.length, 1),
+  });
+
+  const nextStepHint =
+    step !== "result" && displayStepIndex < displaySteps.length - 1
+      ? t("registrationWizard.steps.nextStep", {
+          label: displaySteps[displayStepIndex + 1]?.label ?? "",
+        })
+      : null;
 
   useEffect(() => {
     if (!open || !eventSlug) return;
+    if (simulationToken) return;
     if (!eventDetail || eventDetail.event.slug !== eventSlug) {
       dispatch(fetchEventDetail(eventSlug));
     }
-  }, [open, eventSlug, eventDetail, dispatch]);
+  }, [open, eventSlug, simulationToken, eventDetail, dispatch]);
 
   useEffect(() => {
-    if (open) dispatch(fetchPaymentConfig());
-  }, [open, dispatch]);
+    if (open) dispatch(fetchPaymentConfig({ simulationToken }));
+  }, [open, dispatch, simulationToken]);
 
   useEffect(() => {
     if (!open || !token || step !== "auth") return;
@@ -236,6 +293,13 @@ export default function EventRegistrationWizard() {
     }
   }, [open, confirmResult, waitlistClaimMode, dispatch]);
 
+  useEffect(() => {
+    if (!open) return;
+    const el = wizardBodyRef.current;
+    if (!el) return;
+    el.scrollTo({ top: 0, behavior: step === "result" ? "smooth" : "auto" });
+  }, [open, step, confirmResult?.success, paymentFailed]);
+
   if (!open || !category || !eventSlug) return null;
 
   if (!eventDetail || eventDetail.event.slug !== eventSlug) {
@@ -251,19 +315,69 @@ export default function EventRegistrationWizard() {
   const handleClose = () => dismissRegistrationWizard(dispatch);
   const handleViewRegistrations = () => dismissRegistrationWizard(dispatch);
 
-  const handleRetry = () => {
+  const restoreSessionArtifacts = () => {
+    if (!eventSlug || category?.id == null) return;
+    const saved = loadRegistrationSession(eventSlug, category.id);
+    if (saved?.fieldValues) {
+      setRestoredFieldValues(saved.fieldValues);
+      lastFieldValuesRef.current = saved.fieldValues;
+    }
+    if (saved?.waiverAcceptance?.length) {
+      dispatch(setWaiverAcceptance(saved.waiverAcceptance));
+    }
+  };
+
+  const resumeToFirstIncomplete = (preferredGap?: RegistrationPrerequisiteGap) => {
+    restoreSessionArtifacts();
+    const fieldValues =
+      lastFieldValuesRef.current ??
+      restoredFieldValues ??
+      (eventSlug && category?.id != null
+        ? loadRegistrationSession(eventSlug, category.id)?.fieldValues
+        : null) ??
+      null;
+
+    const gap =
+      preferredGap ??
+      resolveFirstIncompleteRegistrationStep({
+        isAuthenticated: Boolean(token),
+        needsWaiver,
+        waiverAcceptance:
+          waiverAcceptance ??
+          (eventSlug && category?.id != null
+            ? loadRegistrationSession(eventSlug, category.id)?.waiverAcceptance
+            : null),
+        hasExtras,
+        registrationFields,
+        fieldValues,
+      });
+
     dispatch(resetCheckoutSession());
     setIdempotencyKey(crypto.randomUUID());
     setCheckoutPaymentReady(false);
-    setRestoredFieldValues(null);
-    dispatch(setWizardStep(needsWaiver ? "waiver" : hasExtras ? "extras" : "checkout"));
+
+    if (fieldValues) {
+      setRestoredFieldValues(fieldValues);
+      lastFieldValuesRef.current = fieldValues;
+    }
+
+    dispatch(setWizardStep(prerequisiteGapToWizardStep(gap)));
+    setResumeHint(gap === "checkout" ? null : gap);
+  };
+
+  const handleRetry = () => {
+    resumeToFirstIncomplete();
+  };
+
+  const handlePrerequisiteMissing = (gap: RegistrationPrerequisiteGap) => {
+    resumeToFirstIncomplete(gap);
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="max-w-lg w-[min(calc(100vw-2rem),32rem)] max-h-[min(90dvh,720px)] overflow-y-auto overflow-x-hidden bg-background border-border p-0 gap-0">
-        <DialogHeader className="p-5 pb-0 pr-12 space-y-4">
-          <div className="min-w-0">
+      <DialogContent className="max-w-lg w-[min(calc(100vw-2rem),32rem)] max-h-[min(92dvh,720px)] overflow-hidden overflow-x-hidden bg-background border-border p-0 gap-0 flex flex-col">
+        <DialogHeader className="sticky top-0 z-10 shrink-0 p-4 pb-3 pr-12 space-y-3 border-b border-border bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/90">
+          <div className="min-w-0 text-left">
             <DialogTitle className="text-base font-bold text-foreground truncate">
               {waitlistClaimMode
                 ? t("registrationWizard.claimTitle")
@@ -272,42 +386,20 @@ export default function EventRegistrationWizard() {
             <p className="text-xs text-muted-foreground truncate">{category.name}</p>
           </div>
 
-          {step !== "result" && !waiverMisconfigured && (
-            <div className="flex items-center gap-2">
-              {progressSteps.map((s, i) => (
-                <div
-                  key={s.key}
-                  className="flex items-center gap-2 flex-1 min-w-0"
-                >
-                  <div
-                    className={cn(
-                      "w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 border",
-                      i <= stepIndex
-                        ? "bg-cyan/15 border-cyan/50 text-primary"
-                        : "border-border text-muted-foreground",
-                    )}
-                  >
-                    {i + 1}
-                  </div>
-                  <span
-                    className={cn(
-                      "text-[10px] uppercase tracking-wider truncate",
-                      i === stepIndex ? "inline" : "hidden sm:inline",
-                      i <= stepIndex ? "text-muted-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    {s.label}
-                  </span>
-                  {i < progressSteps.length - 1 && (
-                    <div className="flex-1 h-px bg-muted min-w-[12px]" />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          {step !== "result" && !waiverMisconfigured ? (
+            <WizardProgress
+              steps={displaySteps}
+              currentIndex={displayStepIndex}
+              stepOfLabel={stepOfLabel}
+              nextStepHint={nextStepHint}
+            />
+          ) : null}
         </DialogHeader>
 
-        <div className="p-5 pt-4">
+        <div
+          ref={wizardBodyRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 pt-4"
+        >
           {waiverMisconfigured && step !== "result" ? (
             <div className="py-6 text-center space-y-3">
               <p className="text-sm text-destructive">{t("eventDetail.waiverNotConfigured")}</p>
@@ -331,13 +423,26 @@ export default function EventRegistrationWizard() {
           ) : null}
 
           {!waiverMisconfigured && !waitlistMode && step === "waiver" && registrationWaivers.length > 0 ? (
-            <WizardWaiverStep
-              waivers={registrationWaivers}
-              onAccepted={(signatures) => {
-                dispatch(setWaiverAcceptance(signatures));
-                dispatch(setWizardStep(stepAfterWaiver));
-              }}
-            />
+            <div className="space-y-3">
+              {resumeHint === "waiver" || !waiverAcceptance?.length ? (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">
+                    {t("registrationWizard.checkout.resumeIncompleteTitle")}
+                  </p>
+                  <p className="mt-0.5">
+                    {t("registrationWizard.checkout.resumeIncompleteWaiver")}
+                  </p>
+                </div>
+              ) : null}
+              <WizardWaiverStep
+                waivers={registrationWaivers}
+                onAccepted={(signatures) => {
+                  dispatch(setWaiverAcceptance(signatures));
+                  setResumeHint(null);
+                  dispatch(setWizardStep(stepAfterWaiver));
+                }}
+              />
+            </div>
           ) : null}
 
           {!waiverMisconfigured && !waitlistMode && step === "extras" && hasExtras ? (
@@ -360,7 +465,18 @@ export default function EventRegistrationWizard() {
           ) : null}
 
           {!waiverMisconfigured && !waitlistMode && step === "checkout" && (
-            <WizardCheckoutStep
+            <div className="space-y-3">
+              {resumeHint === "fields" ? (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">
+                    {t("registrationWizard.checkout.resumeIncompleteTitle")}
+                  </p>
+                  <p className="mt-0.5">
+                    {t("registrationWizard.checkout.resumeIncompleteFields")}
+                  </p>
+                </div>
+              ) : null}
+              <WizardCheckoutStep
               slug={eventSlug}
               eventTitle={eventDetail.event.title}
               category={category}
@@ -368,11 +484,24 @@ export default function EventRegistrationWizard() {
               serviceFeePercent={eventDetail.serviceFeePercent}
               feePresentation={eventDetail.feePresentation ?? "pass_through"}
               idempotencyKey={idempotencyKey}
-              restoredFieldValues={restoredFieldValues ?? checkout?.fieldValues}
+              restoredFieldValues={
+                restoredFieldValues ??
+                checkout?.fieldValues ??
+                lastFieldValuesRef.current
+              }
               checkoutPaymentReady={checkoutPaymentReady || Boolean(checkout)}
               onCheckoutPaymentReady={setCheckoutPaymentReady}
+              onFieldValuesChange={(values) => {
+                setRestoredFieldValues(values);
+                lastFieldValuesRef.current = values;
+                setResumeHint(null);
+              }}
+              needsWaiver={needsWaiver}
+              hasWaiverAcceptance={Boolean(waiverAcceptance?.length)}
+              onPrerequisiteMissing={handlePrerequisiteMissing}
               eventExtras={registrationExtras}
             />
+            </div>
           )}
 
           {step === "result" && (

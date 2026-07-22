@@ -3,15 +3,19 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import type { AppTheme } from "@shared/theme";
 
 interface ThemeToggleProps {
   variant?: "default" | "compact" | "ghost" | "nav";
   className?: string;
+  /** Persist theme (e.g. staff/athlete preferred_theme). Called after setTheme. */
+  onThemeChange?: (theme: AppTheme) => void | Promise<void>;
 }
 
 export default function ThemeToggle({
   variant = "default",
   className = "",
+  onThemeChange,
 }: ThemeToggleProps) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { t } = useTranslation();
@@ -21,7 +25,11 @@ export default function ThemeToggle({
 
   const isDark = (resolvedTheme ?? theme ?? "dark") === "dark";
 
-  const toggle = () => setTheme(isDark ? "light" : "dark");
+  const toggle = () => {
+    const next: AppTheme = isDark ? "light" : "dark";
+    setTheme(next);
+    void onThemeChange?.(next);
+  };
 
   const base =
     variant === "compact"

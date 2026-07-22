@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { ExternalLink, Globe, Loader2, Save } from "lucide-react";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import { StaffPageSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -229,9 +230,7 @@ export default function StaffSiteSettings() {
       ) : null}
 
       {loading && !loaded ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
+        <StaffPageSkeleton variant="form" className="max-w-none" />
       ) : (
         <form onSubmit={formik.handleSubmit} className="space-y-8">
           <section className="rounded-2xl border border-border bg-card/40 p-5 md:p-6 space-y-5">

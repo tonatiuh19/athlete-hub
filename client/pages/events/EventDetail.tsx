@@ -72,6 +72,7 @@ import {
   getRegistrationWindowStatus,
   isRegistrationOpen,
 } from "@/utils/eventRegistrationWindow";
+import { hasEventDayPassed } from "@shared/eventLifecycle";
 import { toast } from "@/hooks/use-toast";
 
 function pointIcon(type: CoursePoint["type"]) {
@@ -955,7 +956,9 @@ export default function EventDetail() {
                   <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
                   <p className="text-sm text-destructive">
                     {registrationWindowStatus === "closed"
-                      ? t("eventDetail.registrationClosed")
+                      ? hasEventDayPassed(event.start_date, event.end_date ?? null)
+                        ? t("eventDetail.registrationEventPassed")
+                        : t("eventDetail.registrationClosed")
                       : t("eventDetail.registrationNotOpen")}
                   </p>
                 </div>

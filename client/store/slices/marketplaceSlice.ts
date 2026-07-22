@@ -161,6 +161,11 @@ const marketplaceSlice = createSlice({
       state.eventDetail = null;
       state.detailError = null;
     },
+    hydrateEventDetail(state, action: PayloadAction<EventDetailResponse>) {
+      state.eventDetail = action.payload;
+      state.detailError = null;
+      state.loadingDetail = false;
+    },
     clearSearchSuggestions(state) {
       state.searchSuggestions = null;
       state.searchSuggestionsLoading = false;
@@ -234,6 +239,7 @@ export const {
   setViewMode,
   setSelectedEventSlug,
   clearEventDetail,
+  hydrateEventDetail,
   clearSearchSuggestions,
 } = marketplaceSlice.actions;
 

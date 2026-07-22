@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import { StaffTableSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -255,7 +256,7 @@ export default function StaffEventResults() {
       </div>
 
       {loadingResults ? (
-        <p className="text-muted-foreground">{t("common.loading")}</p>
+        <StaffTableSkeleton rows={6} columns={6} />
       ) : eventResults.length === 0 ? (
         <div className="card-sport p-8 text-center text-muted-foreground">
           {t("staffPortal.results.empty")}
@@ -318,7 +319,7 @@ export default function StaffEventResults() {
           </div>
           {splitsError ? <p className="text-sm text-destructive">{splitsError}</p> : null}
           {loadingSplits ? (
-            <p className="text-muted-foreground">{t("common.loading")}</p>
+            <StaffTableSkeleton rows={3} columns={4} />
           ) : (
             <div className="space-y-2">
               {splitDrafts.map((split, i) => (

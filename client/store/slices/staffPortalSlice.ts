@@ -35,6 +35,7 @@ import type {
   StaffEventExtraInput,
   StaffEventExtraPatch,
   StaffEventCoursePayload,
+  StaffEventDetail,
   StaffEventDetailResponse,
   StaffEventHubSummary,
   StaffEventResultRow,
@@ -553,15 +554,16 @@ export const updateAdminAthleteStatus = createAsyncThunk<
 
 export const fetchAdminEvents = createAsyncThunk<
   PaginatedStaffEventsResponse,
-  GridListParams & { status?: string; organizerId?: number },
+  GridListParams & { status?: string; organizerId?: number; simulation?: string },
   { rejectValue: string }
->("staffPortal/adminEvents", async ({ q, status, organizerId, page, limit, sortBy, sortDir }, { rejectWithValue }) => {
+>("staffPortal/adminEvents", async ({ q, status, organizerId, simulation, page, limit, sortBy, sortDir }, { rejectWithValue }) => {
   try {
     const { data } = await api.get<PaginatedStaffEventsResponse>("/admin/events", {
       params: {
         q: q || undefined,
         status: status || undefined,
         organizerId,
+        simulation: simulation && simulation !== "all" ? simulation : undefined,
         page,
         limit,
         sortBy,
@@ -980,7 +982,7 @@ export const updateResultSplits = createAsyncThunk<
 
 export const fetchOrganizerEvents = createAsyncThunk<
   PaginatedStaffEventsResponse,
-  GridListParams & { status?: string },
+  GridListParams & { status?: string; simulation?: string },
   { rejectValue: string }
 >("staffPortal/organizerEvents", async (params = {}, { rejectWithValue }) => {
   try {
@@ -988,6 +990,10 @@ export const fetchOrganizerEvents = createAsyncThunk<
       params: {
         q: params.q || undefined,
         status: params.status || undefined,
+        simulation:
+          params.simulation && params.simulation !== "all"
+            ? params.simulation
+            : undefined,
         page: params.page,
         limit: params.limit,
         sortBy: params.sortBy,
@@ -1049,6 +1055,32 @@ export const publishStaffEvent = createAsyncThunk<
     return data as StaffEventDetailResponse;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "staffPortal.errors.publishEvent"));
+  }
+});
+
+export const deactivateStaffEventListing = createAsyncThunk<
+  { ok: true; event: StaffEventDetail },
+  { eventId: number; role: StaffRole },
+  { rejectValue: string }
+>("staffPortal/deactivateListing", async ({ eventId, role }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post(`${eventBasePath(role, eventId)}/deactivate-listing`);
+    return data as { ok: true; event: StaffEventDetail };
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.deactivateEvent"));
+  }
+});
+
+export const deleteStaffEvent = createAsyncThunk<
+  { ok: true; cancelledRegistrations: number },
+  { eventId: number; role: StaffRole },
+  { rejectValue: string }
+>("staffPortal/deleteEvent", async ({ eventId, role }, { rejectWithValue }) => {
+  try {
+    const { data } = await api.delete(`${eventBasePath(role, eventId)}`);
+    return data as { ok: true; cancelledRegistrations: number };
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.deleteEvent"));
   }
 });
 
@@ -1370,6 +1402,34 @@ export const syncOrganizerPayouts = createAsyncThunk<
     return data;
   } catch (e: unknown) {
     return rejectWithValue(rejectMessage(e, "staffPortal.errors.syncPayoutStatus"));
+  }
+});
+
+export const setOrganizerPayoutRail = createAsyncThunk<
+  OrganizerPayoutStatusResponse,
+  "stripe" | "mercadopago",
+  { rejectValue: string }
+>("staffPortal/payoutRail", async (payout_rail, { rejectWithValue }) => {
+  try {
+    const { data } = await api.post<OrganizerPayoutStatusResponse>("/organizer/payouts/rail", {
+      payout_rail,
+    });
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.savePayoutRail"));
+  }
+});
+
+export const startMercadoPagoOauth = createAsyncThunk<
+  { url: string },
+  void,
+  { rejectValue: string }
+>("staffPortal/mpOauthStart", async (_, { rejectWithValue }) => {
+  try {
+    const { data } = await api.get<{ url: string }>("/organizer/payouts/mp/oauth/start");
+    return data;
+  } catch (e: unknown) {
+    return rejectWithValue(rejectMessage(e, "staffPortal.errors.mpOauthStart"));
   }
 });
 
@@ -2220,6 +2280,31 @@ const slice = createSlice({
       s.saveEventError = a.payload || "Error saving event";
     });
 
+    b.addCase(deactivateStaffEventListing.fulfilled, (s, a) => {
+      if (s.eventDetail?.event?.id === a.payload.event.id) {
+        s.eventDetail = {
+          ...s.eventDetail,
+          event: a.payload.event,
+          categories: s.eventDetail.categories ?? [],
+        };
+      }
+      s.events = s.events.map((ev) =>
+        ev.id === a.payload.event.id
+          ? { ...ev, visibility: a.payload.event.visibility }
+          : ev,
+      );
+    });
+
+    b.addCase(deleteStaffEvent.fulfilled, (s, a) => {
+      const id = Number(
+        (a.meta.arg as { eventId: number }).eventId,
+      );
+      s.events = s.events.filter((ev) => ev.id !== id);
+      if (s.eventDetail?.event?.id === id) {
+        s.eventDetail = null;
+      }
+    });
+
     b.addCase(publishStaffEvent.pending, (s) => {
       s.publishingEvent = true;
       s.publishError = null;
@@ -2453,6 +2538,10 @@ const slice = createSlice({
     });
     b.addCase(syncOrganizerPayouts.rejected, (s) => {
       s.syncingPayouts = false;
+    });
+
+    b.addCase(setOrganizerPayoutRail.fulfilled, (s, a) => {
+      s.payoutStatus = a.payload;
     });
 
     b.addCase(fetchAdminOrganizerConnect.pending, (s) => {

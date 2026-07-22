@@ -14,6 +14,7 @@ export type PersistedRegistrationSession = {
   fieldValues?: Record<string, string | boolean>;
   /** User passed registration details and is on the payment sub-step. */
   checkoutPaymentReady?: boolean;
+  simulationToken?: string;
   savedAt: number;
 };
 

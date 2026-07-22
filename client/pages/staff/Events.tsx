@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import {
   Calendar,
   ExternalLink,
+  FlaskConical,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -21,6 +22,8 @@ import StaffPaidEventPayoutAlert, {
   eventNeedsPayoutAlert,
 } from "@/components/staff/StaffPaidEventPayoutAlert";
 import StaffEventsCalendarView from "@/components/staff/StaffEventsCalendarView";
+import StaffCreateSimulationDialog from "@/components/staff/StaffCreateSimulationDialog";
+import { StaffCalendarSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { DataGrid, type DataGridColumn } from "@/components/ui/data-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,11 +42,21 @@ import {
 } from "@/store/slices/staffPortalSlice";
 import { useGridListState } from "@/hooks/useGridListState";
 import { getDateFnsLocale, getNumberLocale } from "@/utils/dateLocale";
-import { canOrganizerCreateEvents } from "@/utils/staffNav";
+import {
+  canOrganizerCreateEvents,
+  canOrganizerManageSimulations,
+} from "@/utils/staffNav";
 import { cn } from "@/lib/utils";
 
 const FILTER_OPTIONS_LIMIT = 100;
 const CALENDAR_LIMIT = 100;
+
+type EventKindFilter = "all" | "0" | "1";
+
+function parseEventKindFilter(raw: string | null): EventKindFilter {
+  if (raw === "0" || raw === "1" || raw === "all") return raw;
+  return "0";
+}
 
 export default function StaffEvents() {
   const { t, i18n } = useTranslation();
@@ -52,11 +65,15 @@ export default function StaffEvents() {
   const { events, eventsPagination, loadingEvents, eventsError } = useAppSelector(
     (s) => s.staffPortal,
   );
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState(() => searchParams.get("status") || "all");
+  const [kind, setKind] = useState<EventKindFilter>(() =>
+    parseEventKindFilter(searchParams.get("simulation")),
+  );
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [debounced, setDebounced] = useState("");
+  const [simDialogOpen, setSimDialogOpen] = useState(false);
   const { page, setPage, sortBy, sortDir, onSort, gridParams } = useGridListState(
     "start_date",
     20,
@@ -67,6 +84,10 @@ export default function StaffEvents() {
   const canCreate =
     isAdmin ||
     (user?.type === "organizer" && canOrganizerCreateEvents(user.role));
+  const canCreateSim =
+    !isAdmin &&
+    user?.type === "organizer" &&
+    canOrganizerManageSimulations(user.role);
 
   useEffect(() => {
     dispatch(clearEventDetail());
@@ -82,14 +103,15 @@ export default function StaffEvents() {
 
   useEffect(() => {
     setPage(1);
-  }, [status, setPage]);
+  }, [status, kind, setPage]);
 
   const listFilters = useMemo(
     () => ({
       q: debounced || undefined,
       status: status === "all" ? undefined : status,
+      simulation: kind === "all" ? undefined : kind,
     }),
-    [debounced, status],
+    [debounced, status, kind],
   );
 
   useEffect(() => {
@@ -122,7 +144,7 @@ export default function StaffEvents() {
     }
   }, [dispatch, role, viewMode, listFilters, gridParams]);
 
-  const reload = () => {
+  const reload = useCallback(() => {
     if (isAdmin) {
       void dispatch(
         fetchAdminEvents({
@@ -142,10 +164,24 @@ export default function StaffEvents() {
         }),
       );
     }
-  };
+  }, [dispatch, isAdmin, listFilters, viewMode, gridParams]);
 
   const list = events;
   const blockedPaymentEvents = list.filter((ev) => eventNeedsPayoutAlert(ev));
+  const emptyMessage =
+    kind === "1"
+      ? t("staffPortal.events.emptySimulation")
+      : kind === "0"
+        ? t("staffPortal.events.emptyLive")
+        : t("staffPortal.events.empty");
+
+  const setKindFilter = (next: EventKindFilter) => {
+    setKind(next);
+    const nextParams = new URLSearchParams(searchParams);
+    if (next === "0") nextParams.delete("simulation");
+    else nextParams.set("simulation", next);
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const columns = useMemo((): DataGridColumn<StaffEventRow>[] => {
     const cols: DataGridColumn<StaffEventRow>[] = [
@@ -159,6 +195,12 @@ export default function StaffEvents() {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold truncate">{ev.title}</span>
               <StaffStatusBadge status={ev.status} />
+              {ev.is_simulation ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+                  <FlaskConical className="h-3 w-3" />
+                  {t("simulation.badge")}
+                </span>
+              ) : null}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
               {ev.sport_name}
@@ -210,7 +252,16 @@ export default function StaffEvents() {
         shrink: true,
         render: (ev) => (
           <div className="flex flex-wrap items-center gap-2 justify-end">
-            {ev.status === "published" ? (
+            {ev.is_simulation ? (
+              <Link
+                to={`/staff/events/${ev.id}`}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <FlaskConical className="w-3 h-3" />
+                {t("simulation.manageInHub")}
+              </Link>
+            ) : ev.status === "published" ? (
               <Link
                 to={`/events/${ev.slug}`}
                 target="_blank"
@@ -270,7 +321,11 @@ export default function StaffEvents() {
           <Calendar className="w-7 h-7 text-primary" />
           {isAdmin ? t("staffPortal.events.titleAdmin") : t("staffPortal.events.titleOrganizer")}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">{t("staffPortal.events.subtitle")}</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          {isAdmin
+            ? t("staffPortal.events.subtitle")
+            : t("staffPortal.events.subtitleOrganizer")}
+        </p>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -299,6 +354,39 @@ export default function StaffEvents() {
               <SelectItem value="cancelled">{t("staffPortal.events.statusCancelled")}</SelectItem>
             </SelectContent>
           </Select>
+          <div className="inline-flex rounded-xl border border-border p-0.5 bg-card/50 shrink-0 w-full sm:w-auto">
+            <Button
+              type="button"
+              size="sm"
+              variant={kind === "0" ? "default" : "ghost"}
+              className="h-9 flex-1 sm:flex-none px-3 rounded-lg"
+              onClick={() => setKindFilter("0")}
+              aria-pressed={kind === "0"}
+            >
+              {t("staffPortal.events.kindLive")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={kind === "1" ? "default" : "ghost"}
+              className="h-9 flex-1 sm:flex-none px-3 rounded-lg"
+              onClick={() => setKindFilter("1")}
+              aria-pressed={kind === "1"}
+            >
+              <FlaskConical className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+              {t("staffPortal.events.kindSimulation")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={kind === "all" ? "default" : "ghost"}
+              className="h-9 flex-1 sm:flex-none px-3 rounded-lg"
+              onClick={() => setKindFilter("all")}
+              aria-pressed={kind === "all"}
+            >
+              {t("staffPortal.events.kindAll")}
+            </Button>
+          </div>
           <div className="inline-flex rounded-xl border border-border p-0.5 bg-card/50 shrink-0">
             <Button
               type="button"
@@ -333,14 +421,37 @@ export default function StaffEvents() {
           </Button>
         ) : null}
         {!isAdmin && canCreate ? (
-          <Button asChild className="shrink-0">
-            <Link to="/staff/events/new">
-              <Plus className="w-4 h-4 mr-2" />
-              {t("staffPortal.events.create")}
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <Button asChild className="shrink-0">
+              <Link to="/staff/events/new">
+                <Plus className="w-4 h-4 mr-2" />
+                {t("staffPortal.events.create")}
+              </Link>
+            </Button>
+            {canCreateSim ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => setSimDialogOpen(true)}
+              >
+                <FlaskConical className="w-4 h-4 mr-2" />
+                {t("staffPortal.events.createSimulation")}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
+
+      {canCreateSim ? (
+        <StaffCreateSimulationDialog
+          open={simDialogOpen}
+          onOpenChange={setSimDialogOpen}
+          onCreated={() => {
+            setKindFilter("1");
+          }}
+        />
+      ) : null}
 
       <PortalErrorAlert error={eventsError} onRetry={reload} />
 
@@ -350,10 +461,10 @@ export default function StaffEvents() {
 
       {viewMode === "calendar" ? (
         loadingEvents && list.length === 0 ? (
-          <p className="text-muted-foreground">{t("common.loading")}</p>
+          <StaffCalendarSkeleton />
         ) : eventsError ? null : list.length === 0 ? (
           <div className="card-sport p-8 text-center space-y-4">
-            <p className="text-muted-foreground">{t("staffPortal.events.empty")}</p>
+            <p className="text-muted-foreground">{emptyMessage}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -376,7 +487,7 @@ export default function StaffEvents() {
           pagination={eventsPagination}
           onPageChange={setPage}
           isLoading={loadingEvents}
-          emptyMessage={t("staffPortal.events.empty")}
+          emptyMessage={emptyMessage}
           mobileCard={(ev) => (
             <div className="card-sport p-4 space-y-3">
               <div className="flex items-start justify-between gap-2">
@@ -384,6 +495,12 @@ export default function StaffEvents() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="font-semibold truncate">{ev.title}</h2>
                     <StaffStatusBadge status={ev.status} />
+                    {ev.is_simulation ? (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+                        <FlaskConical className="h-3 w-3" />
+                        {t("simulation.badge")}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {ev.sport_name}

@@ -20,6 +20,7 @@ interface RegistrationCheckoutState {
   open: boolean;
   step: RegistrationWizardStep;
   eventSlug: string | null;
+  simulationToken: string | null;
   category: EventCategory | null;
   selectedExtras: Array<{ extraId: number; quantity: number }>;
   extraFieldAnswers: Array<{
@@ -54,6 +55,7 @@ const initialState: RegistrationCheckoutState = {
   open: false,
   step: "auth",
   eventSlug: null,
+  simulationToken: null,
   category: null,
   selectedExtras: [],
   extraFieldAnswers: [],
@@ -83,13 +85,22 @@ const initialState: RegistrationCheckoutState = {
 
 const athleteRequest = { headers: athleteAuthHeaders };
 
-export const fetchPaymentConfig = createAsyncThunk<PaymentConfigResponse>(
-  "registrationCheckout/fetchPaymentConfig",
-  async () => {
-    const { data } = await api.get<PaymentConfigResponse>("/config/payments");
+export const fetchPaymentConfig = createAsyncThunk<
+  PaymentConfigResponse,
+  { simulationToken?: string | null } | void
+>("registrationCheckout/fetchPaymentConfig", async (arg) => {
+  const token = String(
+    arg && typeof arg === "object" ? arg.simulationToken ?? "" : "",
+  ).trim();
+  if (token) {
+    const { data } = await api.get<PaymentConfigResponse>(
+      `/sim/${encodeURIComponent(token)}/stripe-config`,
+    );
     return data;
-  },
-);
+  }
+  const { data } = await api.get<PaymentConfigResponse>("/config/payments");
+  return data;
+});
 
 export const validateDiscountCode = createAsyncThunk<
   DiscountValidateResponse,
@@ -145,6 +156,7 @@ export const createRegistrationCheckout = createAsyncThunk<
       extraId: number;
       values: Record<string, string | boolean | Record<string, unknown>>;
     }>;
+    simulationToken?: string | null;
   },
   { rejectValue: string | { code?: string; message: string } }
 >("registrationCheckout/createCheckout", async (payload, { rejectWithValue }) => {
@@ -162,6 +174,7 @@ export const createRegistrationCheckout = createAsyncThunk<
         waitlistEntryId: payload.waitlistEntryId,
         selectedExtras: payload.selectedExtras,
         extraFieldAnswers: payload.extraFieldAnswers,
+        simulationToken: payload.simulationToken || undefined,
       },
       athleteRequest,
     );
@@ -253,7 +266,12 @@ export const fetchPendingCheckout = createAsyncThunk<
 
 export const resumeRegistrationCheckout = createAsyncThunk<
   RegistrationResumeResponse,
-  { slug: string; paymentPublicUuid?: string; idempotencyKey?: string },
+  {
+    slug: string;
+    paymentPublicUuid?: string;
+    idempotencyKey?: string;
+    simulationToken?: string | null;
+  },
   { rejectValue: string }
 >("registrationCheckout/resume", async (payload, { rejectWithValue }) => {
   try {
@@ -262,6 +280,7 @@ export const resumeRegistrationCheckout = createAsyncThunk<
       {
         paymentPublicUuid: payload.paymentPublicUuid,
         idempotencyKey: payload.idempotencyKey,
+        simulationToken: payload.simulationToken || undefined,
       },
       athleteRequest,
     );
@@ -285,10 +304,12 @@ const slice = createSlice({
         waitlistMode?: boolean;
         waitlistClaimMode?: boolean;
         waitlistEntryId?: number;
+        simulationToken?: string | null;
       }>,
     ) {
       state.open = true;
       state.eventSlug = action.payload.slug;
+      state.simulationToken = action.payload.simulationToken ?? null;
       state.category = action.payload.category;
       state.waitlistMode = action.payload.waitlistMode ?? false;
       state.waitlistClaimMode = action.payload.waitlistClaimMode ?? false;

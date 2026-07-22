@@ -84,6 +84,7 @@ export default function GroupRegistrationWizard() {
     open,
     step,
     eventSlug,
+    simulationToken,
     participantCount,
     includeSelf,
     currentParticipantIndex,
@@ -145,12 +146,21 @@ export default function GroupRegistrationWizard() {
 
   useEffect(() => {
     if (open && eventSlug) {
-      if (!eventDetail?.event || eventDetail.event.slug !== eventSlug) {
-        dispatch(fetchEventDetail(eventSlug));
+      if (!simulationToken) {
+        if (!eventDetail?.event || eventDetail.event.slug !== eventSlug) {
+          dispatch(fetchEventDetail(eventSlug));
+        }
       }
-      dispatch(fetchPaymentConfig());
+      dispatch(fetchPaymentConfig({ simulationToken }));
     }
-  }, [open, eventSlug, eventDetail?.event, eventDetail?.event?.slug, dispatch]);
+  }, [
+    open,
+    eventSlug,
+    simulationToken,
+    eventDetail?.event,
+    eventDetail?.event?.slug,
+    dispatch,
+  ]);
 
   useEffect(() => {
     if (!open) setSubStep("profile");
@@ -251,6 +261,7 @@ export default function GroupRegistrationWizard() {
         lineItems: lineItemsForCheckout,
         idempotencyKey,
         discountCode: discountCode.trim() || undefined,
+        simulationToken: simulationToken || undefined,
       }),
     );
   };

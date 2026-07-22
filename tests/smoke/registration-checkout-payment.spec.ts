@@ -51,4 +51,31 @@ describe("smoke: registration checkout payment readiness", () => {
       ),
     ).toBe(true);
   });
+
+  it("mercadopago paid checkout needs preference + public key", () => {
+    expect(
+      registrationCheckoutIsReady(
+        {
+          ...baseCheckout,
+          clientSecret: null,
+          provider: "mercadopago",
+          mpPreferenceId: "pref",
+          mpPublicKey: "TEST-pk",
+        },
+        72200,
+      ),
+    ).toBe(true);
+    expect(
+      registrationCheckoutIsReady(
+        {
+          ...baseCheckout,
+          clientSecret: null,
+          provider: "mercadopago",
+          mpPreferenceId: null,
+          mpPublicKey: "TEST-pk",
+        },
+        72200,
+      ),
+    ).toBe(false);
+  });
 });

@@ -31,10 +31,79 @@ tags:
     description: Organizer portal
   - name: Admin
     description: Platform admin
+  - name: Simulation
+    description: Organizer simulation events (Stripe test kit, gated magic links)
   - name: Webhooks
     description: External service webhooks (Stripe)
 
 paths:
+  /sim/{token}:
+    get:
+      tags: [Simulation]
+      summary: Load a gated simulation event for test checkout
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Simulation event payload (categories, fields, test cards)
+        "404":
+          description: Not found
+  /sim/{token}/stripe-config:
+    get:
+      tags: [Simulation]
+      summary: Stripe test publishable key for simulation Elements
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Test mode publishable key
+        "503":
+          description: Stripe test kit not configured
+  /cron/cleanup-simulations:
+    post:
+      tags: [Simulation]
+      summary: Wipe expired simulation generated data (keep event shell)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cleanup result
+        "401":
+          description: Unauthorized
+  /organizer/simulations:
+    get:
+      tags: [Simulation, Organizer]
+      summary: List organizer simulations (owner only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Simulations + quota
+    post:
+      tags: [Simulation, Organizer]
+      summary: Create or clone a simulation event (owner only)
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Quota or validation error
+  /admin/simulations:
+    get:
+      tags: [Simulation, Admin]
+      summary: List all simulation events
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Simulations
   /health:
     get:
       tags: [Health]
@@ -228,6 +297,9 @@ paths:
                 preferred_language:
                   type: string
                   enum: [es, en]
+                preferred_theme:
+                  type: string
+                  enum: [light, dark, system]
       responses:
         "200":
           description: Updated admin profile
@@ -1431,6 +1503,12 @@ paths:
           schema:
             type: string
             enum: [draft, pending_approval, published, cancelled, completed]
+        - name: simulation
+          in: query
+          description: Filter by simulation flag (`1` simulations only, `0` live only, omit for both)
+          schema:
+            type: string
+            enum: ["0", "1", "all"]
         - name: page
           in: query
           schema:
@@ -1505,6 +1583,38 @@ paths:
       responses:
         "200":
           description: Updated event
+    delete:
+      tags: [Organizer]
+      summary: Soft-delete event (cancels open registrations; prefer deactivate-listing)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Soft-deleted; returns cancelledRegistrations count
+        "403":
+          description: Only owner/organizer
+
+  /organizer/events/{eventId}/deactivate-listing:
+    post:
+      tags: [Organizer]
+      summary: Hide event from marketplace (visibility=unlisted)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Event detail with unlisted visibility
 
   /organizer/events/{eventId}/publish:
     post:
@@ -2782,6 +2892,12 @@ paths:
           in: query
           schema:
             type: integer
+        - name: simulation
+          in: query
+          description: Filter by simulation flag (`1` simulations only, `0` live only, omit for both)
+          schema:
+            type: string
+            enum: ["0", "1", "all"]
         - name: page
           in: query
           schema:
@@ -2969,6 +3085,36 @@ paths:
       responses:
         "200":
           description: Updated event
+    delete:
+      tags: [Admin]
+      summary: Soft-delete any event (cancels open registrations)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Soft-deleted
+
+  /admin/events/{eventId}/deactivate-listing:
+    post:
+      tags: [Admin]
+      summary: Hide event from marketplace (visibility=unlisted)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Event unlisted
 
   /admin/events/{eventId}/summary:
     get:
@@ -3382,6 +3528,89 @@ paths:
       responses:
         "200":
           description: Refreshed payout status payload
+
+  /organizer/payouts/rail:
+    post:
+      tags: [Organizer]
+      summary: Set preferred payout rail (stripe or mercadopago)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payout_rail]
+              properties:
+                payout_rail:
+                  type: string
+                  enum: [stripe, mercadopago]
+      responses:
+        "200":
+          description: Updated payout status payload
+
+  /organizer/payouts/mp/oauth/start:
+    get:
+      tags: [Organizer]
+      summary: Start Mercado Pago OAuth (returns authorize URL)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "{ url }"
+        "503":
+          description: MP not configured
+
+  /organizer/payouts/mp/oauth/callback:
+    get:
+      tags: [Organizer]
+      summary: Mercado Pago OAuth callback (redirects to staff payouts)
+      responses:
+        "302":
+          description: Redirect to /staff/payouts
+
+  /webhooks/mercadopago:
+    post:
+      tags: [Webhooks]
+      summary: Mercado Pago IPN / webhooks
+      responses:
+        "200":
+          description: Accepted
+
+  /events/{slug}/register/mp/pay:
+    post:
+      tags: [Registration]
+      summary: Submit Mercado Pago card token for marketplace payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentPublicUuid, token, paymentMethodId]
+              properties:
+                paymentPublicUuid:
+                  type: string
+                token:
+                  type: string
+                paymentMethodId:
+                  type: string
+                installments:
+                  type: integer
+      responses:
+        "200":
+          description: Approved or pending (OXXO)
+        "402":
+          description: Payment failed
 
   /organizer/payments:
     get:
@@ -4256,6 +4485,9 @@ components:
           type: integer
         bib_mode:
           $ref: "#/components/schemas/EventBibMode"
+        auto_deactivate_after_event:
+          type: boolean
+          description: When true (default), unlist from marketplace after the event day ends
         fee_presentation:
           $ref: "#/components/schemas/FeePresentation"
     FeePresentation:

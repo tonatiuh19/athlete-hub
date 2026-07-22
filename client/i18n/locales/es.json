@@ -39,7 +39,8 @@
     },
     "copied": "Copiado",
     "next": "Siguiente",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "refresh": "Actualizar"
   },
   "auth": {
     "athlete": {
@@ -431,6 +432,8 @@
       "loadEvent": "No se pudo cargar el evento",
       "saveEvent": "No se pudo guardar el evento",
       "publishEvent": "No se pudo publicar el evento",
+      "deactivateEvent": "No se pudo desactivar el evento del listado",
+      "deleteEvent": "No se pudo eliminar el evento",
       "rejectEvent": "No se pudo rechazar el evento",
       "addCategory": "No se pudo agregar la categoría",
       "removeCategory": "No se pudo eliminar la categoría",
@@ -444,6 +447,8 @@
       "loadCheckInWindow": "No se pudo cargar la ventana de check-in",
       "loadPayoutStatus": "No se pudo cargar el estado de pagos",
       "savePayoutProfile": "No se pudo guardar el perfil de pagos",
+      "savePayoutRail": "No se pudo guardar el medio de cobro",
+      "mpOauthStart": "No se pudo iniciar la conexión con Mercado Pago",
       "acceptPayoutTerms": "No se pudieron aceptar los términos de pagos",
       "connectNotEnabled": "La verificación de cobros no está disponible aún. Pide a un administrador de Triboo que active la cuenta de pagos de la plataforma.",
       "startPayoutVerification": "No se pudo iniciar la verificación de cobros",
@@ -507,7 +512,8 @@
       "console": "Staff Console",
       "admin": "Administrador",
       "organizer": "Organizador",
-      "exit": "Salir"
+      "exit": "Salir",
+      "simulations": "Simulaciones"
     },
     "dashboard": {
       "titleAdmin": "Panel de plataforma",
@@ -635,6 +641,7 @@
       "titleAdmin": "Todos los eventos",
       "titleOrganizer": "Mis eventos",
       "subtitle": "Revisa estado, inscripciones y páginas públicas",
+      "subtitleOrganizer": "Tus eventos reales por defecto. Cambia a Simulaciones para probar el checkout con Stripe test.",
       "searchPlaceholder": "Buscar eventos…",
       "statusFilter": "Estado",
       "statusAll": "Todos los estados",
@@ -643,7 +650,14 @@
       "statusPublished": "Publicado",
       "statusCompleted": "Completado",
       "statusCancelled": "Cancelado",
+      "kindFilter": "Tipo",
+      "kindAll": "Todos",
+      "kindLive": "Eventos reales",
+      "kindSimulation": "Simulaciones",
+      "createSimulation": "Crear simulación",
       "empty": "No se encontraron eventos.",
+      "emptyLive": "Aún no hay eventos reales. Crea un evento para empezar.",
+      "emptySimulation": "Aún no hay simulaciones. Crea una para probar el checkout con tarjetas Stripe test.",
       "viewPublic": "Página pública",
       "manage": "Gestionar",
       "create": "Crear evento",
@@ -663,6 +677,25 @@
       "colCity": "Ciudad",
       "colRegistrations": "Inscripciones",
       "colActions": "Acciones",
+      "lifecycle": {
+        "deactivate": "Desactivar del listado",
+        "deactivateShort": "Ocultar",
+        "deactivateTitle": "¿Desactivar del listado público?",
+        "deactivateBody": "“{{title}}” se ocultará del marketplace público. El equipo podrá seguir gestionándolo desde el hub.",
+        "deactivateHint": "Las inscripciones ya confirmadas se mantienen. Puedes cambiar la visibilidad otra vez en Editar.",
+        "deactivateConfirm": "Desactivar listado",
+        "deactivateSuccess": "Evento ocultado del listado público",
+        "delete": "Eliminar evento",
+        "deleteShort": "Eliminar",
+        "deleteTitle": "¿Eliminar evento? Acción destructiva",
+        "deleteWarning": "Acción destructiva: eliminar “{{title}}” cancela todas las inscripciones abiertas y la lista de espera.",
+        "deleteBody": "El evento se elimina de forma suave (queda cancelado y oculto). Los pagos se conservan para auditoría. Los atletas confirmados pierden su inscripción activa.",
+        "deleteRecommend": "Si solo quieres ocultarlo del marketplace, te recomendamos desactivarlo del listado en lugar de eliminarlo.",
+        "preferDeactivate": "Desactivar listado en su lugar",
+        "deleteConfirm": "Sí, eliminar evento",
+        "deleteSuccess": "Evento eliminado",
+        "deleteSuccessRegs": "{{count}} inscripción(es) cancelada(s)"
+      },
       "createAdminTitle": "Crear evento para organizador",
       "createAdminSubmit": "Crear borrador",
       "createOrganizerId": "ID del organizador"
@@ -671,6 +704,8 @@
       "title": "Centro de comando del evento",
       "subtitle": "Inscripciones, check-in, lista de espera y métricas en vivo",
       "back": "Volver a eventos",
+      "lifecycleTitle": "Listado y eliminación",
+      "lifecycleHint": "Oculta el evento del marketplace, o elimínalo de forma permanente (cancela inscripciones).",
       "tabOverview": "Resumen",
       "tabRegistrations": "Inscripciones",
       "tabWaitlist": "Lista de espera",
@@ -733,6 +768,40 @@
       "checklistRequiredPending": "Completa los requisitos antes de publicar.",
       "checklistRequiredDone": "Requisitos listos · {{done}}/{{total}} recomendados completos",
       "checklistRequired": "Requerido",
+      "setupGuide": {
+        "title": "Orden sugerido",
+        "subtitle": "Sigue los pasos numerados. Crea cupones antes de Folios si vas a enlazar rangos a un código (ej. cortesías).",
+        "bannerTitle": "Paso 1 — Detalles del evento",
+        "bannerBody": "Guarda título, deporte y fechas primero. Luego Categorías (2), Cobros si hay precio (3), Cupones (4) y Folios (5) para enlazar Ventas/Cortesías. La guía numerada está en la barra lateral.",
+        "legendAria": "Leyenda de prioridad",
+        "legendRequired": "Requerido para publicar",
+        "legendRecommended": "Recomendado",
+        "legendOptional": "Opcional",
+        "steps": {
+          "details": "Detalles",
+          "categories": "Categorías y precios",
+          "payouts": "Cobros (Stripe / Mercado Pago)",
+          "folios": "Folios y dorsal",
+          "discounts": "Cupones / cortesías",
+          "waiver": "Responsiva",
+          "course": "Mapa del recorrido",
+          "mediaLocation": "Imágenes y ubicación",
+          "polish": "Campos, oleadas y extras",
+          "submit": "Enviar a aprobación"
+        },
+        "hints": {
+          "details": "Título, deporte, fechas de carrera. Guarda antes de cambiar de pestaña.",
+          "categories": "Al menos una categoría con precio (o $0). Define distancias y cupos.",
+          "payouts": "Obligatorio si hay categorías de pago. Sin cobros listos no se puede publicar.",
+          "discounts": "Crea códigos (ej. CORTESIA al 100%) antes de Folios para poder enlazarlos.",
+          "folios": "Elige folio = dorsal y rangos Ventas vs Cortesías (enlaza el cupón de cortesías).",
+          "waiver": "Activa responsivas digitales si las exige el evento.",
+          "course": "Dibuja o sube el recorrido para el mapa público.",
+          "mediaLocation": "Hero/banner en Medios; ciudad y coordenadas en Detalles.",
+          "polish": "Campos del formulario, oleadas, lista de espera, extras y patrocinadores.",
+          "submit": "Cuando lo requerido esté listo, envía a aprobación de Triboo (un admin publica)."
+        }
+      },
       "checklist": {
         "hasTitle": "Título del evento",
         "hasSport": "Tipo de deporte",
@@ -901,6 +970,8 @@
       "fieldMaxRegsPerOrderHint": "Límite para inscripción familiar/grupal (1–20 participantes por compra).",
       "fieldRequiresWaiver": "Exigir responsivas digitales al inscribirse",
       "fieldRequiresWaiverHint": "Los atletas deben aceptar todas las responsivas activas antes del checkout. Configúralas en la pestaña Responsiva.",
+      "fieldAutoDeactivate": "Desactivar automáticamente después del día del evento",
+      "fieldAutoDeactivateHint": "Al terminar el último día del evento, se oculta del marketplace público automáticamente. Las inscripciones ya están cerradas una vez pasado el día del evento, aunque siga listado.",
       "bibMode": {
         "title": "Usar folio como dorsal",
         "subtitle": "Elige cómo funcionan los números de carrera en este evento. El check-in encuentra atletas por folio, dorsal o QR de cualquier modo.",
@@ -911,7 +982,8 @@
         "folioStrongNote": "Estas reglas de folio crean los dorsales que usarán los atletas. Diseña secuencias que coincidan con lo que imprimes en playeras.",
         "separateNudge": "Triboo te recordará en Inscripciones cuando haya atletas confirmados sin dorsal.",
         "changeInDetails": "Cambia esta política en Detalles (luego guarda el evento).",
-        "saveWithDetails": "La política de números se guarda con la pestaña Detalles del evento.",
+        "saveWithDetails": "Elige folio = dorsal o separados, luego pulsa Guardar política. También puedes editarlo en Detalles.",
+        "savePolicy": "Guardar política",
         "missingBibsTitle": "{{count}} atletas aún necesitan dorsal",
         "missingBibsHint": "Este evento mantiene folio y dorsal separados. Importa un CSV o abre una inscripción para asignar dorsales.",
         "missingBibsImport": "Importar dorsales",
@@ -1228,14 +1300,17 @@
       "discountsTitle": "Códigos de descuento",
       "discountsSubtitle": "Códigos promocionales para este evento",
       "discountCode": "Código",
+      "discountType": "Tipo",
       "discountPercent": "Porcentaje",
       "discountFixed": "Monto fijo (centavos)",
       "discountValue": "Valor",
+      "discountMaxUses": "Usos máximos",
       "addDiscount": "Agregar código",
       "noDiscounts": "Sin códigos de descuento aún.",
       "discountUses": "{{used}} / {{max}} usos",
       "deactivateDiscount": "Desactivar",
-      "activateDiscount": "Activar"
+      "activateDiscount": "Activar",
+      "deleteDiscount": "Eliminar código de descuento"
     },
     "folioSegments": {
       "title": "Reglas de folio personalizado",
@@ -1755,8 +1830,10 @@
       "manualSaleEventPlaceholder": "Seleccionar evento",
       "manualSaleNoCommission": "No se cobra comisión de plataforma en ventas manuales.",
       "manualSaleSubmit": "Registrar venta",
-      "providerAll": "Todos los proveedores",
+      "providerAll": "Todos los medios",
       "providerManual": "Manual",
+      "providerTriboo": "Stripe",
+      "providerDigitalWallet": "Mercado Pago",
       "providerMock": "Cortesía / mock",
       "colSeller": "Vendedor",
       "colSales": "Ventas",
@@ -1781,6 +1858,31 @@
       "tribooSectionHint": "Completa los datos del negocio antes de iniciar la verificación bancaria.",
       "bankVerificationSectionTitle": "Paso 2 — Verificación bancaria",
       "bankVerificationSectionHint": "Verificamos tu identidad y cuenta bancaria. Triboo no puede omitir este paso.",
+      "railTitle": "Proveedor de cobro preferido",
+      "railHint": "Elige Stripe o Mercado Pago. Si el preferido no está listo, usamos el otro si está disponible.",
+      "railHintStripeOnly": "Las inscripciones de pago usan Stripe por ahora. Mercado Pago estará disponible pronto.",
+      "railStripe": "Stripe",
+      "railMercadoPago": "Mercado Pago",
+      "timingTitle": "¿Cuánto tarda el dinero?",
+      "timingStripe": "Stripe: el cobro se confirma al instante; el depósito a tu banco sigue el calendario de tu cuenta Stripe verificada.",
+      "timingMpCard": "Mercado Pago (tarjeta / saldo): apuntamos a acreditación inmediata en tu cuenta de Mercado Pago.",
+      "timingMpOxxo": "Mercado Pago en tienda (OXXO): el atleta paga en efectivo; suele acreditarse en unos 3 días. La inscripción se confirma solo cuando paguen.",
+      "usingFallbackRail": "Usando el proveedor alterno",
+      "mpComingSoonBadge": "Próximamente",
+      "mpComingSoonBody": "Mercado Pago aún no está disponible. Completa la configuración con Stripe por ahora; desbloquearemos Mercado Pago cuando esté listo.",
+      "mpComingSoonCta": "Próximamente",
+      "mpSectionTitle": "Paso 3 — Mercado Pago",
+      "mpSectionHint": "Conecta Mercado Pago para cobrar con tarjeta, saldo y pago en tienda (comisión Triboo 13%).",
+      "mpItem": {
+        "mp_oauth": "Mercado Pago conectado",
+        "mp_configured": "Mercado Pago habilitado en Triboo"
+      },
+      "mpConnectTitle": "Conectar Mercado Pago",
+      "mpConnectHint": "Autoriza a Triboo para depositar inscripciones en tu cuenta de Mercado Pago.",
+      "mpConnectCta": "Conectar Mercado Pago",
+      "mpConnected": "Mercado Pago conectado",
+      "mpConnectError": "No se pudo conectar Mercado Pago",
+      "mpReady": "Mercado Pago listo para cobrar",
       "profileFormTitle": "Perfil del negocio",
       "fieldLegalName": "Razón social",
       "fieldBillingEmail": "Email de facturación",
@@ -2259,7 +2361,7 @@
       },
       "paymentMethodsStripe": {
         "question": "¿Cómo pago mi inscripción?",
-        "answer": "Las inscripciones de pago se procesan de forma segura con Stripe en pesos mexicanos (MXN). Paga con tarjeta nueva en el checkout o usa una guardada en Métodos de pago en tu portal. Triboo no guarda tu número completo de tarjeta—Stripe maneja el cumplimiento PCI."
+        "answer": "Las inscripciones de pago se procesan de forma segura en pesos mexicanos (MXN). Paga con tarjeta nueva en el checkout o usa una guardada en Métodos de pago en tu portal. Triboo no guarda tu número completo de tarjeta."
       },
       "pricesInMxnAndFees": {
         "question": "¿En qué moneda se muestran los precios?",
@@ -2267,7 +2369,7 @@
       },
       "freeEventRegistration": {
         "question": "¿Necesito tarjeta en eventos gratis?",
-        "answer": "No. Cuando tu categoría y extras suman $0 MXN, el checkout omite la tarjeta y confirma tu inscripción al instante. Igual recibirás correo de confirmación y código QR como en cualquier inscripción."
+        "answer": "No. Cuando tu categoría y extras suman $0 MXN (incluye un cupón al 100%), el checkout omite la tarjeta y muestra el descuento y el total en $0. Aún debes tocar Confirmar inscripción para terminar—luego recibirás el correo y el QR como en cualquier inscripción."
       },
       "refundsAndCancellations": {
         "question": "¿Cómo funcionan reembolsos y cancelaciones?",
@@ -2299,7 +2401,7 @@
       },
       "hostEventOnTriboo": {
         "question": "Quiero organizar una carrera—¿por dónde empiezo?",
-        "answer": "Visita Organiza un evento para conocer cómo Triboo maneja inscripciones, pagos con Stripe y check-in con QR. Pulsa Empezar gratis para el registro de organizador; los eventos se revisan antes de publicarse en el marketplace."
+        "answer": "Visita Organiza un evento para conocer cómo Triboo maneja inscripciones, pagos seguros y check-in con QR. Pulsa Empezar gratis para el registro de organizador; los eventos se revisan antes de publicarse en el marketplace."
       },
       "contactAthleteSupport": {
         "question": "¿Cómo contacto a Triboo para ayuda?",
@@ -2307,7 +2409,7 @@
       },
       "paymentsUnavailableForEvent": {
         "question": "¿Por qué no puedo pagar en línea una categoría de pago?",
-        "answer": "Si el organizador no terminó la configuración de pagos Stripe Connect, las categorías de pago pueden mostrar pago en línea temporalmente no disponible mientras las gratis siguen activas. Vuelve más tarde o contacta al organizador—la página del evento indica cuando los pagos aún se están configurando."
+        "answer": "Si el organizador no terminó la configuración de cobros, las categorías de pago pueden mostrar pago en línea temporalmente no disponible mientras las gratis siguen activas. Vuelve más tarde o contacta al organizador—la página del evento indica cuando los pagos aún se están configurando."
       }
     }
   },
@@ -2697,6 +2799,7 @@
     "waiverNotConfigured": "Inscripción temporalmente no disponible",
     "waiverNotConfiguredHint": "Este evento requiere responsivas pero aún no están configuradas. Contacta al organizador.",
     "registrationClosed": "Las inscripciones para este evento ya cerraron.",
+    "registrationEventPassed": "Las inscripciones están cerradas — este evento ya se llevó a cabo.",
     "registrationNotOpen": "Las inscripciones aún no abren.",
     "alreadyRegisteredTitle": "Ya estás inscrito en este evento",
     "alreadyRegisteredDesc": "{{category}} · Folio {{number}}",
@@ -2839,7 +2942,11 @@
       "waiver": "Responsiva",
       "extras": "Extras",
       "checkout": "Datos y pago",
-      "result": "Listo"
+      "checkoutDetails": "Tus datos",
+      "checkoutPayment": "Pago",
+      "result": "Listo",
+      "stepOf": "Paso {{current}} de {{total}}",
+      "nextStep": "Siguiente: {{label}}"
     },
     "auth": {
       "title": "Inicia sesión para continuar",
@@ -2888,8 +2995,13 @@
       "selectOption": "Selecciona una opción",
       "continueToPayment": "Continuar al pago",
       "backToDetails": "Volver a los datos de inscripción",
+      "summaryExpand": "Ver detalle",
+      "summaryCollapse": "Ocultar",
       "paymentSectionHint": "Aplica un código promocional si tienes uno y luego ingresa los datos de tu tarjeta.",
       "retryPaymentSetup": "Reintentar configuración de pago",
+      "resumeIncompleteTitle": "Falta completar un paso",
+      "resumeIncompleteWaiver": "Vuelve a aceptar la responsiva para continuar con el pago.",
+      "resumeIncompleteFields": "Completa los datos de inscripción requeridos por el organizador.",
       "discountLabel": "Código de descuento",
       "discountPlaceholder": "PROMO2026",
       "discountApply": "Aplicar",
@@ -2918,8 +3030,9 @@
         "ageIneligible": "No cumples los requisitos de edad para esta categoría.",
         "notOpen": "Las inscripciones aún no abren.",
         "closed": "Las inscripciones para este evento ya cerraron.",
+        "eventPassed": "Las inscripciones están cerradas — este evento ya se llevó a cabo.",
         "paymentsUnavailable": "El pago en línea no está disponible temporalmente para este evento. Intenta más tarde o contacta al organizador.",
-        "paymentSetupFailed": "No pudimos iniciar el pago con tarjeta. Intenta de nuevo en unos minutos."
+        "paymentSetupFailed": "No pudimos iniciar el pago en línea. Intenta de nuevo en unos minutos."
       }
     },
     "waiver": {
@@ -2939,14 +3052,20 @@
     },
     "payment": {
       "title": "Pago",
-      "preparing": "Preparando formulario seguro de tarjeta…",
-      "unavailable": "El pago con tarjeta no está disponible por el momento. Intenta más tarde o contacta al organizador.",
+      "preparing": "Preparando formulario seguro de pago…",
+      "unavailable": "El pago en línea no está disponible por el momento. Intenta más tarde o contacta al organizador.",
       "pay": "Pagar {{amount}}",
-      "secure": "Pago seguro · cumplimiento PCI",
+      "confirmFree": "Confirmar inscripción",
+      "freeTitle": "Confirma tu inscripción gratuita",
+      "freeHint": "Revisa el descuento y el total, luego confirma. No se requiere tarjeta.",
+      "secure": "Pago seguro",
       "useNewCard": "Usar otra tarjeta",
       "useSavedCard": "Usar tarjeta guardada",
       "failed": "No se pudo procesar el pago",
       "pending": "El pago aún se está procesando. Espera un momento.",
+      "mpInitFailed": "No se pudo iniciar el pago. Intenta de nuevo.",
+      "mpPowered": "",
+      "mpPendingOxxo": "Generamos tu referencia de pago. La inscripción se confirma cuando completes el pago en tienda.",
       "authenticationRequired": "Tu banco requiere verificación adicional para completar este pago.",
       "completeAuthentication": "Completar verificación",
       "authenticationFailed": "La verificación de la tarjeta falló o fue cancelada.",
@@ -3024,5 +3143,48 @@
     "badgeSelf": "Tuyo",
     "portalTitle": "Pases familiares / invitados",
     "portalSubtitle": "QR que conservas para niños e invitados sin reclamar"
+  },
+  "simulation": {
+    "badge": "Simulación",
+    "bannerTitle": "Checkout de simulación (modo prueba Stripe)",
+    "bannerBody": "Este evento es solo para pruebas del organizador. Usa tarjetas de prueba de Stripe — no hay cobros reales ni Connect.",
+    "doNotShare": "No compartas este enlace públicamente. Quien tenga la URL puede hacer checkouts de prueba.",
+    "futureCost": "Nota: las simulaciones podrían convertirse en una función de pago más adelante.",
+    "expiredTitle": "Esta simulación expiró",
+    "expiredBody": "Pide al organizador que reinicie la actividad o cree una nueva simulación.",
+    "categories": "Categorías",
+    "noCategories": "Aún no hay categorías. Clona un evento real o configura el shell de simulación.",
+    "register": "Inscripción de prueba",
+    "registerGroup": "Inscripción grupal de prueba",
+    "testCardsTitle": "Tarjetas de prueba Stripe",
+    "notFoundTitle": "Simulación no encontrada",
+    "notFoundBody": "El enlace no es válido o la simulación fue eliminada.",
+    "backToEvents": "Ver eventos",
+    "staffTitle": "Simulaciones",
+    "staffSubtitle": "Hasta {{max}} simulaciones activas · {{regs}} inscripciones c/u · limpieza tras {{days}} días sin actividad",
+    "createTitle": "Crear simulación",
+    "fieldTitle": "Título",
+    "fieldStart": "Fecha de inicio",
+    "fieldSport": "Deporte",
+    "fieldClone": "Clonar desde evento",
+    "pickSport": "Elige deporte",
+    "noClone": "Simulación en blanco",
+    "createCta": "Crear simulación",
+    "createRequired": "Título, deporte y fecha son obligatorios (o elige un evento a clonar).",
+    "defaultTitle": "Evento de simulación",
+    "created": "Simulación creada",
+    "empty": "Aún no hay simulaciones.",
+    "ownerOnly": "Solo el propietario de la organización puede gestionar simulaciones.",
+    "linkCopied": "Enlace mágico copiado",
+    "copyFailed": "No se pudo copiar el enlace",
+    "copyLink": "Copiar enlace",
+    "openLink": "Abrir enlace mágico",
+    "regenerate": "Nuevo enlace",
+    "reset": "Reiniciar datos",
+    "resetDone": "Datos de simulación borrados",
+    "hubHint": "Checkout de prueba con claves Stripe test. No aparece en el marketplace.",
+    "manageInHub": "Gestionar simulación",
+    "regCount": "{{count}} inscripciones de prueba",
+    "expires": "Expira {{date}}"
   }
 }

@@ -11,6 +11,10 @@ import {
   fetchStaffAnalytics,
 } from "@/store/slices/staffPortalSlice";
 import { getNumberLocale } from "@/utils/dateLocale";
+import {
+  StaffChartSkeleton,
+  StaffStatsCardsSkeleton,
+} from "@/components/staff/skeletons/StaffSkeletons";
 
 export default function StaffAnalytics() {
   const { t, i18n } = useTranslation();
@@ -123,7 +127,13 @@ export default function StaffAnalytics() {
       <PortalErrorAlert error={analyticsError} onRetry={reload} />
 
       {loadingAnalytics ? (
-        <p className="text-muted-foreground">{t("common.loading")}</p>
+        <div className="space-y-6" role="status" aria-busy="true">
+          <StaffStatsCardsSkeleton />
+          <div className="grid md:grid-cols-2 gap-4">
+            <StaffChartSkeleton />
+            <StaffChartSkeleton />
+          </div>
+        </div>
       ) : analyticsError ? null : (
         <>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

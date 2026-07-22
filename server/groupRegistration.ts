@@ -22,6 +22,7 @@ import {
   type GroupGuestParticipant,
 } from "../shared/groupCheckout.js";
 import type { RegistrationCheckoutResponse } from "../shared/api.js";
+import { normalizeApiDateOnly } from "../shared/api.js";
 import { CATEGORY_SOLD_COUNT_UNALIASED_SQL } from "./registrationCounts.js";
 import type { GroupCheckoutPaymentMetadata } from "./checkoutMetadata.js";
 import { fetchRegistrationFieldsForCategory } from "./registrationFields.js";
@@ -112,11 +113,12 @@ async function findAthleteByEmail(
 async function createGuestAthlete(
   conn: PoolConnection,
   guest: GroupGuestParticipant,
+  isSimulation = false,
 ): Promise<number> {
   const [result] = await conn.query<ResultSetHeader>(
     `INSERT INTO athletes (
-      public_uuid, email, first_name, last_name, date_of_birth, gender, preferred_language, status
-    ) VALUES (?,?,?,?,?,?, 'es', 'active')`,
+      public_uuid, email, first_name, last_name, date_of_birth, gender, preferred_language, status, is_simulation
+    ) VALUES (?,?,?,?,?,?, 'es', 'active', ?)`,
     [
       newPublicUuid(),
       normalizeParticipantEmail(guest.email),
@@ -124,6 +126,7 @@ async function createGuestAthlete(
       guest.lastName.trim(),
       guest.dateOfBirth,
       guest.gender,
+      isSimulation ? 1 : 0,
     ],
   );
   return result.insertId;
@@ -134,6 +137,7 @@ async function resolveLineParticipant(
   line: GroupCheckoutLineItemInput,
   purchaserAthleteId: number,
   eventId: number,
+  isSimulation = false,
 ): Promise<
   | {
       athleteId: number;
@@ -223,7 +227,7 @@ async function resolveLineParticipant(
       },
     };
   }
-  const athleteId = await createGuestAthlete(conn, guest);
+  const athleteId = await createGuestAthlete(conn, guest, isSimulation);
   return {
     athleteId,
     email,
@@ -243,6 +247,7 @@ export async function validateAndPriceGroupCheckout(
     feePresentation: ReturnType<typeof resolveFeePresentation>;
     requiresWaiver: boolean;
     lineItems: GroupCheckoutLineItemInput[];
+    isSimulation?: boolean;
     discount?: {
       id: number;
       code: string;
@@ -293,6 +298,7 @@ export async function validateAndPriceGroupCheckout(
         line,
         opts.purchaserAthleteId,
         opts.eventId,
+        Boolean(opts.isSimulation),
       );
       if ("status" in participant) return { ok: false, error: participant };
 
@@ -342,7 +348,7 @@ export async function validateAndPriceGroupCheckout(
       const elig = evaluateCategoryEligibility(
         category,
         participant.profile,
-        String(opts.eventStartDate).slice(0, 10),
+        opts.eventStartDate,
       );
       if (!elig.eligible) {
         return {
@@ -355,7 +361,10 @@ export async function validateAndPriceGroupCheckout(
       }
 
       if (
-        isMinorOnReferenceDate(participant.profile.date_of_birth ?? "", String(opts.eventStartDate).slice(0, 10)) &&
+        isMinorOnReferenceDate(
+          participant.profile.date_of_birth ?? "",
+          opts.eventStartDate,
+        ) &&
         !line.guardianRelationship?.trim()
       ) {
         return {
@@ -531,14 +540,17 @@ export async function finalizeGroupRegistrationOrder(
   }
 
   const [[eventMetaRow]] = await conn.query<RowDataPacket[]>(
-    "SELECT slug, start_date FROM events WHERE id = ? LIMIT 1",
+    "SELECT slug, start_date, is_simulation FROM events WHERE id = ? LIMIT 1",
     [eventId],
   );
+  const isSim = Number(eventMetaRow?.is_simulation) === 1;
   const eventYear =
     eventMetaRow?.start_date != null
-      ? String(new Date(eventMetaRow.start_date as string).getFullYear())
+      ? String(new Date(eventMetaRow.start_date as string | Date).getFullYear())
       : String(new Date().getFullYear());
-  const eventStartDate = String(eventMetaRow?.start_date ?? new Date().toISOString()).slice(0, 10);
+  const eventStartDate =
+    normalizeApiDateOnly(eventMetaRow?.start_date) ??
+    new Date().toISOString().slice(0, 10);
   const eventCode = String(eventMetaRow?.slug ?? eventId)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
@@ -547,8 +559,9 @@ export async function finalizeGroupRegistrationOrder(
   const [orderResult] = await conn.query<ResultSetHeader>(
     `INSERT INTO registration_orders (
       public_uuid, event_id, purchaser_athlete_id, payment_id, status, item_count,
-      subtotal_cents, service_fee_cents, discount_code_id, discount_amount_cents, total_cents, currency
-    ) VALUES (?,?,?,?, 'confirmed', ?, ?, ?, ?, ?, ?, ?)`,
+      subtotal_cents, service_fee_cents, discount_code_id, discount_amount_cents, total_cents, currency,
+      is_simulation
+    ) VALUES (?,?,?,?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       orderPublicUuid,
       eventId,
@@ -561,6 +574,7 @@ export async function finalizeGroupRegistrationOrder(
       meta.discountAmountCents ?? 0,
       Number(pay.amount_cents),
       pay.currency || "MXN",
+      isSim || Number(pay.is_simulation) === 1 ? 1 : 0,
     ],
   );
   const orderId = orderResult.insertId;
@@ -602,8 +616,9 @@ export async function finalizeGroupRegistrationOrder(
       `INSERT INTO registrations (
         public_uuid, event_id, event_category_id, athlete_id, registration_number,
         folio_segment_id, qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
-        discount_code_id, currency, source, payment_id, order_id, purchaser_athlete_id, guest_claim_token
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        discount_code_id, currency, source, payment_id, order_id, purchaser_athlete_id, guest_claim_token,
+        is_simulation
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         regUuid,
         eventId,
@@ -624,6 +639,7 @@ export async function finalizeGroupRegistrationOrder(
         orderId,
         purchaserAthleteId,
         guestClaimToken,
+        isSim || Number(pay.is_simulation) === 1 ? 1 : 0,
       ],
     );
     const registrationId = regInsert.insertId;

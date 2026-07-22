@@ -1,4 +1,10 @@
-import type { Express, NextFunction, RequestHandler, Request, Response } from "express";
+import type {
+  Express,
+  NextFunction,
+  RequestHandler,
+  Request,
+  Response,
+} from "express";
 import crypto from "crypto";
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import {
@@ -16,6 +22,10 @@ import { handleEventAssetUpload } from "./eventAssetUpload.js";
 import { handleStaffImageProxy } from "./staffImageProxy.js";
 import { normalizeCdnUploadUrl } from "./cdnUpload.js";
 import {
+  deactivateEventFromListing,
+  softDeleteStaffEvent,
+} from "./eventLifecycle.js";
+import {
   normalizeEventBibMode,
   resolveRegistrationBibNumber,
 } from "./bibMode.js";
@@ -27,8 +37,12 @@ import {
   syncEventWaivers,
   validateEventPublishWaivers,
 } from "./eventWaivers.js";
-import { eventEndWallTime, parseIncomingEventDateTime } from "../shared/checkInWindow.js";
+import {
+  eventEndWallTime,
+  parseIncomingEventDateTime,
+} from "../shared/checkInWindow.js";
 import { isMinorOnReferenceDate } from "../shared/groupCheckout.js";
+import { normalizeApiDateOnly } from "../shared/api.js";
 import { validateCoursePayload } from "../shared/courseValidation.js";
 import { normalizeEventCourse } from "../shared/courseNormalize.js";
 import {
@@ -49,7 +63,10 @@ import {
   loadOrganizerConnectRow,
   registerStripeConnectRoutes,
 } from "./stripeConnect.js";
-import { isOrganizerPayoutReady, isTribooPayoutProfileComplete } from "../shared/stripeConnect.js";
+import {
+  isOrganizerPayoutReady,
+  isTribooPayoutProfileComplete,
+} from "../shared/stripeConnect.js";
 import {
   canOrganizerCreateEvents,
   canOrganizerEditEvents,
@@ -288,12 +305,17 @@ export async function listOrganizerMemberEvents(
   memberId: number,
   organizerId: number,
 ): Promise<RowDataPacket[]> {
-  const result = await listOrganizerMemberEventsPaginated(pool, memberId, organizerId, {
-    page: 1,
-    limit: 100,
-    sortBy: "start_date",
-    sortDir: "DESC",
-  });
+  const result = await listOrganizerMemberEventsPaginated(
+    pool,
+    memberId,
+    organizerId,
+    {
+      page: 1,
+      limit: 100,
+      sortBy: "start_date",
+      sortDir: "DESC",
+    },
+  );
   return result.events as unknown as RowDataPacket[];
 }
 
@@ -304,6 +326,7 @@ export async function listOrganizerMemberEventsPaginated(
   options: {
     q?: string;
     status?: string;
+    simulation?: "all" | "0" | "1";
     page?: unknown;
     limit?: unknown;
     sortBy?: unknown;
@@ -382,7 +405,8 @@ async function fetchStaffEventDetail(
             e.hero_image_url, e.requires_waiver, e.fee_presentation, e.service_fee_percent,
             e.submitted_for_approval_at, e.approval_rejection_reason,
             ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count, e.max_registrations,
-            e.max_registrations_per_order, e.bib_mode,
+            e.max_registrations_per_order, e.bib_mode, e.auto_deactivate_after_event, e.is_simulation,
+            e.simulation_access_token, e.simulation_expires_at, e.simulation_last_activity_at,
             st.name AS sport_name, o.name AS organizer_name,
             o.fee_presentation AS organizer_fee_presentation,
             o.service_fee_percent AS organizer_service_fee_percent
@@ -408,7 +432,10 @@ async function fetchEventCategories(pool: Pool, eventId: number) {
   return rows;
 }
 
-async function assertEventExists(pool: Pool, eventId: number): Promise<boolean> {
+async function assertEventExists(
+  pool: Pool,
+  eventId: number,
+): Promise<boolean> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT id FROM events WHERE id = ? AND deleted_at IS NULL LIMIT 1",
     [eventId],
@@ -431,7 +458,9 @@ function parseListQuery(opts: ListQueryOptions) {
   const page = Math.max(1, Number(opts.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(opts.limit) || 20));
   const sortKey = String(opts.sortBy ?? opts.defaultSort ?? "created_at");
-  const sortCol = opts.sortColumns[sortKey] ?? opts.sortColumns[opts.defaultSort ?? "created_at"];
+  const sortCol =
+    opts.sortColumns[sortKey] ??
+    opts.sortColumns[opts.defaultSort ?? "created_at"];
   const sortDir: SortDir =
     String(opts.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
   return {
@@ -590,7 +619,10 @@ async function listEventHubRegistrations(
     Boolean(eventRow?.requires_waiver),
   );
 
-  return { registrations: enriched, pagination: buildPagination(page, limit, total) };
+  return {
+    registrations: enriched,
+    pagination: buildPagination(page, limit, total),
+  };
 }
 
 const ATHLETE_SORT_COLUMNS: Record<string, string> = {
@@ -720,13 +752,17 @@ export async function listAdminOrganizers(
 
   const params: string[] = [];
   let filters = " WHERE o.deleted_at IS NULL";
-  if (options.status && ["pending", "active", "suspended", "inactive"].includes(options.status)) {
+  if (
+    options.status &&
+    ["pending", "active", "suspended", "inactive"].includes(options.status)
+  ) {
     filters += " AND o.status = ?";
     params.push(options.status);
   }
   if (options.q) {
     const like = `%${options.q}%`;
-    filters += " AND (o.name LIKE ? OR o.email LIKE ? OR o.slug LIKE ? OR o.city LIKE ?)";
+    filters +=
+      " AND (o.name LIKE ? OR o.email LIKE ? OR o.slug LIKE ? OR o.city LIKE ?)";
     params.push(like, like, like, like);
   }
 
@@ -804,7 +840,10 @@ export async function listAdminStaff(
   return { admins: rows, pagination: buildPagination(page, limit, total) };
 }
 
-async function getAdminRole(pool: Pool, adminId: number): Promise<string | null> {
+async function getAdminRole(
+  pool: Pool,
+  adminId: number,
+): Promise<string | null> {
   const [[row]] = await pool.query<RowDataPacket[]>(
     "SELECT role FROM admins WHERE id = ? AND deleted_at IS NULL LIMIT 1",
     [adminId],
@@ -847,7 +886,21 @@ export async function listAdminPayments(
 
   const params: (string | number)[] = [];
   let filters = " WHERE 1=1";
-  if (options.status && ["pending", "processing", "succeeded", "failed", "refunded", "partially_refunded"].includes(options.status)) {
+  // Keep simulation payments out of global revenue lists; allow when scoped to an event.
+  if (options.eventId == null) {
+    filters += " AND COALESCE(p.is_simulation, 0) = 0";
+  }
+  if (
+    options.status &&
+    [
+      "pending",
+      "processing",
+      "succeeded",
+      "failed",
+      "refunded",
+      "partially_refunded",
+    ].includes(options.status)
+  ) {
     filters += " AND p.status = ?";
     params.push(options.status);
   }
@@ -859,7 +912,10 @@ export async function listAdminPayments(
     filters += " AND p.event_id = ?";
     params.push(options.eventId);
   }
-  if (options.provider && ["stripe", "mock", "manual"].includes(options.provider)) {
+  if (
+    options.provider &&
+    ["stripe", "mock", "manual"].includes(options.provider)
+  ) {
     filters += " AND p.provider = ?";
     params.push(options.provider);
   }
@@ -1095,7 +1151,10 @@ async function fetchStaffRegistrationDetail(
       )
     : [[] as RowDataPacket[]];
 
-  const purchased_extras = await fetchRegistrationPurchasedExtras(pool, registrationId);
+  const purchased_extras = await fetchRegistrationPurchasedExtras(
+    pool,
+    registrationId,
+  );
 
   let order_mates: Array<{
     id: number;
@@ -1133,7 +1192,9 @@ async function fetchStaffRegistrationDetail(
         athlete_email: (enriched.athlete_email as string | null) ?? null,
         guest_claim_pending: enriched.guest_claim_pending,
         is_managed_participant: enriched.is_managed_participant,
-        qr_code_token: enriched.qr_code_token ? String(enriched.qr_code_token) : undefined,
+        qr_code_token: enriched.qr_code_token
+          ? String(enriched.qr_code_token)
+          : undefined,
       };
     });
     reg.order_sibling_count = order_mates.length + 1;
@@ -1153,19 +1214,24 @@ async function fetchStaffRegistrationDetail(
   };
 }
 
-function enrichRegistrationPartyFlags<T extends RowDataPacket>(row: T): T & {
+function enrichRegistrationPartyFlags<T extends RowDataPacket>(
+  row: T,
+): T & {
   guest_claim_pending: boolean;
   is_managed_participant: boolean;
 } {
   const guestClaimPending = Boolean(row.guest_claim_token);
-  const purchaserId = row.purchaser_athlete_id != null ? Number(row.purchaser_athlete_id) : null;
+  const purchaserId =
+    row.purchaser_athlete_id != null ? Number(row.purchaser_athlete_id) : null;
   const athleteId = row.athlete_id != null ? Number(row.athlete_id) : null;
   const isManaged =
     purchaserId != null &&
     athleteId != null &&
     purchaserId !== athleteId &&
     !guestClaimPending;
-  const { guest_claim_token: _token, ...rest } = row as T & { guest_claim_token?: string | null };
+  const { guest_claim_token: _token, ...rest } = row as T & {
+    guest_claim_token?: string | null;
+  };
   return {
     ...(rest as T),
     guest_claim_pending: guestClaimPending,
@@ -1201,6 +1267,9 @@ export async function listStaffRegistrations(
   if (options.eventId != null) {
     filters += " AND r.event_id = ?";
     params.push(options.eventId);
+  } else {
+    filters +=
+      " AND COALESCE(r.is_simulation, 0) = 0 AND COALESCE(e.is_simulation, 0) = 0";
   }
   if (options.q) {
     const like = `%${options.q}%`;
@@ -1314,11 +1383,22 @@ function mountEventHubRoutes(
     getStripeClient?: () => import("stripe").default | null;
     deliverRegistrationConfirmedEmail?: (
       registrationId: number,
-    ) => Promise<{ sent: boolean; skipped?: boolean; error?: string } | unknown>;
+    ) => Promise<
+      { sent: boolean; skipped?: boolean; error?: string } | unknown
+    >;
   },
-  canMutate?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
-  canRecordManualSale?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
-  canMutateRegistrationOps?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
+  canMutate?: (
+    req: AuthedRequest,
+    eventId: number,
+  ) => Promise<OrganizerMutateGate>,
+  canRecordManualSale?: (
+    req: AuthedRequest,
+    eventId: number,
+  ) => Promise<OrganizerMutateGate>,
+  canMutateRegistrationOps?: (
+    req: AuthedRequest,
+    eventId: number,
+  ) => Promise<OrganizerMutateGate>,
 ) {
   async function assertEventRead(
     req: AuthedRequest,
@@ -1348,7 +1428,9 @@ function mountEventHubRoutes(
     if (canMutate) {
       const gate = await canMutate(req, eventId);
       if (gate === "forbidden") {
-        res.status(403).json({ error: "Insufficient permissions to edit events" });
+        res
+          .status(403)
+          .json({ error: "Insufficient permissions to edit events" });
         return false;
       }
       if (gate !== "ok") {
@@ -1377,7 +1459,11 @@ function mountEventHubRoutes(
     if (canMutateRegistrationOps) {
       const gate = await canMutateRegistrationOps(req, eventId);
       if (gate === "forbidden") {
-        res.status(403).json({ error: "Insufficient permissions for registration operations" });
+        res
+          .status(403)
+          .json({
+            error: "Insufficient permissions for registration operations",
+          });
         return false;
       }
       if (gate !== "ok") {
@@ -1405,7 +1491,9 @@ function mountEventHubRoutes(
     if (canRecordManualSale) {
       const gate = await canRecordManualSale(req, eventId);
       if (gate === "forbidden") {
-        res.status(403).json({ error: "Insufficient permissions to record manual sales" });
+        res
+          .status(403)
+          .json({ error: "Insufficient permissions to record manual sales" });
         return false;
       }
       if (gate !== "ok") {
@@ -1417,44 +1505,56 @@ function mountEventHubRoutes(
     return assertEventWrite(req, res, eventId);
   }
 
-  app.get(`${basePath}/:eventId/summary`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertEventRead(req, res, eventId))) return;
-    const summary = await fetchEventHubSummary(
-      pool,
-      eventId,
-      hubHelpers.getStripeClient?.() ?? null,
-    );
-    res.json({ summary });
-  });
+  app.get(
+    `${basePath}/:eventId/summary`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventRead(req, res, eventId))) return;
+      const summary = await fetchEventHubSummary(
+        pool,
+        eventId,
+        hubHelpers.getStripeClient?.() ?? null,
+      );
+      res.json({ summary });
+    },
+  );
 
-  app.get(`${basePath}/:eventId/registrations`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertEventRead(req, res, eventId))) return;
-    const q = String(req.query.q ?? "").trim();
-    const result = await listEventHubRegistrations(pool, eventId, {
-      q: q || undefined,
-      page: req.query.page,
-      limit: req.query.limit,
-      sortBy: req.query.sortBy,
-      sortDir: req.query.sortDir,
-    });
-    res.json(result);
-  });
+  app.get(
+    `${basePath}/:eventId/registrations`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventRead(req, res, eventId))) return;
+      const q = String(req.query.q ?? "").trim();
+      const result = await listEventHubRegistrations(pool, eventId, {
+        q: q || undefined,
+        page: req.query.page,
+        limit: req.query.limit,
+        sortBy: req.query.sortBy,
+        sortDir: req.query.sortDir,
+      });
+      res.json(result);
+    },
+  );
 
-  app.get(`${basePath}/:eventId/check-in/window`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertEventRead(req, res, eventId))) return;
-    const ctx = await loadEventCheckInContext(pool, eventId);
-    if (!ctx) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const window = evaluateEventCheckInWindow(ctx);
-    res.json({
-      window: checkInWindowResponsePayload(ctx, window),
-      canBypassWindow: req.auth!.actor === "admin",
-    });
-  });
+  app.get(
+    `${basePath}/:eventId/check-in/window`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventRead(req, res, eventId))) return;
+      const ctx = await loadEventCheckInContext(pool, eventId);
+      if (!ctx) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const window = evaluateEventCheckInWindow(ctx);
+      res.json({
+        window: checkInWindowResponsePayload(ctx, window),
+        canBypassWindow: req.auth!.actor === "admin",
+      });
+    },
+  );
 
   app.get(
     `${basePath}/:eventId/registrations/lookup`,
@@ -1462,7 +1562,11 @@ function mountEventHubRoutes(
     async (req: AuthedRequest, res) => {
       const eventId = Number(req.params.eventId);
       if (!(await assertEventRead(req, res, eventId))) return;
-      if (await enforceCheckInWindow(pool, res, eventId, req, { allowAdminLookupBypass: true })) {
+      if (
+        await enforceCheckInWindow(pool, res, eventId, req, {
+          allowAdminLookupBypass: true,
+        })
+      ) {
         return;
       }
       const q = String(req.query.q ?? "").trim();
@@ -1493,14 +1597,19 @@ function mountEventHubRoutes(
       const registration = rows[0];
       let waiver_outdated = false;
       if (Boolean(registration.requires_waiver)) {
-        const status = await getRegistrationWaiverStatus(pool, registration.id as number);
+        const status = await getRegistrationWaiverStatus(
+          pool,
+          registration.id as number,
+        );
         waiver_outdated = status.outdated;
       }
       const purchased_extras = await fetchRegistrationPurchasedExtras(
         pool,
         registration.id as number,
       );
-      res.json({ registration: { ...registration, waiver_outdated, purchased_extras } });
+      res.json({
+        registration: { ...registration, waiver_outdated, purchased_extras },
+      });
     },
   );
 
@@ -1518,12 +1627,18 @@ function mountEventHubRoutes(
         return;
       }
 
-      const reg = await assertRegistrationInEvent(pool, registrationId, eventId);
+      const reg = await assertRegistrationInEvent(
+        pool,
+        registrationId,
+        eventId,
+      );
       if (!reg) {
         return res.status(404).json({ error: "Registration not found" });
       }
       if (reg.status !== "confirmed") {
-        return res.status(400).json({ error: "Only confirmed registrations can be checked in" });
+        return res
+          .status(400)
+          .json({ error: "Only confirmed registrations can be checked in" });
       }
       if (reg.checked_in_at) {
         return res.status(409).json({ error: "Already checked in" });
@@ -1534,7 +1649,10 @@ function mountEventHubRoutes(
         [eventId],
       );
       const forceCheckIn = Boolean(req.body?.force);
-      const waiverStatus = await getRegistrationWaiverStatus(pool, registrationId);
+      const waiverStatus = await getRegistrationWaiverStatus(
+        pool,
+        registrationId,
+      );
       if (Boolean(eventRow?.requires_waiver) && !forceCheckIn) {
         if (!reg.waiver_signed_at || waiverStatus.outdated) {
           return res.status(400).json({
@@ -1625,7 +1743,11 @@ function mountEventHubRoutes(
           ? null
           : String(bibRaw).trim().slice(0, 30);
 
-      const reg = await assertRegistrationInEvent(pool, registrationId, eventId);
+      const reg = await assertRegistrationInEvent(
+        pool,
+        registrationId,
+        eventId,
+      );
       if (!reg) {
         return res.status(404).json({ error: "Registration not found" });
       }
@@ -1664,15 +1786,23 @@ function mountEventHubRoutes(
       }
       if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
 
-      const reg = await assertRegistrationInEvent(pool, registrationId, eventId);
+      const reg = await assertRegistrationInEvent(
+        pool,
+        registrationId,
+        eventId,
+      );
       if (!reg) {
         return res.status(404).json({ error: "Registration not found" });
       }
       if (reg.status === "cancelled") {
-        return res.status(409).json({ error: "Registration is already cancelled" });
+        return res
+          .status(409)
+          .json({ error: "Registration is already cancelled" });
       }
       if (reg.status === "refunded" || reg.status === "transferred") {
-        return res.status(400).json({ error: "Registration cannot be cancelled" });
+        return res
+          .status(400)
+          .json({ error: "Registration cannot be cancelled" });
       }
 
       const conn = await pool.getConnection();
@@ -1722,59 +1852,68 @@ function mountEventHubRoutes(
     },
   );
 
-  app.post(`${basePath}/:eventId/registrations/bulk-bib`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
+  app.post(
+    `${basePath}/:eventId/registrations/bulk-bib`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertRegistrationOpsWrite(req, res, eventId))) return;
 
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    if (rows.length === 0) {
-      return res.status(400).json({ error: "rows array required" });
-    }
-    if (rows.length > 500) {
-      return res.status(400).json({ error: "Maximum 500 rows per import" });
-    }
-
-    let updated = 0;
-    const errors: Array<{ folio: string; error: string }> = [];
-
-    for (const row of rows) {
-      const folio = String(row?.folio ?? "").trim();
-      const bib = String(row?.bib ?? "").trim().slice(0, 30);
-      if (!folio || !bib) {
-        errors.push({ folio: folio || "?", error: "folio and bib required" });
-        continue;
+      const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+      if (rows.length === 0) {
+        return res.status(400).json({ error: "rows array required" });
+      }
+      if (rows.length > 500) {
+        return res.status(400).json({ error: "Maximum 500 rows per import" });
       }
 
-      const [regRows] = await pool.query<RowDataPacket[]>(
-        `SELECT r.id FROM registrations r
+      let updated = 0;
+      const errors: Array<{ folio: string; error: string }> = [];
+
+      for (const row of rows) {
+        const folio = String(row?.folio ?? "").trim();
+        const bib = String(row?.bib ?? "")
+          .trim()
+          .slice(0, 30);
+        if (!folio || !bib) {
+          errors.push({ folio: folio || "?", error: "folio and bib required" });
+          continue;
+        }
+
+        const [regRows] = await pool.query<RowDataPacket[]>(
+          `SELECT r.id FROM registrations r
          WHERE r.event_id = ? AND r.registration_number = ? AND r.deleted_at IS NULL LIMIT 1`,
-        [eventId, folio],
-      );
-      if (regRows.length === 0) {
-        errors.push({ folio, error: "Registration not found" });
-        continue;
-      }
-      const regId = regRows[0].id as number;
+          [eventId, folio],
+        );
+        if (regRows.length === 0) {
+          errors.push({ folio, error: "Registration not found" });
+          continue;
+        }
+        const regId = regRows[0].id as number;
 
-      const [dup] = await pool.query<RowDataPacket[]>(
-        `SELECT id FROM registrations
+        const [dup] = await pool.query<RowDataPacket[]>(
+          `SELECT id FROM registrations
          WHERE event_id = ? AND bib_number = ? AND id <> ? AND deleted_at IS NULL LIMIT 1`,
-        [eventId, bib, regId],
-      );
-      if (dup.length > 0) {
-        errors.push({ folio, error: "Bib number already assigned in this event" });
-        continue;
+          [eventId, bib, regId],
+        );
+        if (dup.length > 0) {
+          errors.push({
+            folio,
+            error: "Bib number already assigned in this event",
+          });
+          continue;
+        }
+
+        await pool.query<ResultSetHeader>(
+          "UPDATE registrations SET bib_number = ? WHERE id = ?",
+          [bib, regId],
+        );
+        updated += 1;
       }
 
-      await pool.query<ResultSetHeader>(
-        "UPDATE registrations SET bib_number = ? WHERE id = ?",
-        [bib, regId],
-      );
-      updated += 1;
-    }
-
-    res.json({ updated, errors });
-  });
+      res.json({ updated, errors });
+    },
+  );
 
   app.get(
     `${basePath}/:eventId/registrations/export-catalog`,
@@ -1830,7 +1969,11 @@ function mountEventHubRoutes(
         return res.status(400).json({ error: "Invalid id" });
       }
       if (!(await assertEventRead(req, res, eventId))) return;
-      const detail = await fetchStaffRegistrationDetail(pool, eventId, registrationId);
+      const detail = await fetchStaffRegistrationDetail(
+        pool,
+        eventId,
+        registrationId,
+      );
       if (!detail) {
         return res.status(404).json({ error: "Registration not found" });
       }
@@ -1838,318 +1981,360 @@ function mountEventHubRoutes(
     },
   );
 
-  app.post(`${basePath}/:eventId/registrations`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    const manualSale = Boolean(req.body?.manual_sale);
-    if (manualSale) {
-      if (!(await assertManualSaleWrite(req, res, eventId))) return;
-    } else if (!(await assertEventWrite(req, res, eventId))) {
-      return;
-    }
+  app.post(
+    `${basePath}/:eventId/registrations`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      const manualSale = Boolean(req.body?.manual_sale);
+      if (manualSale) {
+        if (!(await assertManualSaleWrite(req, res, eventId))) return;
+      } else if (!(await assertEventWrite(req, res, eventId))) {
+        return;
+      }
 
-    const categoryId = Number(req.body?.event_category_id);
-    if (!Number.isFinite(categoryId)) {
-      return res.status(400).json({ error: "event_category_id required" });
-    }
+      const categoryId = Number(req.body?.event_category_id);
+      if (!Number.isFinite(categoryId)) {
+        return res.status(400).json({ error: "event_category_id required" });
+      }
 
-    let athleteId = req.body?.athlete_id != null ? Number(req.body.athlete_id) : null;
-    const athleteEmail = String(req.body?.athlete_email ?? "")
-      .trim()
-      .toLowerCase();
-    const createGuest = Boolean(req.body?.create_guest);
-    let guestClaimToken: string | null = null;
-    let purchaserAthleteId: number | null =
-      req.body?.purchaser_athlete_id != null ? Number(req.body.purchaser_athlete_id) : null;
-    const managedByPurchaser = Boolean(req.body?.managed_by_purchaser);
+      let athleteId =
+        req.body?.athlete_id != null ? Number(req.body.athlete_id) : null;
+      const athleteEmail = String(req.body?.athlete_email ?? "")
+        .trim()
+        .toLowerCase();
+      const createGuest = Boolean(req.body?.create_guest);
+      let guestClaimToken: string | null = null;
+      let purchaserAthleteId: number | null =
+        req.body?.purchaser_athlete_id != null
+          ? Number(req.body.purchaser_athlete_id)
+          : null;
+      const managedByPurchaser = Boolean(req.body?.managed_by_purchaser);
 
-    if (!athleteId && athleteEmail) {
-      const [athRows] = await pool.query<RowDataPacket[]>(
-        "SELECT id FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1",
-        [athleteEmail],
-      );
-      if (athRows.length === 0) {
-        if (!createGuest) {
-          return res.status(404).json({ error: "Athlete not found" });
-        }
-        const firstName = String(req.body?.guest_first_name ?? "").trim();
-        const lastName = String(req.body?.guest_last_name ?? "").trim();
-        const dob = String(req.body?.guest_date_of_birth ?? "").trim();
-        const gender = String(req.body?.guest_gender ?? "prefer_not_to_say").trim();
-        if (!firstName || !lastName || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
-          return res.status(400).json({
-            error: "guest_first_name, guest_last_name, and guest_date_of_birth (YYYY-MM-DD) required",
-          });
-        }
-        const [eventRowForAge] = await pool.query<RowDataPacket[]>(
-          "SELECT start_date FROM events WHERE id = ? LIMIT 1",
-          [eventId],
+      if (!athleteId && athleteEmail) {
+        const [athRows] = await pool.query<RowDataPacket[]>(
+          "SELECT id FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1",
+          [athleteEmail],
         );
-        const eventStart = String(eventRowForAge[0]?.start_date ?? new Date().toISOString()).slice(
-          0,
-          10,
-        );
-        const isMinor = isMinorOnReferenceDate(dob, eventStart);
-        const isManaged = managedByPurchaser || isMinor;
-        if (purchaserAthleteId == null && req.body?.purchaser_email) {
-          const purchaserEmail = String(req.body.purchaser_email).trim().toLowerCase();
-          const [pRows] = await pool.query<RowDataPacket[]>(
-            "SELECT id FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1",
-            [purchaserEmail],
+        if (athRows.length === 0) {
+          if (!createGuest) {
+            return res.status(404).json({ error: "Athlete not found" });
+          }
+          const firstName = String(req.body?.guest_first_name ?? "").trim();
+          const lastName = String(req.body?.guest_last_name ?? "").trim();
+          const dob = String(req.body?.guest_date_of_birth ?? "").trim();
+          const gender = String(
+            req.body?.guest_gender ?? "prefer_not_to_say",
+          ).trim();
+          if (!firstName || !lastName || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+            return res.status(400).json({
+              error:
+                "guest_first_name, guest_last_name, and guest_date_of_birth (YYYY-MM-DD) required",
+            });
+          }
+          const [eventRowForAge] = await pool.query<RowDataPacket[]>(
+            "SELECT start_date FROM events WHERE id = ? LIMIT 1",
+            [eventId],
           );
-          if (pRows.length) purchaserAthleteId = Number(pRows[0].id);
-        }
-        if (isManaged && purchaserAthleteId == null) {
-          return res.status(400).json({
-            error:
-              "purchaser_email or purchaser_athlete_id required for managed / minor guests",
-            code: "purchaser_required",
-          });
-        }
-        const [ins] = await pool.query<ResultSetHeader>(
-          `INSERT INTO athletes (
+          const eventStart =
+            normalizeApiDateOnly(eventRowForAge[0]?.start_date) ??
+            new Date().toISOString().slice(0, 10);
+          const isMinor = isMinorOnReferenceDate(dob, eventStart);
+          const isManaged = managedByPurchaser || isMinor;
+          if (purchaserAthleteId == null && req.body?.purchaser_email) {
+            const purchaserEmail = String(req.body.purchaser_email)
+              .trim()
+              .toLowerCase();
+            const [pRows] = await pool.query<RowDataPacket[]>(
+              "SELECT id FROM athletes WHERE email = ? AND deleted_at IS NULL LIMIT 1",
+              [purchaserEmail],
+            );
+            if (pRows.length) purchaserAthleteId = Number(pRows[0].id);
+          }
+          if (isManaged && purchaserAthleteId == null) {
+            return res.status(400).json({
+              error:
+                "purchaser_email or purchaser_athlete_id required for managed / minor guests",
+              code: "purchaser_required",
+            });
+          }
+          const [ins] = await pool.query<ResultSetHeader>(
+            `INSERT INTO athletes (
              public_uuid, email, first_name, last_name, date_of_birth, gender, preferred_language, status
            ) VALUES (?,?,?,?,?,?, 'es', 'active')`,
-          [hubHelpers.newPublicUuid(), athleteEmail, firstName, lastName, dob, gender],
-        );
-        athleteId = ins.insertId;
-        if (!isManaged) {
-          guestClaimToken = crypto.randomUUID();
+            [
+              hubHelpers.newPublicUuid(),
+              athleteEmail,
+              firstName,
+              lastName,
+              dob,
+              gender,
+            ],
+          );
+          athleteId = ins.insertId;
+          if (!isManaged) {
+            guestClaimToken = crypto.randomUUID();
+          }
+        } else {
+          athleteId = Number(athRows[0].id);
         }
-      } else {
-        athleteId = Number(athRows[0].id);
       }
-    }
-    if (!athleteId || !Number.isFinite(athleteId)) {
-      return res.status(400).json({ error: "athlete_id or athlete_email required" });
-    }
+      if (!athleteId || !Number.isFinite(athleteId)) {
+        return res
+          .status(400)
+          .json({ error: "athlete_id or athlete_email required" });
+      }
 
-    const comp = Boolean(req.body?.comp);
-    if (manualSale && comp) {
-      return res.status(400).json({ error: "manual_sale cannot be combined with comp" });
-    }
-    const waiverWaived = Boolean(req.body?.waiver_waived);
-    const bib_number_raw = req.body?.bib_number
-      ? String(req.body.bib_number).trim().slice(0, 30)
-      : null;
+      const comp = Boolean(req.body?.comp);
+      if (manualSale && comp) {
+        return res
+          .status(400)
+          .json({ error: "manual_sale cannot be combined with comp" });
+      }
+      const waiverWaived = Boolean(req.body?.waiver_waived);
+      const bib_number_raw = req.body?.bib_number
+        ? String(req.body.bib_number).trim().slice(0, 30)
+        : null;
 
-    const [[category]] = await pool.query<RowDataPacket[]>(
-      `SELECT ec.id, ec.price_cents, ec.capacity, ec.sold_count, ec.currency, e.organizer_id,
+      const [[category]] = await pool.query<RowDataPacket[]>(
+        `SELECT ec.id, ec.price_cents, ec.capacity, ec.sold_count, ec.currency, e.organizer_id,
               e.requires_waiver, e.service_fee_percent, e.bib_mode, o.service_fee_percent AS org_fee_percent
        FROM event_categories ec
        JOIN events e ON e.id = ec.event_id AND e.deleted_at IS NULL
        JOIN organizers o ON o.id = e.organizer_id
        WHERE ec.id = ? AND ec.event_id = ? AND ec.is_active = 1
        LIMIT 1`,
-      [categoryId, eventId],
-    );
-    if (!category) {
-      return res.status(404).json({ error: "Category not found" });
-    }
+        [categoryId, eventId],
+      );
+      if (!category) {
+        return res.status(404).json({ error: "Category not found" });
+      }
 
-    if (Boolean(category.requires_waiver) && !waiverWaived) {
-      return res.status(400).json({
-        error: "This event requires a waiver — confirm waiver waived for manual registration",
-      });
-    }
-
-    const [dupReg] = await pool.query<RowDataPacket[]>(
-      `SELECT id FROM registrations
-       WHERE event_id = ? AND athlete_id = ? AND status IN ('confirmed','pending_payment')
-         AND deleted_at IS NULL LIMIT 1`,
-      [eventId, athleteId],
-    );
-    if (dupReg.length > 0) {
-      return res.status(409).json({ error: "Athlete already registered for this event" });
-    }
-
-    if (
-      category.capacity != null &&
-      Number(category.sold_count) >= Number(category.capacity)
-    ) {
-      return res.status(409).json({ error: "Category is sold out" });
-    }
-
-    const priceCents = comp ? 0 : Number(category.price_cents);
-    const feePercent = Number(
-      category.service_fee_percent ?? category.org_fee_percent ?? 11,
-    );
-    let serviceFeeCents = 0;
-    let totalCents = 0;
-    if (manualSale) {
-      if (priceCents <= 0) {
+      if (Boolean(category.requires_waiver) && !waiverWaived) {
         return res.status(400).json({
-          error: "Manual sales require a paid category — use comp for free entries",
+          error:
+            "This event requires a waiver — confirm waiver waived for manual registration",
         });
       }
-      serviceFeeCents = 0;
-      totalCents = priceCents;
-    } else {
-      serviceFeeCents = comp ? 0 : Math.round(priceCents * (feePercent / 100));
-      totalCents = priceCents + serviceFeeCents;
-    }
 
-    if (!manualSale && !comp && totalCents > 0) {
-      return res.status(400).json({
-        error:
-          "Paid manual registrations require comp mode or manual_sale — athletes must checkout online for standard paid entries",
-      });
-    }
-    const [[eventMetaRow]] = await pool.query<RowDataPacket[]>(
-      "SELECT slug, starts_at FROM events WHERE id = ? LIMIT 1",
-      [eventId],
-    );
-    const eventStartsAt = eventMetaRow?.starts_at as string | Date | null | undefined;
-    const eventYear =
-      eventStartsAt != null
-        ? String(new Date(eventStartsAt).getFullYear())
-        : String(new Date().getFullYear());
-    const eventCode = String(eventMetaRow?.slug ?? eventId)
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "")
-      .slice(0, 8);
-
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-
-      const { registrationNumber: regNumber, folioSegmentId } =
-        await hubHelpers.nextRegistrationNumber(
-          {
-            eventId,
-            categoryId,
-            discountCodeId: null,
-            eventYear,
-            eventCode,
-          },
-          conn,
-        );
-      const qrToken = hubHelpers.newQrToken();
-      const regUuid = hubHelpers.newPublicUuid();
-      const bib_number = resolveRegistrationBibNumber({
-        registrationNumber: regNumber,
-        bibMode: normalizeEventBibMode(category.bib_mode),
-        explicitBib: bib_number_raw,
-      });
-
-      if (bib_number) {
-        const [dupBib] = await conn.query<RowDataPacket[]>(
-          `SELECT id FROM registrations
-           WHERE event_id = ? AND bib_number = ? AND deleted_at IS NULL LIMIT 1`,
-          [eventId, bib_number],
-        );
-        if (dupBib.length > 0) {
-          await conn.rollback();
-          return res.status(409).json({ error: "Bib number already assigned" });
-        }
+      const [dupReg] = await pool.query<RowDataPacket[]>(
+        `SELECT id FROM registrations
+       WHERE event_id = ? AND athlete_id = ? AND status IN ('confirmed','pending_payment')
+         AND deleted_at IS NULL LIMIT 1`,
+        [eventId, athleteId],
+      );
+      if (dupReg.length > 0) {
+        return res
+          .status(409)
+          .json({ error: "Athlete already registered for this event" });
       }
 
-      const [regResult] = await conn.query<ResultSetHeader>(
-        `INSERT INTO registrations (
+      if (
+        category.capacity != null &&
+        Number(category.sold_count) >= Number(category.capacity)
+      ) {
+        return res.status(409).json({ error: "Category is sold out" });
+      }
+
+      const priceCents = comp ? 0 : Number(category.price_cents);
+      const feePercent = Number(
+        category.service_fee_percent ?? category.org_fee_percent ?? 11,
+      );
+      let serviceFeeCents = 0;
+      let totalCents = 0;
+      if (manualSale) {
+        if (priceCents <= 0) {
+          return res.status(400).json({
+            error:
+              "Manual sales require a paid category — use comp for free entries",
+          });
+        }
+        serviceFeeCents = 0;
+        totalCents = priceCents;
+      } else {
+        serviceFeeCents = comp
+          ? 0
+          : Math.round(priceCents * (feePercent / 100));
+        totalCents = priceCents + serviceFeeCents;
+      }
+
+      if (!manualSale && !comp && totalCents > 0) {
+        return res.status(400).json({
+          error:
+            "Paid manual registrations require comp mode or manual_sale — athletes must checkout online for standard paid entries",
+        });
+      }
+      const [[eventMetaRow]] = await pool.query<RowDataPacket[]>(
+        "SELECT slug, start_date FROM events WHERE id = ? LIMIT 1",
+        [eventId],
+      );
+      const eventStartsAt = eventMetaRow?.start_date as
+        | string
+        | Date
+        | null
+        | undefined;
+      const eventYear =
+        eventStartsAt != null
+          ? String(new Date(eventStartsAt).getFullYear())
+          : String(new Date().getFullYear());
+      const eventCode = String(eventMetaRow?.slug ?? eventId)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 8);
+
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        const { registrationNumber: regNumber, folioSegmentId } =
+          await hubHelpers.nextRegistrationNumber(
+            {
+              eventId,
+              categoryId,
+              discountCodeId: null,
+              eventYear,
+              eventCode,
+            },
+            conn,
+          );
+        const qrToken = hubHelpers.newQrToken();
+        const regUuid = hubHelpers.newPublicUuid();
+        const bib_number = resolveRegistrationBibNumber({
+          registrationNumber: regNumber,
+          bibMode: normalizeEventBibMode(category.bib_mode),
+          explicitBib: bib_number_raw,
+        });
+
+        if (bib_number) {
+          const [dupBib] = await conn.query<RowDataPacket[]>(
+            `SELECT id FROM registrations
+           WHERE event_id = ? AND bib_number = ? AND deleted_at IS NULL LIMIT 1`,
+            [eventId, bib_number],
+          );
+          if (dupBib.length > 0) {
+            await conn.rollback();
+            return res
+              .status(409)
+              .json({ error: "Bib number already assigned" });
+          }
+        }
+
+        const [regResult] = await conn.query<ResultSetHeader>(
+          `INSERT INTO registrations (
            public_uuid, event_id, event_category_id, athlete_id, registration_number,
            folio_segment_id, qr_code_token, bib_number, status, price_cents, service_fee_cents, total_cents,
            currency, source, purchaser_athlete_id, guest_claim_token
          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'admin',?,?)`,
-        [
-          regUuid,
-          eventId,
-          categoryId,
-          athleteId,
-          regNumber,
-          folioSegmentId,
-          qrToken,
-          bib_number,
-          "confirmed",
-          priceCents,
-          serviceFeeCents,
-          totalCents,
-          category.currency || "MXN",
-          purchaserAthleteId,
-          guestClaimToken,
-        ],
-      );
-      const registrationId = regResult.insertId;
+          [
+            regUuid,
+            eventId,
+            categoryId,
+            athleteId,
+            regNumber,
+            folioSegmentId,
+            qrToken,
+            bib_number,
+            "confirmed",
+            priceCents,
+            serviceFeeCents,
+            totalCents,
+            category.currency || "MXN",
+            purchaserAthleteId,
+            guestClaimToken,
+          ],
+        );
+        const registrationId = regResult.insertId;
 
-      if (comp || manualSale || totalCents === 0) {
-        const payUuid = hubHelpers.newPublicUuid();
-        const paymentProvider = manualSale ? "manual" : "mock";
-        const recordedByMemberId =
-          manualSale && req.auth?.actor === "organizer" ? req.auth.id : null;
-        const [payResult] = await conn.query<ResultSetHeader>(
-          `INSERT INTO payments (
+        if (comp || manualSale || totalCents === 0) {
+          const payUuid = hubHelpers.newPublicUuid();
+          const paymentProvider = manualSale ? "manual" : "mock";
+          const recordedByMemberId =
+            manualSale && req.auth?.actor === "organizer" ? req.auth.id : null;
+          const [payResult] = await conn.query<ResultSetHeader>(
+            `INSERT INTO payments (
              public_uuid, registration_id, athlete_id, organizer_id, event_id,
              amount_cents, registration_amount_cents, service_fee_cents, currency,
              status, provider, recorded_by_member_id, paid_at
            ) VALUES (?,?,?,?,?,?,?,?,?,'succeeded',?,?,NOW())`,
-          [
-            payUuid,
-            registrationId,
-            athleteId,
-            category.organizer_id,
-            eventId,
-            totalCents,
-            priceCents,
-            serviceFeeCents,
-            category.currency || "MXN",
-            paymentProvider,
-            recordedByMemberId,
-          ],
-        );
-        await conn.query<ResultSetHeader>(
-          "UPDATE registrations SET payment_id = ? WHERE id = ?",
-          [payResult.insertId, registrationId],
-        );
-      }
-
-      const [soldInc] = await conn.query<ResultSetHeader>(
-        `UPDATE event_categories SET sold_count = sold_count + 1
-         WHERE id = ? AND (capacity IS NULL OR sold_count < capacity)`,
-        [categoryId],
-      );
-      if (soldInc.affectedRows === 0) {
-        await conn.rollback();
-        return res.status(409).json({ error: "Category is sold out" });
-      }
-
-      const fieldValues = req.body?.field_values;
-      if (fieldValues && typeof fieldValues === "object") {
-        const [fieldRows] = await conn.query<RowDataPacket[]>(
-          `SELECT id, field_key FROM event_registration_fields
-           WHERE event_id = ? AND is_active = 1`,
-          [eventId],
-        );
-        for (const field of fieldRows) {
-          const key = field.field_key as string;
-          const raw = (fieldValues as Record<string, unknown>)[key];
-          if (raw == null || String(raw).trim() === "") continue;
+            [
+              payUuid,
+              registrationId,
+              athleteId,
+              category.organizer_id,
+              eventId,
+              totalCents,
+              priceCents,
+              serviceFeeCents,
+              category.currency || "MXN",
+              paymentProvider,
+              recordedByMemberId,
+            ],
+          );
           await conn.query<ResultSetHeader>(
-            `INSERT INTO registration_field_values (registration_id, field_id, value_text)
-             VALUES (?,?,?)`,
-            [registrationId, field.id, String(raw).trim()],
+            "UPDATE registrations SET payment_id = ? WHERE id = ?",
+            [payResult.insertId, registrationId],
           );
         }
+
+        const [soldInc] = await conn.query<ResultSetHeader>(
+          `UPDATE event_categories SET sold_count = sold_count + 1
+         WHERE id = ? AND (capacity IS NULL OR sold_count < capacity)`,
+          [categoryId],
+        );
+        if (soldInc.affectedRows === 0) {
+          await conn.rollback();
+          return res.status(409).json({ error: "Category is sold out" });
+        }
+
+        const fieldValues = req.body?.field_values;
+        if (fieldValues && typeof fieldValues === "object") {
+          const [fieldRows] = await conn.query<RowDataPacket[]>(
+            `SELECT id, field_key FROM event_registration_fields
+           WHERE event_id = ? AND is_active = 1`,
+            [eventId],
+          );
+          for (const field of fieldRows) {
+            const key = field.field_key as string;
+            const raw = (fieldValues as Record<string, unknown>)[key];
+            if (raw == null || String(raw).trim() === "") continue;
+            await conn.query<ResultSetHeader>(
+              `INSERT INTO registration_field_values (registration_id, field_id, value_text)
+             VALUES (?,?,?)`,
+              [registrationId, field.id, String(raw).trim()],
+            );
+          }
+        }
+
+        if (waiverWaived && Boolean(category.requires_waiver)) {
+          await markRegistrationWaiverWaivedByStaff(
+            conn,
+            registrationId,
+            req.auth?.id,
+          );
+        }
+
+        await conn.commit();
+
+        if (guestClaimToken && hubHelpers.deliverRegistrationConfirmedEmail) {
+          void hubHelpers
+            .deliverRegistrationConfirmedEmail(registrationId)
+            .catch((err) => console.error("[email:staff-guest-claim]", err));
+        }
+
+        const detail = await fetchStaffRegistrationDetail(
+          pool,
+          eventId,
+          registrationId,
+        );
+        res.status(201).json(detail);
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
       }
-
-      if (waiverWaived && Boolean(category.requires_waiver)) {
-        await markRegistrationWaiverWaivedByStaff(conn, registrationId, req.auth?.id);
-      }
-
-      await conn.commit();
-
-      if (guestClaimToken && hubHelpers.deliverRegistrationConfirmedEmail) {
-        void hubHelpers
-          .deliverRegistrationConfirmedEmail(registrationId)
-          .catch((err) => console.error("[email:staff-guest-claim]", err));
-      }
-
-      const detail = await fetchStaffRegistrationDetail(pool, eventId, registrationId);
-      res.status(201).json(detail);
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-  });
+    },
+  );
 }
 
 function mountEventResultsRoutes(
@@ -2158,8 +2343,14 @@ function mountEventResultsRoutes(
   guard: RequestHandler,
   basePath: string,
   canAccess: (req: AuthedRequest, eventId: number) => Promise<boolean>,
-  canMutate?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
-  canRecordManualSale?: (req: AuthedRequest, eventId: number) => Promise<OrganizerMutateGate>,
+  canMutate?: (
+    req: AuthedRequest,
+    eventId: number,
+  ) => Promise<OrganizerMutateGate>,
+  canRecordManualSale?: (
+    req: AuthedRequest,
+    eventId: number,
+  ) => Promise<OrganizerMutateGate>,
 ) {
   async function assertEventRead(
     req: AuthedRequest,
@@ -2189,7 +2380,9 @@ function mountEventResultsRoutes(
     if (canMutate) {
       const gate = await canMutate(req, eventId);
       if (gate === "forbidden") {
-        res.status(403).json({ error: "Insufficient permissions to edit events" });
+        res
+          .status(403)
+          .json({ error: "Insufficient permissions to edit events" });
         return false;
       }
       if (gate !== "ok") {
@@ -2205,12 +2398,15 @@ function mountEventResultsRoutes(
     return true;
   }
 
-  app.get(`${basePath}/:eventId/results`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertEventRead(req, res, eventId))) return;
+  app.get(
+    `${basePath}/:eventId/results`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventRead(req, res, eventId))) return;
 
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT er.id, er.registration_id, er.event_category_id,
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT er.id, er.registration_id, er.event_category_id,
               er.overall_rank, er.category_rank, er.gender_rank,
               er.finish_time_ms, er.status, er.published_at,
               r.registration_number, r.bib_number,
@@ -2222,63 +2418,72 @@ function mountEventResultsRoutes(
        JOIN event_categories ec ON ec.id = er.event_category_id
        WHERE er.event_id = ?
        ORDER BY er.overall_rank IS NULL, er.overall_rank ASC, er.id ASC`,
-      [eventId],
-    );
-    res.json({ results: rows });
-  });
+        [eventId],
+      );
+      res.json({ results: rows });
+    },
+  );
 
-  app.post(`${basePath}/:eventId/results`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertEventWrite(req, res, eventId))) return;
+  app.post(
+    `${basePath}/:eventId/results`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventWrite(req, res, eventId))) return;
 
-    const items = Array.isArray(req.body?.results)
-      ? req.body.results
-      : req.body?.registration_number
-        ? [req.body]
-        : [];
-    if (items.length === 0) {
-      return res.status(400).json({ error: "results array or single result required" });
-    }
-
-    const upserted: RowDataPacket[] = [];
-    const errors: string[] = [];
-
-    for (const item of items) {
-      const regNum = String(item.registration_number ?? "").trim();
-      if (!regNum) {
-        errors.push("Missing registration_number");
-        continue;
+      const items = Array.isArray(req.body?.results)
+        ? req.body.results
+        : req.body?.registration_number
+          ? [req.body]
+          : [];
+      if (items.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "results array or single result required" });
       }
 
-      const [regs] = await pool.query<RowDataPacket[]>(
-        `SELECT r.id, r.event_category_id
+      const upserted: RowDataPacket[] = [];
+      const errors: string[] = [];
+
+      for (const item of items) {
+        const regNum = String(item.registration_number ?? "").trim();
+        if (!regNum) {
+          errors.push("Missing registration_number");
+          continue;
+        }
+
+        const [regs] = await pool.query<RowDataPacket[]>(
+          `SELECT r.id, r.event_category_id
          FROM registrations r
          WHERE r.event_id = ? AND r.registration_number = ? AND r.deleted_at IS NULL
            AND r.status = 'confirmed' LIMIT 1`,
-        [eventId, regNum],
-      );
-      if (regs.length === 0) {
-        errors.push(`Registration not found: ${regNum}`);
-        continue;
-      }
+          [eventId, regNum],
+        );
+        if (regs.length === 0) {
+          errors.push(`Registration not found: ${regNum}`);
+          continue;
+        }
 
-      const reg = regs[0];
-      const finish_time_ms =
-        item.finish_time_ms != null
-          ? Number(item.finish_time_ms)
-          : parseFinishTimeToMs(item.finish_time ?? item.time);
-      const status = String(item.status ?? "finished");
-      if (!["finished", "dnf", "dns", "dq"].includes(status)) {
-        errors.push(`Invalid status for ${regNum}`);
-        continue;
-      }
+        const reg = regs[0];
+        const finish_time_ms =
+          item.finish_time_ms != null
+            ? Number(item.finish_time_ms)
+            : parseFinishTimeToMs(item.finish_time ?? item.time);
+        const status = String(item.status ?? "finished");
+        if (!["finished", "dnf", "dns", "dq"].includes(status)) {
+          errors.push(`Invalid status for ${regNum}`);
+          continue;
+        }
 
-      const overall_rank = item.overall_rank != null ? Number(item.overall_rank) : null;
-      const category_rank = item.category_rank != null ? Number(item.category_rank) : null;
-      const gender_rank = item.gender_rank != null ? Number(item.gender_rank) : null;
+        const overall_rank =
+          item.overall_rank != null ? Number(item.overall_rank) : null;
+        const category_rank =
+          item.category_rank != null ? Number(item.category_rank) : null;
+        const gender_rank =
+          item.gender_rank != null ? Number(item.gender_rank) : null;
 
-      await pool.query<ResultSetHeader>(
-        `INSERT INTO event_results (
+        await pool.query<ResultSetHeader>(
+          `INSERT INTO event_results (
            event_id, registration_id, event_category_id,
            overall_rank, category_rank, gender_rank, finish_time_ms, status
          ) VALUES (?,?,?,?,?,?,?,?)
@@ -2289,35 +2494,36 @@ function mountEventResultsRoutes(
            finish_time_ms = VALUES(finish_time_ms),
            status = VALUES(status),
            published_at = NULL`,
-        [
-          eventId,
-          reg.id,
-          reg.event_category_id,
-          overall_rank,
-          category_rank,
-          gender_rank,
-          finish_time_ms,
-          status,
-        ],
-      );
+          [
+            eventId,
+            reg.id,
+            reg.event_category_id,
+            overall_rank,
+            category_rank,
+            gender_rank,
+            finish_time_ms,
+            status,
+          ],
+        );
 
-      const [saved] = await pool.query<RowDataPacket[]>(
-        `SELECT er.id, er.registration_id, er.overall_rank, er.category_rank,
+        const [saved] = await pool.query<RowDataPacket[]>(
+          `SELECT er.id, er.registration_id, er.overall_rank, er.category_rank,
                 er.finish_time_ms, er.status, er.published_at,
                 r.registration_number, r.bib_number
          FROM event_results er
          JOIN registrations r ON r.id = er.registration_id
          WHERE er.registration_id = ? LIMIT 1`,
-        [reg.id],
-      );
-      if (saved[0]) upserted.push(saved[0]);
-    }
+          [reg.id],
+        );
+        if (saved[0]) upserted.push(saved[0]);
+      }
 
-    res.status(errors.length > 0 && upserted.length === 0 ? 400 : 200).json({
-      results: upserted,
-      errors: errors.length > 0 ? errors : undefined,
-    });
-  });
+      res.status(errors.length > 0 && upserted.length === 0 ? 400 : 200).json({
+        results: upserted,
+        errors: errors.length > 0 ? errors : undefined,
+      });
+    },
+  );
 
   app.patch(
     `${basePath}/:eventId/results/:resultId`,
@@ -2336,17 +2542,25 @@ function mountEventResultsRoutes(
 
       if (body.overall_rank !== undefined) {
         updates.push("overall_rank = ?");
-        params.push(body.overall_rank == null ? null : Number(body.overall_rank));
+        params.push(
+          body.overall_rank == null ? null : Number(body.overall_rank),
+        );
       }
       if (body.category_rank !== undefined) {
         updates.push("category_rank = ?");
-        params.push(body.category_rank == null ? null : Number(body.category_rank));
+        params.push(
+          body.category_rank == null ? null : Number(body.category_rank),
+        );
       }
       if (body.gender_rank !== undefined) {
         updates.push("gender_rank = ?");
         params.push(body.gender_rank == null ? null : Number(body.gender_rank));
       }
-      if (body.finish_time_ms != null || body.finish_time != null || body.time != null) {
+      if (
+        body.finish_time_ms != null ||
+        body.finish_time != null ||
+        body.time != null
+      ) {
         const ms =
           body.finish_time_ms != null
             ? Number(body.finish_time_ms)
@@ -2389,36 +2603,40 @@ function mountEventResultsRoutes(
     },
   );
 
-  app.post(`${basePath}/:eventId/results/publish`, guard, async (req: AuthedRequest, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await assertEventWrite(req, res, eventId))) return;
+  app.post(
+    `${basePath}/:eventId/results/publish`,
+    guard,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await assertEventWrite(req, res, eventId))) return;
 
-    const ids = Array.isArray(req.body?.result_ids)
-      ? req.body.result_ids.map(Number).filter(Number.isFinite)
-      : null;
+      const ids = Array.isArray(req.body?.result_ids)
+        ? req.body.result_ids.map(Number).filter(Number.isFinite)
+        : null;
 
-    if (ids && ids.length > 0) {
-      const placeholders = ids.map(() => "?").join(",");
-      await pool.query<ResultSetHeader>(
-        `UPDATE event_results SET published_at = NOW()
+      if (ids && ids.length > 0) {
+        const placeholders = ids.map(() => "?").join(",");
+        await pool.query<ResultSetHeader>(
+          `UPDATE event_results SET published_at = NOW()
          WHERE event_id = ? AND id IN (${placeholders})`,
-        [eventId, ...ids],
-      );
-    } else {
-      await pool.query<ResultSetHeader>(
-        `UPDATE event_results SET published_at = NOW()
+          [eventId, ...ids],
+        );
+      } else {
+        await pool.query<ResultSetHeader>(
+          `UPDATE event_results SET published_at = NOW()
          WHERE event_id = ? AND published_at IS NULL`,
+          [eventId],
+        );
+      }
+
+      const [count] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS published FROM event_results
+       WHERE event_id = ? AND published_at IS NOT NULL`,
         [eventId],
       );
-    }
-
-    const [count] = await pool.query<RowDataPacket[]>(
-      `SELECT COUNT(*) AS published FROM event_results
-       WHERE event_id = ? AND published_at IS NOT NULL`,
-      [eventId],
-    );
-    res.json({ ok: true, published_count: Number(count[0]?.published ?? 0) });
-  });
+      res.json({ ok: true, published_count: Number(count[0]?.published ?? 0) });
+    },
+  );
 
   app.delete(
     `${basePath}/:eventId/results/:resultId`,
@@ -2517,7 +2735,9 @@ function mountEventResultsRoutes(
             split_name: split_name.slice(0, 100),
             split_order: Number(s.split_order) || index,
             distance_km:
-              distance_km != null && Number.isFinite(distance_km) ? distance_km : null,
+              distance_km != null && Number.isFinite(distance_km)
+                ? distance_km
+                : null,
             elapsed_ms: Math.round(elapsed_ms),
             pace_per_km_ms:
               pace_per_km_ms != null && Number.isFinite(pace_per_km_ms)
@@ -2536,7 +2756,9 @@ function mountEventResultsRoutes(
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
-        await conn.query("DELETE FROM result_splits WHERE result_id = ?", [resultId]);
+        await conn.query("DELETE FROM result_splits WHERE result_id = ?", [
+          resultId,
+        ]);
         for (const s of splits) {
           await conn.query<ResultSetHeader>(
             `INSERT INTO result_splits (result_id, split_name, split_order, distance_km, elapsed_ms, pace_per_km_ms)
@@ -2624,11 +2846,15 @@ async function createEventCategoryRecord(
   }
 
   const min_age =
-    body?.min_age === null || body?.min_age === undefined || body?.min_age === ""
+    body?.min_age === null ||
+    body?.min_age === undefined ||
+    body?.min_age === ""
       ? null
       : Number(body.min_age);
   const max_age =
-    body?.max_age === null || body?.max_age === undefined || body?.max_age === ""
+    body?.max_age === null ||
+    body?.max_age === undefined ||
+    body?.max_age === ""
       ? null
       : Number(body.max_age);
 
@@ -2730,7 +2956,9 @@ async function patchEventCategoryRecord(
   }
   if (body.description !== undefined) {
     updates.push("description = ?");
-    params.push(body.description ? String(body.description).slice(0, 2000) : null);
+    params.push(
+      body.description ? String(body.description).slice(0, 2000) : null,
+    );
   }
   if (body.price_cents != null) {
     const price_cents = Number(body.price_cents);
@@ -2742,7 +2970,9 @@ async function patchEventCategoryRecord(
   }
   if (body.capacity !== undefined) {
     const cap =
-      body.capacity === null || body.capacity === "" ? null : Number(body.capacity);
+      body.capacity === null || body.capacity === ""
+        ? null
+        : Number(body.capacity);
     if (cap != null && (!Number.isFinite(cap) || cap < 0)) {
       return { status: 400, error: "invalid capacity" };
     }
@@ -2800,11 +3030,15 @@ async function patchEventCategoryRecord(
   }
   if (body.registration_opens_at !== undefined) {
     updates.push("registration_opens_at = ?");
-    params.push(body.registration_opens_at ? String(body.registration_opens_at) : null);
+    params.push(
+      body.registration_opens_at ? String(body.registration_opens_at) : null,
+    );
   }
   if (body.registration_closes_at !== undefined) {
     updates.push("registration_closes_at = ?");
-    params.push(body.registration_closes_at ? String(body.registration_closes_at) : null);
+    params.push(
+      body.registration_closes_at ? String(body.registration_closes_at) : null,
+    );
   }
 
   if (updates.length === 0) {
@@ -2852,6 +3086,7 @@ type ParsedEventBody = {
   requires_waiver: boolean;
   fee_presentation: string | null;
   bib_mode: "folio" | "separate";
+  auto_deactivate_after_event: boolean;
 };
 
 function eventBodySqlTail(): string {
@@ -2860,11 +3095,7 @@ function eventBodySqlTail(): string {
            bib_mode = ?`;
 }
 
-function eventBodySqlValues(data: ParsedEventBody): (
-  | string
-  | number
-  | null
-)[] {
+function eventBodySqlValues(data: ParsedEventBody): (string | number | null)[] {
   return [
     data.location_name,
     data.location_city,
@@ -2879,9 +3110,9 @@ function eventBodySqlValues(data: ParsedEventBody): (
   ];
 }
 
-function parseEventBody(body: Record<string, unknown>):
-  | { error: string }
-  | { data: ParsedEventBody } {
+function parseEventBody(
+  body: Record<string, unknown>,
+): { error: string } | { data: ParsedEventBody } {
   const title = String(body.title ?? "").trim();
   if (!title || title.length > 255) {
     return { error: "title required (max 255)" };
@@ -2903,9 +3134,13 @@ function parseEventBody(body: Record<string, unknown>):
 
   const status = String(body.status ?? "draft");
   if (
-    !["draft", "pending_approval", "published", "cancelled", "completed"].includes(
-      status,
-    )
+    ![
+      "draft",
+      "pending_approval",
+      "published",
+      "cancelled",
+      "completed",
+    ].includes(status)
   ) {
     return { error: "invalid status" };
   }
@@ -2919,16 +3154,32 @@ function parseEventBody(body: Record<string, unknown>):
   if (end_date && end_date < start_date) {
     return { error: "end_date must be on or after start_date" };
   }
-  const registration_opens_at = parseIncomingEventDateTime(body.registration_opens_at);
-  const registration_closes_at = parseIncomingEventDateTime(body.registration_closes_at);
+  const registration_opens_at = parseIncomingEventDateTime(
+    body.registration_opens_at,
+  );
+  const registration_closes_at = parseIncomingEventDateTime(
+    body.registration_closes_at,
+  );
   const check_in_opens_at = parseIncomingEventDateTime(body.check_in_opens_at);
-  const check_in_closes_at = parseIncomingEventDateTime(body.check_in_closes_at);
+  const check_in_closes_at = parseIncomingEventDateTime(
+    body.check_in_closes_at,
+  );
 
-  if (check_in_opens_at && check_in_closes_at && check_in_opens_at >= check_in_closes_at) {
+  if (
+    check_in_opens_at &&
+    check_in_closes_at &&
+    check_in_opens_at >= check_in_closes_at
+  ) {
     return { error: "check_in_opens_at must be before check_in_closes_at" };
   }
-  if ((check_in_opens_at && !check_in_closes_at) || (!check_in_opens_at && check_in_closes_at)) {
-    return { error: "Set both check-in open and close times, or leave both empty for auto" };
+  if (
+    (check_in_opens_at && !check_in_closes_at) ||
+    (!check_in_opens_at && check_in_closes_at)
+  ) {
+    return {
+      error:
+        "Set both check-in open and close times, or leave both empty for auto",
+    };
   }
 
   const eventEndCap = eventEndWallTime(start_date, end_date);
@@ -2946,7 +3197,9 @@ function parseEventBody(body: Record<string, unknown>):
     registration_closes_at &&
     registration_opens_at >= registration_closes_at
   ) {
-    return { error: "registration_opens_at must be before registration_closes_at" };
+    return {
+      error: "registration_opens_at must be before registration_closes_at",
+    };
   }
 
   const location_lat = parseEventCoord(body.location_lat, "lat");
@@ -2961,7 +3214,9 @@ function parseEventBody(body: Record<string, unknown>):
     (location_lat != null && location_lng == null) ||
     (location_lat == null && location_lng != null)
   ) {
-    return { error: "location_lat and location_lng must both be set or both empty" };
+    return {
+      error: "location_lat and location_lng must both be set or both empty",
+    };
   }
 
   const maxRaw = body.max_registrations;
@@ -2969,13 +3224,18 @@ function parseEventBody(body: Record<string, unknown>):
     maxRaw === null || maxRaw === undefined || maxRaw === ""
       ? null
       : Number(maxRaw);
-  if (max_registrations != null && (!Number.isFinite(max_registrations) || max_registrations < 0)) {
+  if (
+    max_registrations != null &&
+    (!Number.isFinite(max_registrations) || max_registrations < 0)
+  ) {
     return { error: "invalid max_registrations" };
   }
 
   const maxPerOrderRaw = body.max_registrations_per_order;
   const max_registrations_per_order =
-    maxPerOrderRaw === null || maxPerOrderRaw === undefined || maxPerOrderRaw === ""
+    maxPerOrderRaw === null ||
+    maxPerOrderRaw === undefined ||
+    maxPerOrderRaw === ""
       ? 10
       : Number(maxPerOrderRaw);
   if (
@@ -2998,13 +3258,22 @@ function parseEventBody(body: Record<string, unknown>):
   }
 
   let bib_mode: "folio" | "separate" = "folio";
-  if (body.bib_mode === undefined || body.bib_mode === null || body.bib_mode === "") {
+  if (
+    body.bib_mode === undefined ||
+    body.bib_mode === null ||
+    body.bib_mode === ""
+  ) {
     bib_mode = "folio";
   } else if (body.bib_mode === "folio" || body.bib_mode === "separate") {
     bib_mode = body.bib_mode;
   } else {
     return { error: "invalid bib_mode" };
   }
+
+  const auto_deactivate_after_event =
+    body.auto_deactivate_after_event === undefined
+      ? true
+      : Boolean(body.auto_deactivate_after_event);
 
   return {
     data: {
@@ -3036,29 +3305,40 @@ function parseEventBody(body: Record<string, unknown>):
       location_lat,
       location_lng,
       hero_image_url: body.hero_image_url
-        ? normalizeCdnUploadUrl(String(body.hero_image_url).trim()).slice(0, 500)
+        ? normalizeCdnUploadUrl(String(body.hero_image_url).trim()).slice(
+            0,
+            500,
+          )
         : null,
       banner_image_url: body.banner_image_url
-        ? normalizeCdnUploadUrl(String(body.banner_image_url).trim()).slice(0, 500)
+        ? normalizeCdnUploadUrl(String(body.banner_image_url).trim()).slice(
+            0,
+            500,
+          )
         : null,
       max_registrations,
       max_registrations_per_order,
-      requires_waiver: body.requires_waiver === false || body.requires_waiver === 0 ? false : true,
+      requires_waiver:
+        body.requires_waiver === false || body.requires_waiver === 0
+          ? false
+          : true,
       fee_presentation: fee_presentation ?? null,
       bib_mode,
+      auto_deactivate_after_event,
     },
   };
 }
 
 async function analyticsTimeSeries(pool: Pool, organizerId?: number) {
   const orgFilter = organizerId
-    ? ` AND r.event_id IN (SELECT id FROM events WHERE organizer_id = ${Number(organizerId)})`
+    ? ` AND r.event_id IN (SELECT id FROM events WHERE organizer_id = ${Number(organizerId)} AND COALESCE(is_simulation, 0) = 0)`
     : "";
 
   const [regRows] = await pool.query<RowDataPacket[]>(
     `SELECT DATE(r.created_at) AS day, COUNT(*) AS registrations
      FROM registrations r
      WHERE r.status = 'confirmed' AND r.deleted_at IS NULL
+       AND COALESCE(r.is_simulation, 0) = 0
        AND r.created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)${orgFilter}
      GROUP BY DATE(r.created_at)
      ORDER BY day ASC`,
@@ -3068,6 +3348,7 @@ async function analyticsTimeSeries(pool: Pool, organizerId?: number) {
     `SELECT DATE(p.created_at) AS day, COALESCE(SUM(p.amount_cents), 0) AS revenue_cents
      FROM payments p
      WHERE p.status = 'succeeded'
+       AND COALESCE(p.is_simulation, 0) = 0
        AND p.created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
        ${organizerId ? `AND p.organizer_id = ${Number(organizerId)}` : ""}
      GROUP BY DATE(p.created_at)
@@ -3087,7 +3368,9 @@ async function analyticsTimeSeries(pool: Pool, organizerId?: number) {
 }
 
 function mapCourseRowFromDb(row: RowDataPacket) {
-  let elevationProfile: import("../shared/api.js").ElevationProfilePoint[] | null = null;
+  let elevationProfile:
+    | import("../shared/api.js").ElevationProfilePoint[]
+    | null = null;
   try {
     const parsed =
       typeof row.elevation_profile_json === "string"
@@ -3162,7 +3445,10 @@ export function registerStaffPortalRoutes(
   }
 
   async function notifyActiveAdmins(
-    buildForAdmin: (firstName: string, locale: string) => {
+    buildForAdmin: (
+      firstName: string,
+      locale: string,
+    ) => {
       subject: string;
       html: string;
       text: string;
@@ -3188,7 +3474,10 @@ export function registerStaffPortalRoutes(
 
   async function notifyOrganizerEditors(
     organizerId: number,
-    buildMail: (firstName: string, locale: string) => {
+    buildMail: (
+      firstName: string,
+      locale: string,
+    ) => {
       subject: string;
       html: string;
       text: string;
@@ -3218,7 +3507,10 @@ export function registerStaffPortalRoutes(
 
   async function notifyOrganizerPayoutContacts(
     organizerId: number,
-    buildMail: (firstName: string, locale: string) => {
+    buildMail: (
+      firstName: string,
+      locale: string,
+    ) => {
       subject: string;
       html: string;
       text: string;
@@ -3337,7 +3629,8 @@ export function registerStaffPortalRoutes(
 
     const result = await registerSelfServiceOrganizer(
       pool,
-      (req.body ?? {}) as import("../shared/api.js").PublicOrganizerRegisterRequest,
+      (req.body ??
+        {}) as import("../shared/api.js").PublicOrganizerRegisterRequest,
       { newPublicUuid, normalizeLocale },
     );
     if (result.ok === false) {
@@ -3348,7 +3641,9 @@ export function registerStaffPortalRoutes(
     }
 
     sendStaffWelcomeEmail({
-      to: String(req.body?.owner_email ?? "").trim().toLowerCase(),
+      to: String(req.body?.owner_email ?? "")
+        .trim()
+        .toLowerCase(),
       firstName: String(req.body?.owner_first_name ?? "").trim(),
       audience: "organizer",
       preferredLanguage: req.body?.locale,
@@ -3359,7 +3654,9 @@ export function registerStaffPortalRoutes(
         locale,
         adminFirstName: firstName,
         organizerName: result.organizer.name,
-        ownerEmail: String(req.body?.owner_email ?? "").trim().toLowerCase(),
+        ownerEmail: String(req.body?.owner_email ?? "")
+          .trim()
+          .toLowerCase(),
         city: String(req.body?.city ?? "").trim(),
         appUrl,
       }),
@@ -3371,7 +3668,10 @@ export function registerStaffPortalRoutes(
     });
   });
 
-  async function organizerEventAccess(req: AuthedRequest, eventId: number): Promise<boolean> {
+  async function organizerEventAccess(
+    req: AuthedRequest,
+    eventId: number,
+  ): Promise<boolean> {
     const organizerId = req.auth!.organizerId;
     if (!organizerId || !req.auth?.id) return false;
     return assertMemberCanAccessEvent(pool, req.auth.id, organizerId, eventId);
@@ -3383,10 +3683,21 @@ export function registerStaffPortalRoutes(
   ): Promise<OrganizerMutateGate> {
     const organizerId = req.auth!.organizerId;
     if (!organizerId || !req.auth?.id) return "forbidden";
-    if (!(await assertMemberCanAccessEvent(pool, req.auth.id, organizerId, eventId))) {
+    if (
+      !(await assertMemberCanAccessEvent(
+        pool,
+        req.auth.id,
+        organizerId,
+        eventId,
+      ))
+    ) {
       return "not_found";
     }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth.id, organizerId);
+    const memberRole = await getOrganizerMemberRole(
+      pool,
+      req.auth.id,
+      organizerId,
+    );
     if (!memberRole || !canOrganizerEditEvents(memberRole)) {
       return "forbidden";
     }
@@ -3399,10 +3710,21 @@ export function registerStaffPortalRoutes(
   ): Promise<OrganizerMutateGate> {
     const organizerId = req.auth!.organizerId;
     if (!organizerId || !req.auth?.id) return "forbidden";
-    if (!(await assertMemberCanAccessEvent(pool, req.auth.id, organizerId, eventId))) {
+    if (
+      !(await assertMemberCanAccessEvent(
+        pool,
+        req.auth.id,
+        organizerId,
+        eventId,
+      ))
+    ) {
       return "not_found";
     }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth.id, organizerId);
+    const memberRole = await getOrganizerMemberRole(
+      pool,
+      req.auth.id,
+      organizerId,
+    );
     if (!memberRole || !canOrganizerManageRegistrations(memberRole)) {
       return "forbidden";
     }
@@ -3415,10 +3737,21 @@ export function registerStaffPortalRoutes(
   ): Promise<OrganizerMutateGate> {
     const organizerId = req.auth!.organizerId;
     if (!organizerId || !req.auth?.id) return "forbidden";
-    if (!(await assertMemberCanAccessEvent(pool, req.auth.id, organizerId, eventId))) {
+    if (
+      !(await assertMemberCanAccessEvent(
+        pool,
+        req.auth.id,
+        organizerId,
+        eventId,
+      ))
+    ) {
       return "not_found";
     }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth.id, organizerId);
+    const memberRole = await getOrganizerMemberRole(
+      pool,
+      req.auth.id,
+      organizerId,
+    );
     if (!memberRole || !canOrganizerRecordManualSale(memberRole)) {
       return "forbidden";
     }
@@ -3432,7 +3765,9 @@ export function registerStaffPortalRoutes(
   ): Promise<boolean> {
     const gate = await organizerEventMutateAccess(req, eventId);
     if (gate === "forbidden") {
-      res.status(403).json({ error: "Insufficient permissions to edit events" });
+      res
+        .status(403)
+        .json({ error: "Insufficient permissions to edit events" });
       return false;
     }
     if (gate !== "ok") {
@@ -3451,9 +3786,15 @@ export function registerStaffPortalRoutes(
       res.status(403).json({ error: "Organizer context missing" });
       return false;
     }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
+    const memberRole = await getOrganizerMemberRole(
+      pool,
+      req.auth!.id,
+      organizerId,
+    );
     if (!memberRole || !canOrganizerEditEvents(memberRole)) {
-      res.status(403).json({ error: "Insufficient permissions to edit events" });
+      res
+        .status(403)
+        .json({ error: "Insufficient permissions to edit events" });
       return false;
     }
     return true;
@@ -3539,7 +3880,14 @@ export function registerStaffPortalRoutes(
       if (!Number.isFinite(eventId)) {
         return res.status(400).json({ error: "Invalid event id" });
       }
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
       const event = await fetchStaffEventDetail(pool, eventId);
@@ -3578,13 +3926,19 @@ export function registerStaffPortalRoutes(
         organizerId,
       );
       if (!memberRole || !canOrganizerCreateEvents(memberRole)) {
-        return res.status(403).json({ error: "Insufficient permissions to create events" });
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions to create events" });
       }
       const orgGate = await assertOrganizerCanOperateEvents(pool, organizerId);
       if (orgGate.ok === false) {
-        return res.status(orgGate.status).json({ error: orgGate.error, code: orgGate.code });
+        return res
+          .status(orgGate.status)
+          .json({ error: orgGate.error, code: orgGate.code });
       }
-      const parsed = parseEventBody((req.body ?? {}) as Record<string, unknown>);
+      const parsed = parseEventBody(
+        (req.body ?? {}) as Record<string, unknown>,
+      );
       if ("error" in parsed) {
         return res.status(400).json({ error: parsed.error });
       }
@@ -3610,8 +3964,9 @@ export function registerStaffPortalRoutes(
            status, visibility, featured, start_date, end_date, registration_opens_at,
            registration_closes_at, check_in_opens_at, check_in_closes_at,
            location_name, location_city, location_state, location_lat, location_lng,
-           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, bib_mode, requires_waiver
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, bib_mode,
+           requires_waiver, auto_deactivate_after_event
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizerId,
@@ -3631,11 +3986,16 @@ export function registerStaffPortalRoutes(
           data.check_in_closes_at,
           ...eventBodySqlValues(data),
           data.requires_waiver ? 1 : 0,
+          data.auto_deactivate_after_event ? 1 : 0,
         ],
       );
 
       const newEventId = result.insertId;
-      const access = await getMemberEventAccess(pool, req.auth!.id, organizerId);
+      const access = await getMemberEventAccess(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
       if (access !== "all") {
         await pool.query<ResultSetHeader>(
           "INSERT INTO organizer_member_events (organizer_member_id, event_id) VALUES (?, ?)",
@@ -3660,7 +4020,14 @@ export function registerStaffPortalRoutes(
       if (!Number.isFinite(eventId)) {
         return res.status(400).json({ error: "Invalid event id" });
       }
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -3670,7 +4037,9 @@ export function registerStaffPortalRoutes(
         organizerId,
       );
       if (!memberRole || !canOrganizerEditEvents(memberRole)) {
-        return res.status(403).json({ error: "Insufficient permissions to edit events" });
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions to edit events" });
       }
 
       const [[currentEvent]] = await pool.query<RowDataPacket[]>(
@@ -3681,7 +4050,9 @@ export function registerStaffPortalRoutes(
         return res.status(404).json({ error: "Event not found" });
       }
 
-      const parsed = parseEventBody((req.body ?? {}) as Record<string, unknown>);
+      const parsed = parseEventBody(
+        (req.body ?? {}) as Record<string, unknown>,
+      );
       if ("error" in parsed) {
         return res.status(400).json({ error: parsed.error });
       }
@@ -3694,7 +4065,8 @@ export function registerStaffPortalRoutes(
 
       if (data.status === "published") {
         return res.status(403).json({
-          error: "Organizers cannot publish directly. Submit the event for admin approval.",
+          error:
+            "Organizers cannot publish directly. Submit the event for admin approval.",
           code: "organizer_publish_requires_approval",
         });
       }
@@ -3710,7 +4082,9 @@ export function registerStaffPortalRoutes(
       if (currentStatus === "published") {
         statusToSave = "published";
       } else if (currentStatus === "pending_approval") {
-        if (!["draft", "pending_approval", "cancelled"].includes(statusToSave)) {
+        if (
+          !["draft", "pending_approval", "cancelled"].includes(statusToSave)
+        ) {
           statusToSave = "pending_approval";
         }
       }
@@ -3730,7 +4104,7 @@ export function registerStaffPortalRoutes(
            featured = ?, start_date = ?, end_date = ?,
            registration_opens_at = ?, registration_closes_at = ?,
            check_in_opens_at = ?, check_in_closes_at = ?,
-           requires_waiver = ?, fee_presentation = ?,
+           requires_waiver = ?, fee_presentation = ?, auto_deactivate_after_event = ?,
            ${clearSubmittedAt ? "submitted_for_approval_at = NULL," : ""}
            ${eventBodySqlTail()}
          WHERE id = ? AND organizer_id = ?`,
@@ -3751,6 +4125,7 @@ export function registerStaffPortalRoutes(
           data.check_in_closes_at,
           data.requires_waiver ? 1 : 0,
           data.fee_presentation,
+          data.auto_deactivate_after_event ? 1 : 0,
           ...eventBodySqlValues(data),
           eventId,
           organizerId,
@@ -3764,6 +4139,102 @@ export function registerStaffPortalRoutes(
   );
 
   app.post(
+    "/api/organizer/events/:eventId/deactivate-listing",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const eventId = Number(req.params.eventId);
+      if (!Number.isFinite(eventId)) {
+        return res.status(400).json({ error: "Invalid event id" });
+      }
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!memberRole || !canOrganizerEditEvents(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions to edit events" });
+      }
+      const [[owned]] = await pool.query<RowDataPacket[]>(
+        `SELECT id FROM events WHERE id = ? AND organizer_id = ? AND deleted_at IS NULL LIMIT 1`,
+        [eventId, organizerId],
+      );
+      if (!owned) return res.status(404).json({ error: "Event not found" });
+
+      const result = await deactivateEventFromListing(pool, eventId);
+      if ("error" in result) {
+        return res.status(404).json({ error: result.error });
+      }
+      const event = await fetchStaffEventDetail(pool, eventId);
+      res.json({ ok: true, event });
+    },
+  );
+
+  app.delete(
+    "/api/organizer/events/:eventId",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const eventId = Number(req.params.eventId);
+      if (!Number.isFinite(eventId)) {
+        return res.status(400).json({ error: "Invalid event id" });
+      }
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!memberRole || !["owner", "organizer"].includes(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Only owner/organizer can delete events" });
+      }
+      const [[owned]] = await pool.query<RowDataPacket[]>(
+        `SELECT id FROM events WHERE id = ? AND organizer_id = ? AND deleted_at IS NULL LIMIT 1`,
+        [eventId, organizerId],
+      );
+      if (!owned) return res.status(404).json({ error: "Event not found" });
+
+      const result = await softDeleteStaffEvent(pool, eventId);
+      if ("error" in result) {
+        return res.status(404).json({ error: result.error });
+      }
+      res.json({
+        ok: true,
+        cancelledRegistrations: result.cancelledRegistrations,
+      });
+    },
+  );
+
+  app.post(
     "/api/organizer/events/:eventId/publish",
     requireOrganizer,
     async (req: AuthedRequest, res) => {
@@ -3772,7 +4243,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -3782,29 +4260,44 @@ export function registerStaffPortalRoutes(
         organizerId,
       );
       if (!memberRole || !canOrganizerEditEvents(memberRole)) {
-        return res.status(403).json({ error: "Insufficient permissions to publish events" });
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions to publish events" });
       }
       const orgGate = await assertOrganizerCanOperateEvents(pool, organizerId);
       if (orgGate.ok === false) {
-        return res.status(orgGate.status).json({ error: orgGate.error, code: orgGate.code });
+        return res
+          .status(orgGate.status)
+          .json({ error: orgGate.error, code: orgGate.code });
       }
 
       const [[eventRow]] = await pool.query<RowDataPacket[]>(
-        "SELECT status FROM events WHERE id = ? AND organizer_id = ? AND deleted_at IS NULL LIMIT 1",
+        "SELECT status, is_simulation FROM events WHERE id = ? AND organizer_id = ? AND deleted_at IS NULL LIMIT 1",
         [eventId, organizerId],
       );
       if (!eventRow) {
         return res.status(404).json({ error: "Event not found" });
       }
+      if (Number(eventRow.is_simulation) === 1) {
+        return res.status(400).json({
+          error:
+            "Simulation events cannot be published or submitted for approval",
+          code: "simulation_not_publishable",
+        });
+      }
       const currentStatus = String(eventRow.status);
       if (currentStatus === "pending_approval") {
-        return res.status(409).json({ error: "Event is already pending admin approval" });
+        return res
+          .status(409)
+          .json({ error: "Event is already pending admin approval" });
       }
       if (currentStatus === "published") {
         return res.status(409).json({ error: "Event is already published" });
       }
       if (currentStatus !== "draft") {
-        return res.status(400).json({ error: "Only draft events can be submitted for approval" });
+        return res
+          .status(400)
+          .json({ error: "Only draft events can be submitted for approval" });
       }
 
       const categories = await fetchEventCategories(pool, eventId);
@@ -3820,7 +4313,11 @@ export function registerStaffPortalRoutes(
         return res.status(400).json({ error: waiverCheck.error });
       }
 
-      const pricingCheck = await validateEventPublishPricing(pool, eventId, categories);
+      const pricingCheck = await validateEventPublishPricing(
+        pool,
+        eventId,
+        categories,
+      );
       if (pricingCheck.ok === false) {
         return res.status(400).json({ error: pricingCheck.error });
       }
@@ -3857,7 +4354,10 @@ export function registerStaffPortalRoutes(
         }),
       );
 
-      res.json({ event, categories: await fetchEventCategories(pool, eventId) });
+      res.json({
+        event,
+        categories: await fetchEventCategories(pool, eventId),
+      });
     },
   );
 
@@ -3877,7 +4377,9 @@ export function registerStaffPortalRoutes(
       );
       if (err) return res.status(err.status).json({ error: err.error });
 
-      res.status(201).json({ categories: await fetchEventCategories(pool, eventId) });
+      res
+        .status(201)
+        .json({ categories: await fetchEventCategories(pool, eventId) });
     },
   );
 
@@ -3931,9 +4433,14 @@ export function registerStaffPortalRoutes(
         (req.body ?? {}) as Record<string, unknown>,
         getStripeClient?.() ?? null,
       );
-      if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+      if (err)
+        return res
+          .status(err.status)
+          .json({ error: err.error, code: err.code });
 
-      res.status(201).json({ extras: await fetchAllEventExtras(pool, eventId) });
+      res
+        .status(201)
+        .json({ extras: await fetchAllEventExtras(pool, eventId) });
     },
   );
 
@@ -3952,7 +4459,10 @@ export function registerStaffPortalRoutes(
         (req.body ?? {}) as Record<string, unknown>,
         getStripeClient?.() ?? null,
       );
-      if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+      if (err)
+        return res
+          .status(err.status)
+          .json({ error: err.error, code: err.code });
 
       res.json({ extras: await fetchAllEventExtras(pool, eventId) });
     },
@@ -3983,7 +4493,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
       res.json({ fields: await fetchStaffRegistrationFields(pool, eventId) });
@@ -3997,9 +4514,15 @@ export function registerStaffPortalRoutes(
       const eventId = Number(req.params.eventId);
       if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
 
-      const result = await replaceEventRegistrationFields(pool, eventId, req.body?.fields);
+      const result = await replaceEventRegistrationFields(
+        pool,
+        eventId,
+        req.body?.fields,
+      );
       if (result.ok === false) {
-        return res.status(result.error.status).json({ error: result.error.error });
+        return res
+          .status(result.error.status)
+          .json({ error: result.error.error });
       }
       res.json({ fields: result.fields });
     },
@@ -4014,7 +4537,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
       const rows = await fetchStaffFolioSegments(pool, eventId);
@@ -4029,9 +4559,15 @@ export function registerStaffPortalRoutes(
       const eventId = Number(req.params.eventId);
       if (!(await guardOrganizerEventEditor(req, res, eventId))) return;
 
-      const result = await replaceEventFolioSegments(pool, eventId, req.body?.segments);
+      const result = await replaceEventFolioSegments(
+        pool,
+        eventId,
+        req.body?.segments,
+      );
       if (result.ok === false) {
-        return res.status(result.error.status).json({ error: result.error.error });
+        return res
+          .status(result.error.status)
+          .json({ error: result.error.error });
       }
       res.json({ segments: result.segments.map(mapStaffFolioSegment) });
     },
@@ -4046,7 +4582,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -4125,14 +4668,19 @@ export function registerStaffPortalRoutes(
       }
       let waiver_outdated = false;
       if (Boolean(registration.requires_waiver)) {
-        const status = await getRegistrationWaiverStatus(pool, registration.id as number);
+        const status = await getRegistrationWaiverStatus(
+          pool,
+          registration.id as number,
+        );
         waiver_outdated = status.outdated;
       }
       const purchased_extras = await fetchRegistrationPurchasedExtras(
         pool,
         registration.id as number,
       );
-      res.json({ registration: { ...registration, waiver_outdated, purchased_extras } });
+      res.json({
+        registration: { ...registration, waiver_outdated, purchased_extras },
+      });
     },
   );
 
@@ -4171,7 +4719,9 @@ export function registerStaffPortalRoutes(
         organizerId,
       );
       if (actorRole !== "owner") {
-        return res.status(403).json({ error: "Only owners can add team members" });
+        return res
+          .status(403)
+          .json({ error: "Only owners can add team members" });
       }
 
       const email = String(req.body?.email ?? "")
@@ -4190,7 +4740,9 @@ export function registerStaffPortalRoutes(
         "seller",
       ]);
       if (!email || !first_name || !last_name) {
-        return res.status(400).json({ error: "email, first_name, last_name required" });
+        return res
+          .status(400)
+          .json({ error: "email, first_name, last_name required" });
       }
       if (!validRoles.has(role)) {
         return res.status(400).json({ error: "invalid role" });
@@ -4252,7 +4804,9 @@ export function registerStaffPortalRoutes(
         organizerId,
       );
       if (actorRole !== "owner") {
-        return res.status(403).json({ error: "Only owners can update members" });
+        return res
+          .status(403)
+          .json({ error: "Only owners can update members" });
       }
 
       const memberId = Number(req.params.memberId);
@@ -4329,11 +4883,12 @@ export function registerStaffPortalRoutes(
 
       const [[stats]] = await pool.query<RowDataPacket[]>(
         `SELECT
-           (SELECT COUNT(*) FROM events e WHERE e.organizer_id = ? AND e.deleted_at IS NULL) AS total_events,
-           (SELECT COUNT(*) FROM events e WHERE e.organizer_id = ? AND e.status = 'published' AND e.deleted_at IS NULL) AS published_events,
+           (SELECT COUNT(*) FROM events e WHERE e.organizer_id = ? AND e.deleted_at IS NULL AND COALESCE(e.is_simulation, 0) = 0) AS total_events,
+           (SELECT COUNT(*) FROM events e WHERE e.organizer_id = ? AND e.status = 'published' AND e.deleted_at IS NULL AND COALESCE(e.is_simulation, 0) = 0) AS published_events,
            (SELECT COUNT(*) FROM registrations r JOIN events e ON e.id = r.event_id
-            WHERE e.organizer_id = ? AND r.status = 'confirmed' AND r.deleted_at IS NULL) AS confirmed_registrations,
-           (SELECT COALESCE(SUM(p.amount_cents),0) FROM payments p WHERE p.organizer_id = ? AND p.status = 'succeeded') AS total_revenue_cents`,
+            WHERE e.organizer_id = ? AND r.status = 'confirmed' AND r.deleted_at IS NULL
+              AND COALESCE(r.is_simulation, 0) = 0 AND COALESCE(e.is_simulation, 0) = 0) AS confirmed_registrations,
+           (SELECT COALESCE(SUM(p.amount_cents),0) FROM payments p WHERE p.organizer_id = ? AND p.status = 'succeeded' AND COALESCE(p.is_simulation, 0) = 0) AS total_revenue_cents`,
         [organizerId, organizerId, organizerId, organizerId],
       );
 
@@ -4342,64 +4897,74 @@ export function registerStaffPortalRoutes(
     },
   );
 
-  app.get("/api/organizer/payments", requireOrganizer, async (req: AuthedRequest, res) => {
-    const organizerId = req.auth!.organizerId;
-    if (!organizerId) {
-      return res.status(403).json({ error: "Organizer context missing" });
-    }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!memberRole || !canOrganizerViewPayments(memberRole)) {
-      return res.status(403).json({ error: "Insufficient permissions for payments" });
-    }
+  app.get(
+    "/api/organizer/payments",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!memberRole || !canOrganizerViewPayments(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payments" });
+      }
 
-    const q = String(req.query.q ?? "").trim();
-    const status = String(req.query.status ?? "").trim();
-    const provider = String(req.query.provider ?? "").trim();
-    const eventIdRaw = req.query.eventId;
-    const eventId =
-      eventIdRaw != null && String(eventIdRaw).trim() !== ""
-        ? Number(eventIdRaw)
-        : undefined;
+      const q = String(req.query.q ?? "").trim();
+      const status = String(req.query.status ?? "").trim();
+      const provider = String(req.query.provider ?? "").trim();
+      const eventIdRaw = req.query.eventId;
+      const eventId =
+        eventIdRaw != null && String(eventIdRaw).trim() !== ""
+          ? Number(eventIdRaw)
+          : undefined;
 
-    let recordedByMemberId: number | undefined;
-    let recordedByMemberOnline = false;
-    if (canOrganizerViewAllPayments(memberRole)) {
-      const sellerFilter = String(req.query.sellerFilter ?? "").trim();
-      if (sellerFilter === "online") {
-        recordedByMemberOnline = true;
-      } else if (sellerFilter && sellerFilter !== "all") {
-        const parsed = Number(sellerFilter);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          recordedByMemberId = parsed;
-        }
-      } else {
-        const legacyRaw = req.query.recordedByMemberId;
-        if (legacyRaw != null && String(legacyRaw).trim() !== "") {
-          const parsed = Number(legacyRaw);
+      let recordedByMemberId: number | undefined;
+      let recordedByMemberOnline = false;
+      if (canOrganizerViewAllPayments(memberRole)) {
+        const sellerFilter = String(req.query.sellerFilter ?? "").trim();
+        if (sellerFilter === "online") {
+          recordedByMemberOnline = true;
+        } else if (sellerFilter && sellerFilter !== "all") {
+          const parsed = Number(sellerFilter);
           if (Number.isFinite(parsed) && parsed > 0) {
             recordedByMemberId = parsed;
           }
+        } else {
+          const legacyRaw = req.query.recordedByMemberId;
+          if (legacyRaw != null && String(legacyRaw).trim() !== "") {
+            const parsed = Number(legacyRaw);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              recordedByMemberId = parsed;
+            }
+          }
         }
+      } else {
+        recordedByMemberId = req.auth!.id;
       }
-    } else {
-      recordedByMemberId = req.auth!.id;
-    }
 
-    const result = await listAdminPayments(pool, {
-      q: q || undefined,
-      status: status || undefined,
-      provider: provider || undefined,
-      organizerId,
-      eventId: Number.isFinite(eventId!) ? eventId : undefined,
-      recordedByMemberId,
-      recordedByMemberOnline,
-      page: req.query.page,
-      limit: req.query.limit,
-      sortBy: req.query.sortBy,
-      sortDir: req.query.sortDir,
-    });
-    res.json(result);
-  });
+      const result = await listAdminPayments(pool, {
+        q: q || undefined,
+        status: status || undefined,
+        provider: provider || undefined,
+        organizerId,
+        eventId: Number.isFinite(eventId!) ? eventId : undefined,
+        recordedByMemberId,
+        recordedByMemberOnline,
+        page: req.query.page,
+        limit: req.query.limit,
+        sortBy: req.query.sortBy,
+        sortDir: req.query.sortDir,
+      });
+      res.json(result);
+    },
+  );
 
   app.get(
     "/api/organizer/payments/seller-summary",
@@ -4409,7 +4974,11 @@ export function registerStaffPortalRoutes(
       if (!organizerId) {
         return res.status(403).json({ error: "Organizer context missing" });
       }
-      const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
       if (!memberRole || !canOrganizerViewSellerSalesSummary(memberRole)) {
         return res.status(403).json({ error: "Insufficient permissions" });
       }
@@ -4426,16 +4995,24 @@ export function registerStaffPortalRoutes(
       if (!organizerId) {
         return res.status(403).json({ error: "Organizer context missing" });
       }
-      const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
       if (!memberRole || !canOrganizerViewPayments(memberRole)) {
-        return res.status(403).json({ error: "Insufficient permissions for payments" });
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payments" });
       }
 
       const paymentId = Number(req.params.paymentId);
       if (!Number.isFinite(paymentId)) {
         return res.status(400).json({ error: "Invalid payment id" });
       }
-      const payment = await fetchAdminPaymentDetail(pool, paymentId, { organizerId });
+      const payment = await fetchAdminPaymentDetail(pool, paymentId, {
+        organizerId,
+      });
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
@@ -4451,9 +5028,18 @@ export function registerStaffPortalRoutes(
       if (!organizerId) {
         return res.status(403).json({ error: "Organizer context missing" });
       }
-      const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-      if (!memberRole || !["owner", "finance", "organizer"].includes(memberRole)) {
-        return res.status(403).json({ error: "Insufficient permissions for refunds" });
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (
+        !memberRole ||
+        !["owner", "finance", "organizer"].includes(memberRole)
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for refunds" });
       }
 
       const paymentId = Number(req.params.paymentId);
@@ -4464,12 +5050,16 @@ export function registerStaffPortalRoutes(
         return res.status(503).json({ error: "Refunds are not configured" });
       }
 
-      const payment = await fetchAdminPaymentDetail(pool, paymentId, { organizerId });
+      const payment = await fetchAdminPaymentDetail(pool, paymentId, {
+        organizerId,
+      });
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      const reason = req.body?.reason ? String(req.body.reason).slice(0, 500) : undefined;
+      const reason = req.body?.reason
+        ? String(req.body.reason).slice(0, 500)
+        : undefined;
       try {
         await processPaymentRefund({
           paymentId,
@@ -4478,7 +5068,9 @@ export function registerStaffPortalRoutes(
           organizerId,
           reason,
         });
-        const refreshed = await fetchAdminPaymentDetail(pool, paymentId, { organizerId });
+        const refreshed = await fetchAdminPaymentDetail(pool, paymentId, {
+          organizerId,
+        });
         res.json({ ok: true, payment: refreshed });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Refund failed";
@@ -4511,7 +5103,7 @@ export function registerStaffPortalRoutes(
       }
 
       const [regs] = await pool.query<RowDataPacket[]>(
-  `SELECT r.id, r.registration_number, r.status, r.total_cents, r.created_at,
+        `SELECT r.id, r.registration_number, r.status, r.total_cents, r.created_at,
           e.id AS event_id, e.title AS event_title, e.slug AS event_slug
    FROM registrations r
    JOIN events e ON e.id = r.event_id
@@ -4531,7 +5123,9 @@ export function registerStaffPortalRoutes(
       const athleteId = Number(req.params.athleteId);
       const status = String(req.body?.status ?? "").trim();
       if (!["active", "suspended"].includes(status)) {
-        return res.status(400).json({ error: "status must be active or suspended" });
+        return res
+          .status(400)
+          .json({ error: "status must be active or suspended" });
       }
 
       const [result] = await pool.query<ResultSetHeader>(
@@ -4592,7 +5186,9 @@ export function registerStaffPortalRoutes(
         return res.status(404).json({ error: "Event not found" });
       }
 
-      const parsed = parseEventBody((req.body ?? {}) as Record<string, unknown>);
+      const parsed = parseEventBody(
+        (req.body ?? {}) as Record<string, unknown>,
+      );
       if ("error" in parsed) {
         return res.status(400).json({ error: parsed.error });
       }
@@ -4611,7 +5207,7 @@ export function registerStaffPortalRoutes(
            featured = ?, start_date = ?, end_date = ?,
            registration_opens_at = ?, registration_closes_at = ?,
            check_in_opens_at = ?, check_in_closes_at = ?,
-           requires_waiver = ?, fee_presentation = ?,
+           requires_waiver = ?, fee_presentation = ?, auto_deactivate_after_event = ?,
            ${eventBodySqlTail()}
          WHERE id = ?`,
         [
@@ -4631,6 +5227,7 @@ export function registerStaffPortalRoutes(
           data.check_in_closes_at,
           data.requires_waiver ? 1 : 0,
           data.fee_presentation,
+          data.auto_deactivate_after_event ? 1 : 0,
           ...eventBodySqlValues(data),
           eventId,
         ],
@@ -4644,6 +5241,41 @@ export function registerStaffPortalRoutes(
   );
 
   app.post(
+    "/api/admin/events/:eventId/deactivate-listing",
+    requireAdmin,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!Number.isFinite(eventId)) {
+        return res.status(400).json({ error: "Invalid event id" });
+      }
+      const result = await deactivateEventFromListing(pool, eventId);
+      if ("error" in result) {
+        return res.status(404).json({ error: result.error });
+      }
+      res.json({ ok: true, event: await fetchStaffEventDetail(pool, eventId) });
+    },
+  );
+
+  app.delete(
+    "/api/admin/events/:eventId",
+    requireAdmin,
+    async (req: AuthedRequest, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!Number.isFinite(eventId)) {
+        return res.status(400).json({ error: "Invalid event id" });
+      }
+      const result = await softDeleteStaffEvent(pool, eventId);
+      if ("error" in result) {
+        return res.status(404).json({ error: result.error });
+      }
+      res.json({
+        ok: true,
+        cancelledRegistrations: result.cancelledRegistrations,
+      });
+    },
+  );
+
+  app.post(
     "/api/admin/events/:eventId/publish",
     requireAdmin,
     async (req: AuthedRequest, res) => {
@@ -4651,6 +5283,12 @@ export function registerStaffPortalRoutes(
       const event = await fetchStaffEventDetail(pool, eventId);
       if (!event) {
         return res.status(404).json({ error: "Event not found" });
+      }
+      if (Number(event.is_simulation) === 1) {
+        return res.status(400).json({
+          error: "Simulation events cannot be published",
+          code: "simulation_not_publishable",
+        });
       }
       if (String(event.status) !== "pending_approval") {
         return res.status(400).json({
@@ -4670,7 +5308,11 @@ export function registerStaffPortalRoutes(
         return res.status(400).json({ error: waiverCheck.error });
       }
 
-      const pricingCheck = await validateEventPublishPricing(pool, eventId, categories);
+      const pricingCheck = await validateEventPublishPricing(
+        pool,
+        eventId,
+        categories,
+      );
       if (pricingCheck.ok === false) {
         return res.status(400).json({ error: pricingCheck.error });
       }
@@ -4727,10 +5369,14 @@ export function registerStaffPortalRoutes(
         return res.status(404).json({ error: "Event not found" });
       }
       if (String(event.status) !== "pending_approval") {
-        return res.status(400).json({ error: "Only pending approval events can be rejected" });
+        return res
+          .status(400)
+          .json({ error: "Only pending approval events can be rejected" });
       }
 
-      const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 500) : null;
+      const reason = req.body?.reason
+        ? String(req.body.reason).trim().slice(0, 500)
+        : null;
 
       await pool.query<ResultSetHeader>(
         `UPDATE events SET status = 'draft', submitted_for_approval_at = NULL,
@@ -4761,10 +5407,14 @@ export function registerStaffPortalRoutes(
     },
   );
 
-  app.get("/api/admin/analytics/timeseries", requireAdmin, async (_req, res) => {
-    const timeSeries = await analyticsTimeSeries(pool);
-    res.json(timeSeries);
-  });
+  app.get(
+    "/api/admin/analytics/timeseries",
+    requireAdmin,
+    async (_req, res) => {
+      const timeSeries = await analyticsTimeSeries(pool);
+      res.json(timeSeries);
+    },
+  );
 
   // ── Organizer: schedule waves ──────────────────────────────────────────────
   app.get(
@@ -4776,7 +5426,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -4817,7 +5474,10 @@ export function registerStaffPortalRoutes(
               : null;
           return {
             name: name.slice(0, 100),
-            starts_at: startsAtDate.toISOString().slice(0, 19).replace("T", " "),
+            starts_at: startsAtDate
+              .toISOString()
+              .slice(0, 19)
+              .replace("T", " "),
             event_category_id,
             capacity,
             sort_order: Number(w.sort_order) || index,
@@ -4834,13 +5494,23 @@ export function registerStaffPortalRoutes(
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
-        await conn.query("DELETE FROM event_schedule_waves WHERE event_id = ?", [eventId]);
+        await conn.query(
+          "DELETE FROM event_schedule_waves WHERE event_id = ?",
+          [eventId],
+        );
         for (const w of waves) {
           await conn.query<ResultSetHeader>(
             `INSERT INTO event_schedule_waves (
                event_id, event_category_id, name, starts_at, capacity, sort_order
              ) VALUES (?,?,?,?,?,?)`,
-            [eventId, w.event_category_id, w.name, w.starts_at, w.capacity, w.sort_order],
+            [
+              eventId,
+              w.event_category_id,
+              w.name,
+              w.starts_at,
+              w.capacity,
+              w.sort_order,
+            ],
           );
         }
         await conn.commit();
@@ -4870,7 +5540,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -4900,7 +5577,9 @@ export function registerStaffPortalRoutes(
       const routeGeojson = req.body?.routeGeojson;
       const points = req.body?.points;
       if (!routeGeojson || !Array.isArray(points)) {
-        return res.status(400).json({ error: "routeGeojson and points array required" });
+        return res
+          .status(400)
+          .json({ error: "routeGeojson and points array required" });
       }
 
       const courseValidation = validateCoursePayload({
@@ -4967,7 +5646,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -5000,7 +5686,9 @@ export function registerStaffPortalRoutes(
         .slice(0, 40);
       const discount_value = Number(req.body?.discount_value);
       if (!code || !Number.isFinite(discount_value) || discount_value <= 0) {
-        return res.status(400).json({ error: "code and discount_value required" });
+        return res
+          .status(400)
+          .json({ error: "code and discount_value required" });
       }
 
       const discount_type = String(req.body?.discount_type ?? "percent");
@@ -5008,7 +5696,9 @@ export function registerStaffPortalRoutes(
         return res.status(400).json({ error: "Invalid discount_type" });
       }
       if (discount_type === "percent" && discount_value > 100) {
-        return res.status(400).json({ error: "Percent discount cannot exceed 100" });
+        return res
+          .status(400)
+          .json({ error: "Percent discount cannot exceed 100" });
       }
 
       const applies_to = String(req.body?.applies_to ?? "registration");
@@ -5026,11 +5716,15 @@ export function registerStaffPortalRoutes(
             eventId,
             organizerId,
             code,
-            req.body?.description ? String(req.body.description).slice(0, 255) : null,
+            req.body?.description
+              ? String(req.body.description).slice(0, 255)
+              : null,
             discount_type,
             Math.round(discount_value),
             applies_to,
-            req.body?.max_uses != null ? Math.max(0, Number(req.body.max_uses)) : null,
+            req.body?.max_uses != null
+              ? Math.max(0, Number(req.body.max_uses))
+              : null,
             req.body?.min_purchase_cents != null
               ? Math.max(0, Number(req.body.min_purchase_cents))
               : null,
@@ -5049,7 +5743,9 @@ export function registerStaffPortalRoutes(
       } catch (err: unknown) {
         const mysqlErr = err as { code?: string };
         if (mysqlErr.code === "ER_DUP_ENTRY") {
-          return res.status(409).json({ error: "Discount code already exists for this event" });
+          return res
+            .status(409)
+            .json({ error: "Discount code already exists for this event" });
         }
         throw err;
       }
@@ -5083,7 +5779,9 @@ export function registerStaffPortalRoutes(
       if (req.body?.description !== undefined) {
         updates.push("description = ?");
         params.push(
-          req.body.description ? String(req.body.description).slice(0, 255) : null,
+          req.body.description
+            ? String(req.body.description).slice(0, 255)
+            : null,
         );
       }
       if (req.body?.discount_type != null) {
@@ -5113,7 +5811,9 @@ export function registerStaffPortalRoutes(
       if (req.body?.max_uses !== undefined) {
         updates.push("max_uses = ?");
         params.push(
-          req.body.max_uses != null ? Math.max(0, Number(req.body.max_uses)) : null,
+          req.body.max_uses != null
+            ? Math.max(0, Number(req.body.max_uses))
+            : null,
         );
       }
       if (req.body?.min_purchase_cents !== undefined) {
@@ -5191,7 +5891,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -5247,7 +5954,9 @@ export function registerStaffPortalRoutes(
       }
       const entry = entryRows[0];
       if (entry.status !== "waiting") {
-        return res.status(409).json({ error: "Entry is not in waiting status" });
+        return res
+          .status(409)
+          .json({ error: "Entry is not in waiting status" });
       }
 
       await pool.query<ResultSetHeader>(
@@ -5326,7 +6035,9 @@ export function registerStaffPortalRoutes(
         [waitlistEntryId, eventId],
       );
       if (result.affectedRows === 0) {
-        return res.status(404).json({ error: "Waitlist entry not found or already resolved" });
+        return res
+          .status(404)
+          .json({ error: "Waitlist entry not found or already resolved" });
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -5356,7 +6067,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
 
@@ -5403,10 +6121,16 @@ export function registerStaffPortalRoutes(
           return {
             asset_type,
             url: url.slice(0, 1000),
-            alt_text: m.alt_text ? String(m.alt_text).trim().slice(0, 255) : null,
-            mime_type: m.mime_type ? String(m.mime_type).trim().slice(0, 100) : null,
+            alt_text: m.alt_text
+              ? String(m.alt_text).trim().slice(0, 255)
+              : null,
+            mime_type: m.mime_type
+              ? String(m.mime_type).trim().slice(0, 100)
+              : null,
             file_size_bytes:
-              m.file_size_bytes != null ? Number(m.file_size_bytes) || null : null,
+              m.file_size_bytes != null
+                ? Number(m.file_size_bytes) || null
+                : null,
             width_px: m.width_px != null ? Number(m.width_px) || null : null,
             height_px: m.height_px != null ? Number(m.height_px) || null : null,
             sort_order: Number(m.sort_order) || index,
@@ -5484,57 +6208,66 @@ export function registerStaffPortalRoutes(
     return rows.length > 0;
   }
 
-  app.get("/api/admin/events/:eventId/course", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json
+  app.get(
+    "/api/admin/events/:eventId/course",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json
        FROM event_courses WHERE event_id = ? LIMIT 1`,
-      [eventId],
-    );
-    const row = rows[0];
-    if (!row) return res.json({ course: null });
-    res.json({
-      course: mapCourseRowFromDb(row),
-    });
-  });
+        [eventId],
+      );
+      const row = rows[0];
+      if (!row) return res.json({ course: null });
+      res.json({
+        course: mapCourseRowFromDb(row),
+      });
+    },
+  );
 
-  app.put("/api/admin/events/:eventId/course", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const routeGeojson = req.body?.routeGeojson;
-    const points = req.body?.points;
-    if (!routeGeojson || !Array.isArray(points)) {
-      return res.status(400).json({ error: "routeGeojson and points array required" });
-    }
+  app.put(
+    "/api/admin/events/:eventId/course",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const routeGeojson = req.body?.routeGeojson;
+      const points = req.body?.points;
+      if (!routeGeojson || !Array.isArray(points)) {
+        return res
+          .status(400)
+          .json({ error: "routeGeojson and points array required" });
+      }
 
-    const courseValidation = validateCoursePayload({
-      routeGeojson,
-      points,
-      distanceKm: req.body?.distanceKm,
-      elevationGainM: req.body?.elevationGainM,
-      elevationProfile: req.body?.elevationProfile,
-    });
-    if (courseValidation.ok === false) {
-      return res.status(400).json({ error: courseValidation.error });
-    }
+      const courseValidation = validateCoursePayload({
+        routeGeojson,
+        points,
+        distanceKm: req.body?.distanceKm,
+        elevationGainM: req.body?.elevationGainM,
+        elevationProfile: req.body?.elevationProfile,
+      });
+      if (courseValidation.ok === false) {
+        return res.status(400).json({ error: courseValidation.error });
+      }
 
-    const distanceKm =
-      req.body?.distanceKm != null && req.body.distanceKm !== ""
-        ? Number(req.body.distanceKm)
-        : null;
-    const elevationGainM =
-      req.body?.elevationGainM != null && req.body.elevationGainM !== ""
-        ? Math.max(0, Number(req.body.elevationGainM))
-        : null;
-    const elevationProfile =
-      req.body?.elevationProfile != null ? req.body.elevationProfile : null;
-    await pool.query<ResultSetHeader>(
-      `INSERT INTO event_courses (event_id, route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json)
+      const distanceKm =
+        req.body?.distanceKm != null && req.body.distanceKm !== ""
+          ? Number(req.body.distanceKm)
+          : null;
+      const elevationGainM =
+        req.body?.elevationGainM != null && req.body.elevationGainM !== ""
+          ? Math.max(0, Number(req.body.elevationGainM))
+          : null;
+      const elevationProfile =
+        req.body?.elevationProfile != null ? req.body.elevationProfile : null;
+      await pool.query<ResultSetHeader>(
+        `INSERT INTO event_courses (event_id, route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json)
        VALUES (?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
          route_geojson = VALUES(route_geojson),
@@ -5543,61 +6276,73 @@ export function registerStaffPortalRoutes(
          elevation_gain_m = VALUES(elevation_gain_m),
          elevation_profile_json = VALUES(elevation_profile_json),
          updated_at = NOW()`,
-      [
-        eventId,
-        JSON.stringify(routeGeojson),
-        JSON.stringify(points),
-        distanceKm,
-        elevationGainM,
-        elevationProfile ? JSON.stringify(elevationProfile) : null,
-      ],
-    );
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json
+        [
+          eventId,
+          JSON.stringify(routeGeojson),
+          JSON.stringify(points),
+          distanceKm,
+          elevationGainM,
+          elevationProfile ? JSON.stringify(elevationProfile) : null,
+        ],
+      );
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT route_geojson, points_json, distance_km, elevation_gain_m, elevation_profile_json
        FROM event_courses WHERE event_id = ? LIMIT 1`,
-      [eventId],
-    );
-    const row = rows[0];
-    res.json({
-      course: mapCourseRowFromDb(row),
-    });
-  });
+        [eventId],
+      );
+      const row = rows[0];
+      res.json({
+        course: mapCourseRowFromDb(row),
+      });
+    },
+  );
 
-  app.get("/api/admin/events/:eventId/schedule-waves", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, event_category_id, name, starts_at, capacity, ${WAVE_REGISTERED_COUNT_SQL} AS registered_count, sort_order
+  app.get(
+    "/api/admin/events/:eventId/schedule-waves",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, event_category_id, name, starts_at, capacity, ${WAVE_REGISTERED_COUNT_SQL} AS registered_count, sort_order
        FROM event_schedule_waves WHERE event_id = ? ORDER BY sort_order ASC, starts_at ASC`,
-      [eventId],
-    );
-    res.json({ waves: rows });
-  });
+        [eventId],
+      );
+      res.json({ waves: rows });
+    },
+  );
 
-  app.get("/api/admin/events/:eventId/discount-codes", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, event_id, code, description, discount_type, discount_value, applies_to,
+  app.get(
+    "/api/admin/events/:eventId/discount-codes",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, event_id, code, description, discount_type, discount_value, applies_to,
               max_uses, ${DISCOUNT_USED_COUNT_SQL} AS used_count, min_purchase_cents, valid_from, valid_until, is_active, created_at
        FROM discount_codes WHERE event_id = ? ORDER BY created_at DESC`,
-      [eventId],
-    );
-    res.json({ discountCodes: rows });
-  });
+        [eventId],
+      );
+      res.json({ discountCodes: rows });
+    },
+  );
 
   // ── Admin: waitlist, media, fields, waivers, discount mutations ─────────────
-  app.get("/api/admin/events/:eventId/waitlist", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT w.id, w.event_id, w.event_category_id, w.athlete_id, w.status, w.position,
+  app.get(
+    "/api/admin/events/:eventId/waitlist",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT w.id, w.event_id, w.event_category_id, w.athlete_id, w.status, w.position,
               w.offered_at, w.offer_expires_at, w.created_at,
               ec.name AS category_name,
               a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
@@ -5607,26 +6352,30 @@ export function registerStaffPortalRoutes(
        JOIN athletes a ON a.id = w.athlete_id
        WHERE w.event_id = ?
        ORDER BY w.event_category_id ASC, w.position ASC, w.created_at ASC`,
-      [eventId],
-    );
-    res.json({ entries: rows });
-  });
+        [eventId],
+      );
+      res.json({ entries: rows });
+    },
+  );
 
-  app.post("/api/admin/events/:eventId/waitlist/offer", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const waitlistEntryId = Number(req.body?.waitlistEntryId);
-    const offerExpiresHours = Math.min(
-      168,
-      Math.max(1, Number(req.body?.offerExpiresHours ?? 24) || 24),
-    );
-    if (!Number.isFinite(waitlistEntryId)) {
-      return res.status(400).json({ error: "waitlistEntryId required" });
-    }
-    const [entryRows] = await pool.query<RowDataPacket[]>(
-      `SELECT w.id, w.event_id, w.event_category_id, w.athlete_id, w.status,
+  app.post(
+    "/api/admin/events/:eventId/waitlist/offer",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const waitlistEntryId = Number(req.body?.waitlistEntryId);
+      const offerExpiresHours = Math.min(
+        168,
+        Math.max(1, Number(req.body?.offerExpiresHours ?? 24) || 24),
+      );
+      if (!Number.isFinite(waitlistEntryId)) {
+        return res.status(400).json({ error: "waitlistEntryId required" });
+      }
+      const [entryRows] = await pool.query<RowDataPacket[]>(
+        `SELECT w.id, w.event_id, w.event_category_id, w.athlete_id, w.status,
               e.title AS event_title, e.slug AS event_slug,
               ec.name AS category_name,
               a.email AS athlete_email, a.first_name AS athlete_first_name,
@@ -5636,70 +6385,78 @@ export function registerStaffPortalRoutes(
        JOIN event_categories ec ON ec.id = w.event_category_id
        JOIN athletes a ON a.id = w.athlete_id
        WHERE w.id = ? AND w.event_id = ? LIMIT 1`,
-      [waitlistEntryId, eventId],
-    );
-    if (entryRows.length === 0) {
-      return res.status(404).json({ error: "Waitlist entry not found" });
-    }
-    const entry = entryRows[0];
-    if (entry.status !== "waiting") {
-      return res.status(409).json({ error: "Entry is not in waiting status" });
-    }
-    await pool.query<ResultSetHeader>(
-      `UPDATE waitlist_entries
+        [waitlistEntryId, eventId],
+      );
+      if (entryRows.length === 0) {
+        return res.status(404).json({ error: "Waitlist entry not found" });
+      }
+      const entry = entryRows[0];
+      if (entry.status !== "waiting") {
+        return res
+          .status(409)
+          .json({ error: "Entry is not in waiting status" });
+      }
+      await pool.query<ResultSetHeader>(
+        `UPDATE waitlist_entries
        SET status = 'offered', offered_at = NOW(),
            offer_expires_at = DATE_ADD(NOW(), INTERVAL ? HOUR)
        WHERE id = ?`,
-      [offerExpiresHours, waitlistEntryId],
-    );
-    const athleteEmail = entry.athlete_email as string | null;
-    if (athleteEmail) {
-      const locale = entry.preferred_language === "en" ? "en" : "es";
-      const eventUrl = `${appUrl}/events/${entry.event_slug}`;
-      const subject =
-        locale === "en"
-          ? `Spot available: ${entry.event_title}`
-          : `Cupo disponible: ${entry.event_title}`;
-      const body =
-        locale === "en"
-          ? `Hi ${entry.athlete_first_name},\n\nA spot has opened for ${entry.category_name} at ${entry.event_title}. Register within ${offerExpiresHours} hours:\n${eventUrl}`
-          : `Hola ${entry.athlete_first_name},\n\nSe abrió un cupo para ${entry.category_name} en ${entry.event_title}. Regístrate en las próximas ${offerExpiresHours} horas:\n${eventUrl}`;
-      void sendEmail({
-        to: athleteEmail,
-        subject,
-        text: body,
-        html: body.replace(/\n/g, "<br>"),
-      }).catch((err) => console.error("[email:waitlist-offer]", err));
-    }
-    const [updated] = await pool.query<RowDataPacket[]>(
-      `SELECT id, event_id, event_category_id, athlete_id, status, position,
+        [offerExpiresHours, waitlistEntryId],
+      );
+      const athleteEmail = entry.athlete_email as string | null;
+      if (athleteEmail) {
+        const locale = entry.preferred_language === "en" ? "en" : "es";
+        const eventUrl = `${appUrl}/events/${entry.event_slug}`;
+        const subject =
+          locale === "en"
+            ? `Spot available: ${entry.event_title}`
+            : `Cupo disponible: ${entry.event_title}`;
+        const body =
+          locale === "en"
+            ? `Hi ${entry.athlete_first_name},\n\nA spot has opened for ${entry.category_name} at ${entry.event_title}. Register within ${offerExpiresHours} hours:\n${eventUrl}`
+            : `Hola ${entry.athlete_first_name},\n\nSe abrió un cupo para ${entry.category_name} en ${entry.event_title}. Regístrate en las próximas ${offerExpiresHours} horas:\n${eventUrl}`;
+        void sendEmail({
+          to: athleteEmail,
+          subject,
+          text: body,
+          html: body.replace(/\n/g, "<br>"),
+        }).catch((err) => console.error("[email:waitlist-offer]", err));
+      }
+      const [updated] = await pool.query<RowDataPacket[]>(
+        `SELECT id, event_id, event_category_id, athlete_id, status, position,
               offered_at, offer_expires_at, created_at
        FROM waitlist_entries WHERE id = ? LIMIT 1`,
-      [waitlistEntryId],
-    );
-    res.json({ ok: true, entry: updated[0] });
-  });
+        [waitlistEntryId],
+      );
+      res.json({ ok: true, entry: updated[0] });
+    },
+  );
 
-  app.post("/api/admin/events/:eventId/waitlist/revoke", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const waitlistEntryId = Number(req.body?.waitlistEntryId);
-    if (!Number.isFinite(waitlistEntryId)) {
-      return res.status(400).json({ error: "waitlistEntryId required" });
-    }
-    const [result] = await pool.query<ResultSetHeader>(
-      `UPDATE waitlist_entries
+  app.post(
+    "/api/admin/events/:eventId/waitlist/revoke",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const waitlistEntryId = Number(req.body?.waitlistEntryId);
+      if (!Number.isFinite(waitlistEntryId)) {
+        return res.status(400).json({ error: "waitlistEntryId required" });
+      }
+      const [result] = await pool.query<ResultSetHeader>(
+        `UPDATE waitlist_entries
        SET status = 'cancelled', offered_at = NULL, offer_expires_at = NULL
        WHERE id = ? AND event_id = ? AND status IN ('waiting', 'offered')`,
-      [waitlistEntryId, eventId],
-    );
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Waitlist entry not found or already resolved" });
-    }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT w.id, w.event_id, w.event_category_id, w.athlete_id, w.status, w.position,
+        [waitlistEntryId, eventId],
+      );
+      if (result.affectedRows === 0) {
+        return res
+          .status(404)
+          .json({ error: "Waitlist entry not found or already resolved" });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT w.id, w.event_id, w.event_category_id, w.athlete_id, w.status, w.position,
               w.offered_at, w.offer_expires_at, w.created_at,
               ec.name AS category_name,
               a.first_name AS athlete_first_name, a.last_name AS athlete_last_name,
@@ -5709,26 +6466,33 @@ export function registerStaffPortalRoutes(
        JOIN athletes a ON a.id = w.athlete_id
        WHERE w.event_id = ?
        ORDER BY w.event_category_id ASC, w.position ASC, w.created_at ASC`,
-      [eventId],
-    );
-    res.json({ ok: true, entries: rows });
-  });
+        [eventId],
+      );
+      res.json({ ok: true, entries: rows });
+    },
+  );
 
-  app.post("/api/admin/events/:eventId/categories", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const err = await createEventCategoryRecord(
-      pool,
-      newPublicUuid,
-      eventId,
-      (req.body ?? {}) as Record<string, unknown>,
-      getStripeClient?.() ?? null,
-    );
-    if (err) return res.status(err.status).json({ error: err.error });
-    res.status(201).json({ categories: await fetchEventCategories(pool, eventId) });
-  });
+  app.post(
+    "/api/admin/events/:eventId/categories",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const err = await createEventCategoryRecord(
+        pool,
+        newPublicUuid,
+        eventId,
+        (req.body ?? {}) as Record<string, unknown>,
+        getStripeClient?.() ?? null,
+      );
+      if (err) return res.status(err.status).json({ error: err.error });
+      res
+        .status(201)
+        .json({ categories: await fetchEventCategories(pool, eventId) });
+    },
+  );
 
   app.patch(
     "/api/admin/events/:eventId/categories/:categoryId",
@@ -5766,21 +6530,30 @@ export function registerStaffPortalRoutes(
     },
   );
 
-  app.post("/api/admin/events/:eventId/extras", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const err = await createEventExtraRecord(
-      pool,
-      newPublicUuid,
-      eventId,
-      (req.body ?? {}) as Record<string, unknown>,
-      getStripeClient?.() ?? null,
-    );
-    if (err) return res.status(err.status).json({ error: err.error, code: err.code });
-    res.status(201).json({ extras: await fetchAllEventExtras(pool, eventId) });
-  });
+  app.post(
+    "/api/admin/events/:eventId/extras",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const err = await createEventExtraRecord(
+        pool,
+        newPublicUuid,
+        eventId,
+        (req.body ?? {}) as Record<string, unknown>,
+        getStripeClient?.() ?? null,
+      );
+      if (err)
+        return res
+          .status(err.status)
+          .json({ error: err.error, code: err.code });
+      res
+        .status(201)
+        .json({ extras: await fetchAllEventExtras(pool, eventId) });
+    },
+  );
 
   app.patch(
     "/api/admin/events/:eventId/extras/:extraId",
@@ -5798,7 +6571,10 @@ export function registerStaffPortalRoutes(
         (req.body ?? {}) as Record<string, unknown>,
         getStripeClient?.() ?? null,
       );
-      if (err) return res.status(err.status).json({ error: err.error, code: err.code });
+      if (err)
+        return res
+          .status(err.status)
+          .json({ error: err.error, code: err.code });
       res.json({ extras: await fetchAllEventExtras(pool, eventId) });
     },
   );
@@ -5818,249 +6594,313 @@ export function registerStaffPortalRoutes(
     },
   );
 
-  app.get("/api/admin/events/:eventId/media", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, public_uuid, asset_type, url, alt_text, mime_type,
+  app.get(
+    "/api/admin/events/:eventId/media",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, public_uuid, asset_type, url, alt_text, mime_type,
               file_size_bytes, width_px, height_px, sort_order, is_primary
        FROM media_assets
        WHERE entity_type = 'event' AND entity_id = ? AND deleted_at IS NULL
        ORDER BY sort_order ASC, id ASC`,
-      [eventId],
-    );
-    res.json({ media: rows });
-  });
-
-  app.put("/api/admin/events/:eventId/media", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const raw = req.body?.media;
-    if (!Array.isArray(raw)) {
-      return res.status(400).json({ error: "media array required" });
-    }
-    const validAssetTypes = new Set([
-      "hero",
-      "banner",
-      "logo",
-      "gallery",
-      "document",
-      "route_map",
-      "other",
-    ]);
-    const mediaItems = raw
-      .map((m: Record<string, unknown>, index: number) => {
-        const url = String(m.url ?? "").trim();
-        if (!url) return null;
-        const asset_type = String(m.asset_type ?? "other");
-        if (!validAssetTypes.has(asset_type)) return null;
-        return {
-          asset_type,
-          url: url.slice(0, 1000),
-          alt_text: m.alt_text ? String(m.alt_text).trim().slice(0, 255) : null,
-          mime_type: m.mime_type ? String(m.mime_type).trim().slice(0, 100) : null,
-          file_size_bytes:
-            m.file_size_bytes != null ? Number(m.file_size_bytes) || null : null,
-          width_px: m.width_px != null ? Number(m.width_px) || null : null,
-          height_px: m.height_px != null ? Number(m.height_px) || null : null,
-          sort_order: Number(m.sort_order) || index,
-          is_primary: m.is_primary ? 1 : 0,
-        };
-      })
-      .filter(Boolean) as Array<{
-      asset_type: string;
-      url: string;
-      alt_text: string | null;
-      mime_type: string | null;
-      file_size_bytes: number | null;
-      width_px: number | null;
-      height_px: number | null;
-      sort_order: number;
-      is_primary: number;
-    }>;
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      await conn.query(
-        `UPDATE media_assets SET deleted_at = NOW()
-         WHERE entity_type = 'event' AND entity_id = ? AND deleted_at IS NULL`,
         [eventId],
       );
-      for (const item of mediaItems) {
-        await conn.query<ResultSetHeader>(
-          `INSERT INTO media_assets (
+      res.json({ media: rows });
+    },
+  );
+
+  app.put(
+    "/api/admin/events/:eventId/media",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const raw = req.body?.media;
+      if (!Array.isArray(raw)) {
+        return res.status(400).json({ error: "media array required" });
+      }
+      const validAssetTypes = new Set([
+        "hero",
+        "banner",
+        "logo",
+        "gallery",
+        "document",
+        "route_map",
+        "other",
+      ]);
+      const mediaItems = raw
+        .map((m: Record<string, unknown>, index: number) => {
+          const url = String(m.url ?? "").trim();
+          if (!url) return null;
+          const asset_type = String(m.asset_type ?? "other");
+          if (!validAssetTypes.has(asset_type)) return null;
+          return {
+            asset_type,
+            url: url.slice(0, 1000),
+            alt_text: m.alt_text
+              ? String(m.alt_text).trim().slice(0, 255)
+              : null,
+            mime_type: m.mime_type
+              ? String(m.mime_type).trim().slice(0, 100)
+              : null,
+            file_size_bytes:
+              m.file_size_bytes != null
+                ? Number(m.file_size_bytes) || null
+                : null,
+            width_px: m.width_px != null ? Number(m.width_px) || null : null,
+            height_px: m.height_px != null ? Number(m.height_px) || null : null,
+            sort_order: Number(m.sort_order) || index,
+            is_primary: m.is_primary ? 1 : 0,
+          };
+        })
+        .filter(Boolean) as Array<{
+        asset_type: string;
+        url: string;
+        alt_text: string | null;
+        mime_type: string | null;
+        file_size_bytes: number | null;
+        width_px: number | null;
+        height_px: number | null;
+        sort_order: number;
+        is_primary: number;
+      }>;
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query(
+          `UPDATE media_assets SET deleted_at = NOW()
+         WHERE entity_type = 'event' AND entity_id = ? AND deleted_at IS NULL`,
+          [eventId],
+        );
+        for (const item of mediaItems) {
+          await conn.query<ResultSetHeader>(
+            `INSERT INTO media_assets (
              public_uuid, entity_type, entity_id, asset_type, url, alt_text, mime_type,
              file_size_bytes, width_px, height_px, sort_order, is_primary
            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            newPublicUuid(),
-            "event",
-            eventId,
-            item.asset_type,
-            item.url,
-            item.alt_text,
-            item.mime_type,
-            item.file_size_bytes,
-            item.width_px,
-            item.height_px,
-            item.sort_order,
-            item.is_primary,
-          ],
-        );
+            [
+              newPublicUuid(),
+              "event",
+              eventId,
+              item.asset_type,
+              item.url,
+              item.alt_text,
+              item.mime_type,
+              item.file_size_bytes,
+              item.width_px,
+              item.height_px,
+              item.sort_order,
+              item.is_primary,
+            ],
+          );
+        }
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
       }
-      await conn.commit();
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-    const [saved] = await pool.query<RowDataPacket[]>(
-      `SELECT id, public_uuid, asset_type, url, alt_text, mime_type,
+      const [saved] = await pool.query<RowDataPacket[]>(
+        `SELECT id, public_uuid, asset_type, url, alt_text, mime_type,
               file_size_bytes, width_px, height_px, sort_order, is_primary
        FROM media_assets
        WHERE entity_type = 'event' AND entity_id = ? AND deleted_at IS NULL
        ORDER BY sort_order ASC, id ASC`,
-      [eventId],
-    );
-    res.json({ media: saved });
-  });
+        [eventId],
+      );
+      res.json({ media: saved });
+    },
+  );
 
-  app.get("/api/admin/events/:eventId/registration-fields", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    res.json({ fields: await fetchStaffRegistrationFields(pool, eventId) });
-  });
+  app.get(
+    "/api/admin/events/:eventId/registration-fields",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      res.json({ fields: await fetchStaffRegistrationFields(pool, eventId) });
+    },
+  );
 
-  app.put("/api/admin/events/:eventId/registration-fields", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const result = await replaceEventRegistrationFields(pool, eventId, req.body?.fields);
-    if (result.ok === false) {
-      return res.status(result.error.status).json({ error: result.error.error });
-    }
-    res.json({ fields: result.fields });
-  });
+  app.put(
+    "/api/admin/events/:eventId/registration-fields",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const result = await replaceEventRegistrationFields(
+        pool,
+        eventId,
+        req.body?.fields,
+      );
+      if (result.ok === false) {
+        return res
+          .status(result.error.status)
+          .json({ error: result.error.error });
+      }
+      res.json({ fields: result.fields });
+    },
+  );
 
-  app.get("/api/admin/events/:eventId/folio-segments", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const rows = await fetchStaffFolioSegments(pool, eventId);
-    res.json({ segments: rows.map(mapStaffFolioSegment) });
-  });
+  app.get(
+    "/api/admin/events/:eventId/folio-segments",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const rows = await fetchStaffFolioSegments(pool, eventId);
+      res.json({ segments: rows.map(mapStaffFolioSegment) });
+    },
+  );
 
-  app.put("/api/admin/events/:eventId/folio-segments", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const result = await replaceEventFolioSegments(pool, eventId, req.body?.segments);
-    if (result.ok === false) {
-      return res.status(result.error.status).json({ error: result.error.error });
-    }
-    res.json({ segments: result.segments.map(mapStaffFolioSegment) });
-  });
+  app.put(
+    "/api/admin/events/:eventId/folio-segments",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const result = await replaceEventFolioSegments(
+        pool,
+        eventId,
+        req.body?.segments,
+      );
+      if (result.ok === false) {
+        return res
+          .status(result.error.status)
+          .json({ error: result.error.error });
+      }
+      res.json({ segments: result.segments.map(mapStaffFolioSegment) });
+    },
+  );
 
-  app.get("/api/admin/events/:eventId/waivers", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const rows = await fetchEventWaiversForStaff(pool, eventId);
-    res.json({ waivers: rows });
-  });
+  app.get(
+    "/api/admin/events/:eventId/waivers",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const rows = await fetchEventWaiversForStaff(pool, eventId);
+      res.json({ waivers: rows });
+    },
+  );
 
-  app.put("/api/admin/events/:eventId/waivers", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const result = await syncEventWaivers(pool, eventId, req.body);
-    if ("error" in result) {
-      return res.status(result.status).json({ error: result.error });
-    }
-    res.json({ waivers: result.waivers });
-  });
+  app.put(
+    "/api/admin/events/:eventId/waivers",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const result = await syncEventWaivers(pool, eventId, req.body);
+      if ("error" in result) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json({ waivers: result.waivers });
+    },
+  );
 
-  app.post("/api/admin/events/:eventId/discount-codes", requireAdmin, async (req, res) => {
-    const eventId = Number(req.params.eventId);
-    if (!(await adminEventExists(eventId))) {
-      return res.status(404).json({ error: "Event not found" });
-    }
-    const [[eventRow]] = await pool.query<RowDataPacket[]>(
-      "SELECT organizer_id FROM events WHERE id = ? LIMIT 1",
-      [eventId],
-    );
-    const organizerId = Number(eventRow?.organizer_id);
-    if (!Number.isFinite(organizerId)) {
-      return res.status(400).json({ error: "Event has no organizer" });
-    }
-    const code = String(req.body?.code ?? "")
-      .trim()
-      .toUpperCase()
-      .slice(0, 40);
-    const discount_value = Number(req.body?.discount_value);
-    if (!code || !Number.isFinite(discount_value) || discount_value <= 0) {
-      return res.status(400).json({ error: "code and discount_value required" });
-    }
-    const discount_type = String(req.body?.discount_type ?? "percent");
-    if (!["percent", "fixed_cents"].includes(discount_type)) {
-      return res.status(400).json({ error: "Invalid discount_type" });
-    }
-    if (discount_type === "percent" && discount_value > 100) {
-      return res.status(400).json({ error: "Percent discount cannot exceed 100" });
-    }
-    const applies_to = String(req.body?.applies_to ?? "registration");
-    if (!["registration", "service_fee", "total"].includes(applies_to)) {
-      return res.status(400).json({ error: "Invalid applies_to" });
-    }
-    try {
-      const [result] = await pool.query<ResultSetHeader>(
-        `INSERT INTO discount_codes (
+  app.post(
+    "/api/admin/events/:eventId/discount-codes",
+    requireAdmin,
+    async (req, res) => {
+      const eventId = Number(req.params.eventId);
+      if (!(await adminEventExists(eventId))) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const [[eventRow]] = await pool.query<RowDataPacket[]>(
+        "SELECT organizer_id FROM events WHERE id = ? LIMIT 1",
+        [eventId],
+      );
+      const organizerId = Number(eventRow?.organizer_id);
+      if (!Number.isFinite(organizerId)) {
+        return res.status(400).json({ error: "Event has no organizer" });
+      }
+      const code = String(req.body?.code ?? "")
+        .trim()
+        .toUpperCase()
+        .slice(0, 40);
+      const discount_value = Number(req.body?.discount_value);
+      if (!code || !Number.isFinite(discount_value) || discount_value <= 0) {
+        return res
+          .status(400)
+          .json({ error: "code and discount_value required" });
+      }
+      const discount_type = String(req.body?.discount_type ?? "percent");
+      if (!["percent", "fixed_cents"].includes(discount_type)) {
+        return res.status(400).json({ error: "Invalid discount_type" });
+      }
+      if (discount_type === "percent" && discount_value > 100) {
+        return res
+          .status(400)
+          .json({ error: "Percent discount cannot exceed 100" });
+      }
+      const applies_to = String(req.body?.applies_to ?? "registration");
+      if (!["registration", "service_fee", "total"].includes(applies_to)) {
+        return res.status(400).json({ error: "Invalid applies_to" });
+      }
+      try {
+        const [result] = await pool.query<ResultSetHeader>(
+          `INSERT INTO discount_codes (
            event_id, organizer_id, code, description, discount_type, discount_value,
            applies_to, max_uses, min_purchase_cents, valid_from, valid_until, is_active
          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)`,
-        [
-          eventId,
-          organizerId,
-          code,
-          req.body?.description ? String(req.body.description).slice(0, 255) : null,
-          discount_type,
-          Math.round(discount_value),
-          applies_to,
-          req.body?.max_uses != null ? Math.max(0, Number(req.body.max_uses)) : null,
-          req.body?.min_purchase_cents != null
-            ? Math.max(0, Number(req.body.min_purchase_cents))
-            : null,
-          req.body?.valid_from || null,
-          req.body?.valid_until || null,
-        ],
-      );
-      const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, event_id, code, description, discount_type, discount_value, applies_to,
+          [
+            eventId,
+            organizerId,
+            code,
+            req.body?.description
+              ? String(req.body.description).slice(0, 255)
+              : null,
+            discount_type,
+            Math.round(discount_value),
+            applies_to,
+            req.body?.max_uses != null
+              ? Math.max(0, Number(req.body.max_uses))
+              : null,
+            req.body?.min_purchase_cents != null
+              ? Math.max(0, Number(req.body.min_purchase_cents))
+              : null,
+            req.body?.valid_from || null,
+            req.body?.valid_until || null,
+          ],
+        );
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT id, event_id, code, description, discount_type, discount_value, applies_to,
                 max_uses, ${DISCOUNT_USED_COUNT_SQL} AS used_count, min_purchase_cents, valid_from, valid_until, is_active, created_at
          FROM discount_codes WHERE id = ? LIMIT 1`,
-        [result.insertId],
-      );
-      res.status(201).json({ discountCode: rows[0] });
-    } catch (err: unknown) {
-      const mysqlErr = err as { code?: string };
-      if (mysqlErr.code === "ER_DUP_ENTRY") {
-        return res.status(409).json({ error: "Discount code already exists for this event" });
+          [result.insertId],
+        );
+        res.status(201).json({ discountCode: rows[0] });
+      } catch (err: unknown) {
+        const mysqlErr = err as { code?: string };
+        if (mysqlErr.code === "ER_DUP_ENTRY") {
+          return res
+            .status(409)
+            .json({ error: "Discount code already exists for this event" });
+        }
+        throw err;
       }
-      throw err;
-    }
-  });
+    },
+  );
 
   app.patch(
     "/api/admin/events/:eventId/discount-codes/:codeId",
@@ -6083,7 +6923,9 @@ export function registerStaffPortalRoutes(
       if (req.body?.description !== undefined) {
         updates.push("description = ?");
         params.push(
-          req.body.description ? String(req.body.description).slice(0, 255) : null,
+          req.body.description
+            ? String(req.body.description).slice(0, 255)
+            : null,
         );
       }
       if (req.body?.is_active !== undefined) {
@@ -6145,7 +6987,9 @@ export function registerStaffPortalRoutes(
         return res.status(400).json({ error: "Invalid organizer_id" });
       }
 
-      const parsed = parseEventBody((req.body ?? {}) as Record<string, unknown>);
+      const parsed = parseEventBody(
+        (req.body ?? {}) as Record<string, unknown>,
+      );
       if ("error" in parsed) {
         return res.status(400).json({ error: parsed.error });
       }
@@ -6167,8 +7011,9 @@ export function registerStaffPortalRoutes(
            status, visibility, featured, start_date, end_date, registration_opens_at,
            registration_closes_at, check_in_opens_at, check_in_closes_at,
            location_name, location_city, location_state, location_lat, location_lng,
-           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, bib_mode, requires_waiver
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           hero_image_url, banner_image_url, max_registrations, max_registrations_per_order, bib_mode,
+           requires_waiver, auto_deactivate_after_event
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           newPublicUuid(),
           organizer_id,
@@ -6188,6 +7033,7 @@ export function registerStaffPortalRoutes(
           data.check_in_closes_at,
           ...eventBodySqlValues(data),
           data.requires_waiver ? 1 : 0,
+          data.auto_deactivate_after_event ? 1 : 0,
         ],
       );
 
@@ -6216,7 +7062,8 @@ export function registerStaffPortalRoutes(
     const params: (string | number)[] = [];
     let where = "deleted_at IS NULL AND status IN ('active','pending')";
     if (q) {
-      where += " AND (name LIKE ? OR email LIKE ? OR slug LIKE ? OR city LIKE ?)";
+      where +=
+        " AND (name LIKE ? OR email LIKE ? OR slug LIKE ? OR city LIKE ?)";
       const like = `%${q}%`;
       params.push(like, like, like, like);
     }
@@ -6230,141 +7077,175 @@ export function registerStaffPortalRoutes(
     res.json({ organizers: rows });
   });
 
-  app.post("/api/admin/organizers", requireAdmin, async (req: AuthedRequest, res) => {
-    const name = String(req.body?.name ?? "").trim();
-    const email = String(req.body?.email ?? "")
-      .trim()
-      .toLowerCase();
-    const ownerEmail = String(req.body?.owner_email ?? "")
-      .trim()
-      .toLowerCase();
-    const ownerFirst = String(req.body?.owner_first_name ?? "").trim();
-    const ownerLast = String(req.body?.owner_last_name ?? "").trim();
-    const country = String(req.body?.country ?? "MX")
-      .trim()
-      .slice(0, 2)
-      .toUpperCase();
-    const cityRaw = req.body?.city ? String(req.body.city).trim().slice(0, 100) : null;
-    let city: string | null = null;
-    if (cityRaw) {
-      const canonicalCity = await normalizeOrganizerCity(pool, cityRaw, country);
-      if (!canonicalCity) {
+  app.post(
+    "/api/admin/organizers",
+    requireAdmin,
+    async (req: AuthedRequest, res) => {
+      const name = String(req.body?.name ?? "").trim();
+      const email = String(req.body?.email ?? "")
+        .trim()
+        .toLowerCase();
+      const ownerEmail = String(req.body?.owner_email ?? "")
+        .trim()
+        .toLowerCase();
+      const ownerFirst = String(req.body?.owner_first_name ?? "").trim();
+      const ownerLast = String(req.body?.owner_last_name ?? "").trim();
+      const country = String(req.body?.country ?? "MX")
+        .trim()
+        .slice(0, 2)
+        .toUpperCase();
+      const cityRaw = req.body?.city
+        ? String(req.body.city).trim().slice(0, 100)
+        : null;
+      let city: string | null = null;
+      if (cityRaw) {
+        const canonicalCity = await normalizeOrganizerCity(
+          pool,
+          cityRaw,
+          country,
+        );
+        if (!canonicalCity) {
+          return res.status(400).json({
+            error: "City must be selected from the location catalog",
+            code: "invalid_organizer_city",
+          });
+        }
+        city = canonicalCity;
+      }
+      const phone = req.body?.phone
+        ? String(req.body.phone).trim().slice(0, 20)
+        : null;
+
+      if (!name || !email || !ownerEmail || !ownerFirst || !ownerLast) {
         return res.status(400).json({
-          error: "City must be selected from the location catalog",
-          code: "invalid_organizer_city",
+          error:
+            "name, email, owner_email, owner_first_name, owner_last_name required",
         });
       }
-      city = canonicalCity;
-    }
-    const phone = req.body?.phone ? String(req.body.phone).trim().slice(0, 20) : null;
 
-    if (!name || !email || !ownerEmail || !ownerFirst || !ownerLast) {
-      return res.status(400).json({
-        error: "name, email, owner_email, owner_first_name, owner_last_name required",
-      });
-    }
+      const baseSlug = slugify(String(req.body?.slug ?? name).trim() || name);
+      const slug = await uniqueOrganizerSlug(pool, baseSlug);
 
-    const baseSlug = slugify(String(req.body?.slug ?? name).trim() || name);
-    const slug = await uniqueOrganizerSlug(pool, baseSlug);
+      const serviceFeeRaw = req.body?.service_fee_percent;
+      const serviceFeePercent =
+        serviceFeeRaw === null ||
+        serviceFeeRaw === undefined ||
+        serviceFeeRaw === ""
+          ? 11
+          : Number(serviceFeeRaw);
+      if (
+        !Number.isFinite(serviceFeePercent) ||
+        serviceFeePercent < 0 ||
+        serviceFeePercent > 100
+      ) {
+        return res
+          .status(400)
+          .json({ error: "Invalid service_fee_percent (0–100)" });
+      }
 
-    const serviceFeeRaw = req.body?.service_fee_percent;
-    const serviceFeePercent =
-      serviceFeeRaw === null || serviceFeeRaw === undefined || serviceFeeRaw === ""
-        ? 11
-        : Number(serviceFeeRaw);
-    if (!Number.isFinite(serviceFeePercent) || serviceFeePercent < 0 || serviceFeePercent > 100) {
-      return res.status(400).json({ error: "Invalid service_fee_percent (0–100)" });
-    }
+      const legalName = req.body?.legal_name
+        ? String(req.body.legal_name).trim().slice(0, 255)
+        : null;
+      const rfc = req.body?.rfc
+        ? String(req.body.rfc).trim().slice(0, 13).toUpperCase()
+        : null;
 
-    const legalName = req.body?.legal_name
-      ? String(req.body.legal_name).trim().slice(0, 255)
-      : null;
-    const rfc = req.body?.rfc ? String(req.body.rfc).trim().slice(0, 13).toUpperCase() : null;
+      const [existingOrg] = await pool.query<RowDataPacket[]>(
+        "SELECT id FROM organizers WHERE email = ? AND deleted_at IS NULL LIMIT 1",
+        [email],
+      );
+      if (existingOrg.length > 0) {
+        return res
+          .status(409)
+          .json({ error: "Organizer email already exists" });
+      }
 
-    const [existingOrg] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM organizers WHERE email = ? AND deleted_at IS NULL LIMIT 1",
-      [email],
-    );
-    if (existingOrg.length > 0) {
-      return res.status(409).json({ error: "Organizer email already exists" });
-    }
-
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      const [orgResult] = await conn.query<ResultSetHeader>(
-        `INSERT INTO organizers (
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const [orgResult] = await conn.query<ResultSetHeader>(
+          `INSERT INTO organizers (
            public_uuid, slug, name, email, phone, city, country, status,
            service_fee_percent, legal_name, rfc
          ) VALUES (?,?,?,?,?,?,?,'active',?,?,?)`,
-        [
-          newPublicUuid(),
-          slug,
-          name.slice(0, 200),
-          email,
-          phone,
-          city,
-          country,
-          serviceFeePercent,
-          legalName,
-          rfc,
-        ],
-      );
-      const organizerId = orgResult.insertId;
+          [
+            newPublicUuid(),
+            slug,
+            name.slice(0, 200),
+            email,
+            phone,
+            city,
+            country,
+            serviceFeePercent,
+            legalName,
+            rfc,
+          ],
+        );
+        const organizerId = orgResult.insertId;
 
-      const [existingMember] = await conn.query<RowDataPacket[]>(
-        "SELECT id FROM organizer_members WHERE organizer_id = ? AND email = ? AND deleted_at IS NULL LIMIT 1",
-        [organizerId, ownerEmail],
-      );
-      if (existingMember.length === 0) {
-        await conn.query<ResultSetHeader>(
-          `INSERT INTO organizer_members (
+        const [existingMember] = await conn.query<RowDataPacket[]>(
+          "SELECT id FROM organizer_members WHERE organizer_id = ? AND email = ? AND deleted_at IS NULL LIMIT 1",
+          [organizerId, ownerEmail],
+        );
+        if (existingMember.length === 0) {
+          await conn.query<ResultSetHeader>(
+            `INSERT INTO organizer_members (
              public_uuid, organizer_id, email, first_name, last_name, role, status, invited_at
            ) VALUES (?,?,?,?,?,'owner','active',NOW())`,
-          [newPublicUuid(), organizerId, ownerEmail, ownerFirst.slice(0, 100), ownerLast.slice(0, 100)],
-        );
-      }
+            [
+              newPublicUuid(),
+              organizerId,
+              ownerEmail,
+              ownerFirst.slice(0, 100),
+              ownerLast.slice(0, 100),
+            ],
+          );
+        }
 
-      await conn.commit();
+        await conn.commit();
 
-      const eventIdsRaw = req.body?.event_ids;
-      if (Array.isArray(eventIdsRaw) && eventIdsRaw.length > 0) {
-        const eventIds = eventIdsRaw
-          .map((id: unknown) => Number(id))
-          .filter((id) => Number.isFinite(id));
-        await assignEventsToOrganizer(pool, organizerId, eventIds);
-      }
+        const eventIdsRaw = req.body?.event_ids;
+        if (Array.isArray(eventIdsRaw) && eventIdsRaw.length > 0) {
+          const eventIds = eventIdsRaw
+            .map((id: unknown) => Number(id))
+            .filter((id) => Number.isFinite(id));
+          await assignEventsToOrganizer(pool, organizerId, eventIds);
+        }
 
-      sendStaffWelcomeEmail({
-        to: ownerEmail,
-        firstName: ownerFirst,
-        audience: "organizer",
-        preferredLanguage: req.body?.preferred_language,
-      });
+        sendStaffWelcomeEmail({
+          to: ownerEmail,
+          firstName: ownerFirst,
+          audience: "organizer",
+          preferredLanguage: req.body?.preferred_language,
+        });
 
-      const [[organizer]] = await pool.query<RowDataPacket[]>(
-        `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url, o.created_at,
+        const [[organizer]] = await pool.query<RowDataPacket[]>(
+          `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url, o.created_at,
                 (SELECT COUNT(*) FROM events e WHERE e.organizer_id = o.id AND e.deleted_at IS NULL) AS event_count,
                 (SELECT COUNT(*) FROM organizer_members om WHERE om.organizer_id = o.id AND om.deleted_at IS NULL) AS member_count
          FROM organizers o WHERE o.id = ? LIMIT 1`,
-        [organizerId],
-      );
-      res.status(201).json({ organizer });
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-  });
+          [organizerId],
+        );
+        res.status(201).json({ organizer });
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    },
+  );
 
-  app.get("/api/admin/organizers/:organizerId", requireAdmin, async (req, res) => {
-    const organizerId = Number(req.params.organizerId);
-    if (!Number.isFinite(organizerId)) {
-      return res.status(400).json({ error: "Invalid organizer id" });
-    }
-    const [[organizer]] = await pool.query<RowDataPacket[]>(
-      `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url,
+  app.get(
+    "/api/admin/organizers/:organizerId",
+    requireAdmin,
+    async (req, res) => {
+      const organizerId = Number(req.params.organizerId);
+      if (!Number.isFinite(organizerId)) {
+        return res.status(400).json({ error: "Invalid organizer id" });
+      }
+      const [[organizer]] = await pool.query<RowDataPacket[]>(
+        `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url,
               o.phone, o.website_url, o.description, o.legal_name, o.billing_email, o.created_at,
               o.stripe_account_id, o.stripe_onboarding_complete, o.stripe_connect_status,
               o.stripe_charges_enabled, o.stripe_payouts_enabled, o.stripe_details_submitted,
@@ -6376,46 +7257,50 @@ export function registerStaffPortalRoutes(
        FROM organizers o
        WHERE o.id = ? AND o.deleted_at IS NULL
        LIMIT 1`,
-      [organizerId],
-    );
-    if (!organizer) {
-      return res.status(404).json({ error: "Organizer not found" });
-    }
-    const onboardingIntake = await fetchOrganizerOnboardingIntake(pool, organizerId);
-    const [members] = await pool.query<RowDataPacket[]>(
-      `SELECT id, email, first_name, last_name, phone, role, event_access_scope, status,
+        [organizerId],
+      );
+      if (!organizer) {
+        return res.status(404).json({ error: "Organizer not found" });
+      }
+      const onboardingIntake = await fetchOrganizerOnboardingIntake(
+        pool,
+        organizerId,
+      );
+      const [members] = await pool.query<RowDataPacket[]>(
+        `SELECT id, email, first_name, last_name, phone, role, event_access_scope, status,
               invited_at, last_login_at, created_at
        FROM organizer_members
        WHERE organizer_id = ? AND deleted_at IS NULL
        ORDER BY FIELD(role,'owner','organizer','operations','marketing','finance','timing','sponsor','seller'), created_at ASC`,
-      [organizerId],
-    );
-    const memberIds = members.map((m) => Number(m.id));
-    const assignedByMember = new Map<number, number[]>();
-    if (memberIds.length > 0) {
-      const placeholders = memberIds.map(() => "?").join(", ");
-      const [assignments] = await pool.query<RowDataPacket[]>(
-        `SELECT organizer_member_id, event_id FROM organizer_member_events
-         WHERE organizer_member_id IN (${placeholders})`,
-        memberIds,
+        [organizerId],
       );
-      for (const row of assignments) {
-        const memberId = Number(row.organizer_member_id);
-        const list = assignedByMember.get(memberId) ?? [];
-        list.push(Number(row.event_id));
-        assignedByMember.set(memberId, list);
+      const memberIds = members.map((m) => Number(m.id));
+      const assignedByMember = new Map<number, number[]>();
+      if (memberIds.length > 0) {
+        const placeholders = memberIds.map(() => "?").join(", ");
+        const [assignments] = await pool.query<RowDataPacket[]>(
+          `SELECT organizer_member_id, event_id FROM organizer_member_events
+         WHERE organizer_member_id IN (${placeholders})`,
+          memberIds,
+        );
+        for (const row of assignments) {
+          const memberId = Number(row.organizer_member_id);
+          const list = assignedByMember.get(memberId) ?? [];
+          list.push(Number(row.event_id));
+          assignedByMember.set(memberId, list);
+        }
       }
-    }
-    const events = await fetchOrganizerLinkedEvents(pool, organizerId);
-    res.json({
-      organizer: { ...organizer, onboarding_intake: onboardingIntake },
-      members: members.map((m) => ({
-        ...m,
-        assigned_event_ids: assignedByMember.get(Number(m.id)) ?? [],
-      })),
-      events,
-    });
-  });
+      const events = await fetchOrganizerLinkedEvents(pool, organizerId);
+      res.json({
+        organizer: { ...organizer, onboarding_intake: onboardingIntake },
+        members: members.map((m) => ({
+          ...m,
+          assigned_event_ids: assignedByMember.get(Number(m.id)) ?? [],
+        })),
+        events,
+      });
+    },
+  );
 
   app.post(
     "/api/admin/organizers/:organizerId/events/assign",
@@ -6465,14 +7350,18 @@ export function registerStaffPortalRoutes(
         return res.status(404).json({ error: "Member not found" });
       }
       if (target.role === "owner") {
-        return res.status(403).json({ error: "Owner always has organization-wide event access" });
+        return res
+          .status(403)
+          .json({ error: "Owner always has organization-wide event access" });
       }
 
       const scopeRaw = req.body?.event_access_scope;
       const scope =
         scopeRaw === "events" || scopeRaw === "organization" ? scopeRaw : null;
       if (!scope) {
-        return res.status(400).json({ error: "event_access_scope must be organization or events" });
+        return res
+          .status(400)
+          .json({ error: "event_access_scope must be organization or events" });
       }
 
       await pool.query<ResultSetHeader>(
@@ -6488,14 +7377,20 @@ export function registerStaffPortalRoutes(
       if (scope === "events") {
         const eventIdsRaw = req.body?.event_ids;
         if (!Array.isArray(eventIdsRaw) || eventIdsRaw.length === 0) {
-          return res.status(400).json({ error: "event_ids required when scope is events" });
+          return res
+            .status(400)
+            .json({ error: "event_ids required when scope is events" });
         }
         const eventIds = eventIdsRaw
           .map((id: unknown) => Number(id))
           .filter((id) => Number.isFinite(id));
         for (const eventId of eventIds) {
           if (!(await assertOrganizerOwnsEvent(pool, organizerId, eventId))) {
-            return res.status(400).json({ error: `Event ${eventId} is not linked to this organization` });
+            return res
+              .status(400)
+              .json({
+                error: `Event ${eventId} is not linked to this organization`,
+              });
           }
           await pool.query<ResultSetHeader>(
             "INSERT INTO organizer_member_events (organizer_member_id, event_id) VALUES (?, ?)",
@@ -6536,134 +7431,150 @@ export function registerStaffPortalRoutes(
     },
   );
 
-  app.patch("/api/admin/organizers/:organizerId", requireAdmin, async (req, res) => {
-    const organizerId = Number(req.params.organizerId);
-    if (!Number.isFinite(organizerId)) {
-      return res.status(400).json({ error: "Invalid organizer id" });
-    }
-    const [[existing]] = await pool.query<RowDataPacket[]>(
-      "SELECT id, slug FROM organizers WHERE id = ? AND deleted_at IS NULL LIMIT 1",
-      [organizerId],
-    );
-    if (!existing) {
-      return res.status(404).json({ error: "Organizer not found" });
-    }
+  app.patch(
+    "/api/admin/organizers/:organizerId",
+    requireAdmin,
+    async (req, res) => {
+      const organizerId = Number(req.params.organizerId);
+      if (!Number.isFinite(organizerId)) {
+        return res.status(400).json({ error: "Invalid organizer id" });
+      }
+      const [[existing]] = await pool.query<RowDataPacket[]>(
+        "SELECT id, slug FROM organizers WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+        [organizerId],
+      );
+      if (!existing) {
+        return res.status(404).json({ error: "Organizer not found" });
+      }
 
-    const updates: string[] = [];
-    const params: (string | number)[] = [];
+      const updates: string[] = [];
+      const params: (string | number)[] = [];
 
-    if (req.body?.name != null) {
-      updates.push("name = ?");
-      params.push(String(req.body.name).trim().slice(0, 200));
-    }
-    if (req.body?.email != null) {
-      updates.push("email = ?");
-      params.push(String(req.body.email).trim().toLowerCase().slice(0, 255));
-    }
-    let patchCountry =
-      req.body?.country != null
-        ? String(req.body.country).trim().slice(0, 2).toUpperCase()
-        : null;
-    if (req.body?.country != null) {
-      updates.push("country = ?");
-      params.push(patchCountry!);
-    }
-    if (req.body?.city != null) {
-      const cityRaw = String(req.body.city).trim().slice(0, 100);
-      if (!cityRaw) {
-        updates.push("city = ?");
-        params.push(null);
-      } else {
-        const [[orgCountryRow]] = await pool.query<RowDataPacket[]>(
-          "SELECT country FROM organizers WHERE id = ? AND deleted_at IS NULL LIMIT 1",
-          [organizerId],
-        );
-        const countryForCity = patchCountry ?? String(orgCountryRow?.country ?? "MX");
-        const canonicalCity = await normalizeOrganizerCity(pool, cityRaw, countryForCity);
-        if (!canonicalCity) {
-          return res.status(400).json({
-            error: "City must be selected from the location catalog",
-            code: "invalid_organizer_city",
-          });
+      if (req.body?.name != null) {
+        updates.push("name = ?");
+        params.push(String(req.body.name).trim().slice(0, 200));
+      }
+      if (req.body?.email != null) {
+        updates.push("email = ?");
+        params.push(String(req.body.email).trim().toLowerCase().slice(0, 255));
+      }
+      let patchCountry =
+        req.body?.country != null
+          ? String(req.body.country).trim().slice(0, 2).toUpperCase()
+          : null;
+      if (req.body?.country != null) {
+        updates.push("country = ?");
+        params.push(patchCountry!);
+      }
+      if (req.body?.city != null) {
+        const cityRaw = String(req.body.city).trim().slice(0, 100);
+        if (!cityRaw) {
+          updates.push("city = ?");
+          params.push(null);
+        } else {
+          const [[orgCountryRow]] = await pool.query<RowDataPacket[]>(
+            "SELECT country FROM organizers WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+            [organizerId],
+          );
+          const countryForCity =
+            patchCountry ?? String(orgCountryRow?.country ?? "MX");
+          const canonicalCity = await normalizeOrganizerCity(
+            pool,
+            cityRaw,
+            countryForCity,
+          );
+          if (!canonicalCity) {
+            return res.status(400).json({
+              error: "City must be selected from the location catalog",
+              code: "invalid_organizer_city",
+            });
+          }
+          updates.push("city = ?");
+          params.push(canonicalCity);
         }
-        updates.push("city = ?");
-        params.push(canonicalCity);
       }
-    }
-    if (req.body?.phone != null) {
-      updates.push("phone = ?");
-      params.push(String(req.body.phone).trim().slice(0, 20) || null);
-    }
-    if (req.body?.status != null && String(req.body.status).trim() !== "") {
-      const status = String(req.body.status).trim().toLowerCase();
-      if (!["pending", "active", "suspended", "inactive"].includes(status)) {
-        return res.status(400).json({ error: "Invalid status" });
+      if (req.body?.phone != null) {
+        updates.push("phone = ?");
+        params.push(String(req.body.phone).trim().slice(0, 20) || null);
       }
-      updates.push("status = ?");
-      params.push(status);
-    }
-    if (req.body?.slug != null) {
-      const baseSlug = slugify(String(req.body.slug).trim());
-      const slug =
-        baseSlug === existing.slug
-          ? existing.slug
-          : await uniqueOrganizerSlug(pool, baseSlug, organizerId);
-      updates.push("slug = ?");
-      params.push(slug);
-    }
-    if (req.body?.legal_name != null) {
-      updates.push("legal_name = ?");
-      params.push(String(req.body.legal_name).trim().slice(0, 255) || null);
-    }
-    if (req.body?.billing_email != null) {
-      updates.push("billing_email = ?");
-      params.push(String(req.body.billing_email).trim().toLowerCase().slice(0, 255) || null);
-    }
-    if (req.body?.rfc != null) {
-      updates.push("rfc = ?");
-      params.push(String(req.body.rfc).trim().slice(0, 13).toUpperCase() || null);
-    }
-    if (req.body?.tax_regime != null) {
-      updates.push("tax_regime = ?");
-      params.push(String(req.body.tax_regime).trim().slice(0, 10) || null);
-    }
-    if (req.body?.service_fee_percent != null) {
-      const fee = Number(req.body.service_fee_percent);
-      if (!Number.isFinite(fee) || fee < 0 || fee > 100) {
-        return res.status(400).json({ error: "Invalid service_fee_percent (0–100)" });
+      if (req.body?.status != null && String(req.body.status).trim() !== "") {
+        const status = String(req.body.status).trim().toLowerCase();
+        if (!["pending", "active", "suspended", "inactive"].includes(status)) {
+          return res.status(400).json({ error: "Invalid status" });
+        }
+        updates.push("status = ?");
+        params.push(status);
       }
-      updates.push("service_fee_percent = ?");
-      params.push(fee);
-    }
-    if (req.body?.fee_presentation != null) {
-      if (!isValidFeePresentation(req.body.fee_presentation)) {
-        return res.status(400).json({ error: "Invalid fee_presentation" });
+      if (req.body?.slug != null) {
+        const baseSlug = slugify(String(req.body.slug).trim());
+        const slug =
+          baseSlug === existing.slug
+            ? existing.slug
+            : await uniqueOrganizerSlug(pool, baseSlug, organizerId);
+        updates.push("slug = ?");
+        params.push(slug);
       }
-      updates.push("fee_presentation = ?");
-      params.push(String(req.body.fee_presentation));
-    }
+      if (req.body?.legal_name != null) {
+        updates.push("legal_name = ?");
+        params.push(String(req.body.legal_name).trim().slice(0, 255) || null);
+      }
+      if (req.body?.billing_email != null) {
+        updates.push("billing_email = ?");
+        params.push(
+          String(req.body.billing_email).trim().toLowerCase().slice(0, 255) ||
+            null,
+        );
+      }
+      if (req.body?.rfc != null) {
+        updates.push("rfc = ?");
+        params.push(
+          String(req.body.rfc).trim().slice(0, 13).toUpperCase() || null,
+        );
+      }
+      if (req.body?.tax_regime != null) {
+        updates.push("tax_regime = ?");
+        params.push(String(req.body.tax_regime).trim().slice(0, 10) || null);
+      }
+      if (req.body?.service_fee_percent != null) {
+        const fee = Number(req.body.service_fee_percent);
+        if (!Number.isFinite(fee) || fee < 0 || fee > 100) {
+          return res
+            .status(400)
+            .json({ error: "Invalid service_fee_percent (0–100)" });
+        }
+        updates.push("service_fee_percent = ?");
+        params.push(fee);
+      }
+      if (req.body?.fee_presentation != null) {
+        if (!isValidFeePresentation(req.body.fee_presentation)) {
+          return res.status(400).json({ error: "Invalid fee_presentation" });
+        }
+        updates.push("fee_presentation = ?");
+        params.push(String(req.body.fee_presentation));
+      }
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: "No fields to update" });
-    }
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "No fields to update" });
+      }
 
-    params.push(organizerId);
-    await pool.query<ResultSetHeader>(
-      `UPDATE organizers SET ${updates.join(", ")} WHERE id = ?`,
-      params,
-    );
+      params.push(organizerId);
+      await pool.query<ResultSetHeader>(
+        `UPDATE organizers SET ${updates.join(", ")} WHERE id = ?`,
+        params,
+      );
 
-    const [[organizer]] = await pool.query<RowDataPacket[]>(
-      `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url,
+      const [[organizer]] = await pool.query<RowDataPacket[]>(
+        `SELECT o.id, o.name, o.slug, o.email, o.city, o.country, o.status, o.logo_url,
               o.phone, o.website_url, o.description, o.legal_name, o.billing_email, o.created_at,
               o.service_fee_percent, o.fee_presentation,
               (SELECT COUNT(*) FROM events e WHERE e.organizer_id = o.id AND e.deleted_at IS NULL) AS event_count,
               (SELECT COUNT(*) FROM organizer_members om WHERE om.organizer_id = o.id AND om.deleted_at IS NULL) AS member_count
        FROM organizers o WHERE o.id = ? LIMIT 1`,
-      [organizerId],
-    );
-    res.json({ organizer });
-  });
+        [organizerId],
+      );
+      res.json({ organizer });
+    },
+  );
 
   app.post(
     "/api/admin/organizers/:organizerId/members",
@@ -6697,7 +7608,9 @@ export function registerStaffPortalRoutes(
         "seller",
       ]);
       if (!email || !first_name || !last_name) {
-        return res.status(400).json({ error: "email, first_name, last_name required" });
+        return res
+          .status(400)
+          .json({ error: "email, first_name, last_name required" });
       }
       if (!validRoles.has(role)) {
         return res.status(400).json({ error: "invalid role" });
@@ -6764,7 +7677,10 @@ export function registerStaffPortalRoutes(
       }
 
       const status = req.body?.status != null ? String(req.body.status) : null;
-      if (status && !["invited", "active", "inactive", "suspended"].includes(status)) {
+      if (
+        status &&
+        !["invited", "active", "inactive", "suspended"].includes(status)
+      ) {
         return res.status(400).json({ error: "Invalid status" });
       }
       if (!status) {
@@ -6798,137 +7714,164 @@ export function registerStaffPortalRoutes(
     res.json(result);
   });
 
-  app.post("/api/admin/admins", requireAdmin, async (req: AuthedRequest, res) => {
-    const actorRole = await getAdminRole(pool, req.auth!.id);
-    if (!actorRole) {
-      return res.status(403).json({ error: "Admin account not found" });
-    }
-
-    const email = String(req.body?.email ?? "")
-      .trim()
-      .toLowerCase();
-    const first_name = String(req.body?.first_name ?? "").trim();
-    const last_name = String(req.body?.last_name ?? "").trim();
-    const role = String(req.body?.role ?? "admin");
-    const phone = req.body?.phone ? String(req.body.phone).trim().slice(0, 20) : null;
-
-    if (!email || !first_name || !last_name) {
-      return res.status(400).json({ error: "email, first_name, last_name required" });
-    }
-    if (!["admin", "super_admin"].includes(role)) {
-      return res.status(400).json({ error: "invalid role" });
-    }
-    if (role === "super_admin" && !isSuperAdminRole(actorRole)) {
-      return res.status(403).json({ error: "Only super admins can create super admin accounts" });
-    }
-
-    const [existing] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM admins WHERE LOWER(TRIM(email)) = ? AND deleted_at IS NULL LIMIT 1",
-      [email],
-    );
-    if (existing.length > 0) {
-      return res.status(409).json({ error: "Admin already exists" });
-    }
-
-    const [result] = await pool.query<ResultSetHeader>(
-      `INSERT INTO admins (public_uuid, email, first_name, last_name, phone, role, status)
-       VALUES (?,?,?,?,?,?,'active')`,
-      [newPublicUuid(), email, first_name.slice(0, 100), last_name.slice(0, 100), phone, role],
-    );
-
-    sendStaffWelcomeEmail({
-      to: email,
-      firstName: first_name,
-      audience: "admin",
-      preferredLanguage: req.body?.preferred_language,
-    });
-
-    void sendStaffLoginOtp({
-      adminId: result.insertId,
-      to: email,
-      firstName: first_name,
-      preferredLanguage: req.body?.preferred_language,
-    }).catch((err) => console.error("[email:admin-invite-otp]", err));
-
-    const [[admin]] = await pool.query<RowDataPacket[]>(
-      `SELECT id, email, first_name, last_name, phone, role, status, last_login_at, created_at
-       FROM admins WHERE id = ? LIMIT 1`,
-      [result.insertId],
-    );
-    res.status(201).json({ admin });
-  });
-
-  app.patch("/api/admin/admins/:adminId", requireAdmin, async (req: AuthedRequest, res) => {
-    const actorRole = await getAdminRole(pool, req.auth!.id);
-    if (!actorRole) {
-      return res.status(403).json({ error: "Admin account not found" });
-    }
-
-    const adminId = Number(req.params.adminId);
-    if (!Number.isFinite(adminId)) {
-      return res.status(400).json({ error: "Invalid admin id" });
-    }
-    if (adminId === req.auth!.id && req.body?.status === "suspended") {
-      return res.status(403).json({ error: "Cannot suspend your own account" });
-    }
-
-    const [[existing]] = await pool.query<RowDataPacket[]>(
-      "SELECT id, role FROM admins WHERE id = ? AND deleted_at IS NULL LIMIT 1",
-      [adminId],
-    );
-    if (!existing) {
-      return res.status(404).json({ error: "Admin not found" });
-    }
-    if (
-      !isSuperAdminRole(actorRole) &&
-      isSuperAdminRole(String(existing.role))
-    ) {
-      return res.status(403).json({ error: "Only super admins can modify super admin accounts" });
-    }
-
-    const updates: string[] = [];
-    const params: (string | number)[] = [];
-
-    if (req.body?.status != null) {
-      const status = String(req.body.status);
-      if (!["active", "inactive", "suspended"].includes(status)) {
-        return res.status(400).json({ error: "Invalid status" });
+  app.post(
+    "/api/admin/admins",
+    requireAdmin,
+    async (req: AuthedRequest, res) => {
+      const actorRole = await getAdminRole(pool, req.auth!.id);
+      if (!actorRole) {
+        return res.status(403).json({ error: "Admin account not found" });
       }
-      updates.push("status = ?");
-      params.push(status);
-    }
-    if (req.body?.role != null) {
-      if (!isSuperAdminRole(actorRole)) {
-        return res.status(403).json({ error: "Only super admins can change admin roles" });
+
+      const email = String(req.body?.email ?? "")
+        .trim()
+        .toLowerCase();
+      const first_name = String(req.body?.first_name ?? "").trim();
+      const last_name = String(req.body?.last_name ?? "").trim();
+      const role = String(req.body?.role ?? "admin");
+      const phone = req.body?.phone
+        ? String(req.body.phone).trim().slice(0, 20)
+        : null;
+
+      if (!email || !first_name || !last_name) {
+        return res
+          .status(400)
+          .json({ error: "email, first_name, last_name required" });
       }
-      const role = String(req.body.role);
       if (!["admin", "super_admin"].includes(role)) {
-        return res.status(400).json({ error: "Invalid role" });
+        return res.status(400).json({ error: "invalid role" });
       }
-      if (adminId === req.auth!.id && role !== "super_admin") {
-        return res.status(403).json({ error: "Cannot demote your own role" });
+      if (role === "super_admin" && !isSuperAdminRole(actorRole)) {
+        return res
+          .status(403)
+          .json({ error: "Only super admins can create super admin accounts" });
       }
-      updates.push("role = ?");
-      params.push(role);
-    }
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: "No fields to update" });
-    }
+      const [existing] = await pool.query<RowDataPacket[]>(
+        "SELECT id FROM admins WHERE LOWER(TRIM(email)) = ? AND deleted_at IS NULL LIMIT 1",
+        [email],
+      );
+      if (existing.length > 0) {
+        return res.status(409).json({ error: "Admin already exists" });
+      }
 
-    params.push(adminId);
-    await pool.query<ResultSetHeader>(
-      `UPDATE admins SET ${updates.join(", ")} WHERE id = ?`,
-      params,
-    );
+      const [result] = await pool.query<ResultSetHeader>(
+        `INSERT INTO admins (public_uuid, email, first_name, last_name, phone, role, status)
+       VALUES (?,?,?,?,?,?,'active')`,
+        [
+          newPublicUuid(),
+          email,
+          first_name.slice(0, 100),
+          last_name.slice(0, 100),
+          phone,
+          role,
+        ],
+      );
 
-    const [[admin]] = await pool.query<RowDataPacket[]>(
-      `SELECT id, email, first_name, last_name, phone, role, status, last_login_at, created_at
+      sendStaffWelcomeEmail({
+        to: email,
+        firstName: first_name,
+        audience: "admin",
+        preferredLanguage: req.body?.preferred_language,
+      });
+
+      void sendStaffLoginOtp({
+        adminId: result.insertId,
+        to: email,
+        firstName: first_name,
+        preferredLanguage: req.body?.preferred_language,
+      }).catch((err) => console.error("[email:admin-invite-otp]", err));
+
+      const [[admin]] = await pool.query<RowDataPacket[]>(
+        `SELECT id, email, first_name, last_name, phone, role, status, last_login_at, created_at
        FROM admins WHERE id = ? LIMIT 1`,
-      [adminId],
-    );
-    res.json({ admin });
-  });
+        [result.insertId],
+      );
+      res.status(201).json({ admin });
+    },
+  );
+
+  app.patch(
+    "/api/admin/admins/:adminId",
+    requireAdmin,
+    async (req: AuthedRequest, res) => {
+      const actorRole = await getAdminRole(pool, req.auth!.id);
+      if (!actorRole) {
+        return res.status(403).json({ error: "Admin account not found" });
+      }
+
+      const adminId = Number(req.params.adminId);
+      if (!Number.isFinite(adminId)) {
+        return res.status(400).json({ error: "Invalid admin id" });
+      }
+      if (adminId === req.auth!.id && req.body?.status === "suspended") {
+        return res
+          .status(403)
+          .json({ error: "Cannot suspend your own account" });
+      }
+
+      const [[existing]] = await pool.query<RowDataPacket[]>(
+        "SELECT id, role FROM admins WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+        [adminId],
+      );
+      if (!existing) {
+        return res.status(404).json({ error: "Admin not found" });
+      }
+      if (
+        !isSuperAdminRole(actorRole) &&
+        isSuperAdminRole(String(existing.role))
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Only super admins can modify super admin accounts" });
+      }
+
+      const updates: string[] = [];
+      const params: (string | number)[] = [];
+
+      if (req.body?.status != null) {
+        const status = String(req.body.status);
+        if (!["active", "inactive", "suspended"].includes(status)) {
+          return res.status(400).json({ error: "Invalid status" });
+        }
+        updates.push("status = ?");
+        params.push(status);
+      }
+      if (req.body?.role != null) {
+        if (!isSuperAdminRole(actorRole)) {
+          return res
+            .status(403)
+            .json({ error: "Only super admins can change admin roles" });
+        }
+        const role = String(req.body.role);
+        if (!["admin", "super_admin"].includes(role)) {
+          return res.status(400).json({ error: "Invalid role" });
+        }
+        if (adminId === req.auth!.id && role !== "super_admin") {
+          return res.status(403).json({ error: "Cannot demote your own role" });
+        }
+        updates.push("role = ?");
+        params.push(role);
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "No fields to update" });
+      }
+
+      params.push(adminId);
+      await pool.query<ResultSetHeader>(
+        `UPDATE admins SET ${updates.join(", ")} WHERE id = ?`,
+        params,
+      );
+
+      const [[admin]] = await pool.query<RowDataPacket[]>(
+        `SELECT id, email, first_name, last_name, phone, role, status, last_login_at, created_at
+       FROM admins WHERE id = ? LIMIT 1`,
+        [adminId],
+      );
+      res.json({ admin });
+    },
+  );
 
   app.get("/api/admin/payments", requireAdmin, async (req, res) => {
     const q = String(req.query.q ?? "").trim();
@@ -6979,7 +7922,9 @@ export function registerStaffPortalRoutes(
       if (!processPaymentRefund) {
         return res.status(503).json({ error: "Refunds are not configured" });
       }
-      const reason = req.body?.reason ? String(req.body.reason).slice(0, 500) : undefined;
+      const reason = req.body?.reason
+        ? String(req.body.reason).slice(0, 500)
+        : undefined;
       try {
         await processPaymentRefund({
           paymentId,
@@ -7019,7 +7964,8 @@ export function registerStaffPortalRoutes(
     const sponsors = rows.map((r) => {
       const impressions = Number(r.impressions ?? 0);
       const clicks = Number(r.clicks ?? 0);
-      const ctr = impressions > 0 ? Math.round((clicks / impressions) * 1000) / 10 : 0;
+      const ctr =
+        impressions > 0 ? Math.round((clicks / impressions) * 1000) / 10 : 0;
       return {
         sponsor_id: r.sponsor_id,
         name: r.name,
@@ -7053,7 +7999,14 @@ export function registerStaffPortalRoutes(
         return res.status(403).json({ error: "Organizer context missing" });
       }
       const eventId = Number(req.params.eventId);
-      if (!(await assertMemberCanAccessEvent(pool, req.auth!.id, organizerId, eventId))) {
+      if (
+        !(await assertMemberCanAccessEvent(
+          pool,
+          req.auth!.id,
+          organizerId,
+          eventId,
+        ))
+      ) {
         return res.status(404).json({ error: "Event not found" });
       }
       res.json(await fetchSponsorAnalytics(eventId));

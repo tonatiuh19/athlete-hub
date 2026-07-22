@@ -7,6 +7,7 @@ import { slugify } from "@shared/slugify";
 import GeoCitySelector from "@/components/geo/GeoCitySelector";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
 import StaffFeeCalculatorCard from "@/components/staff/StaffFeeCalculatorCard";
+import { StaffSheetSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -233,8 +234,8 @@ export default function StaffOrganizerDetailSheet({
         </SheetHeader>
 
         {loadingStaffOrganizerDetail ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <div className="mt-6" aria-busy="true">
+            <StaffSheetSkeleton />
           </div>
         ) : staffOrganizerDetailError ? (
           <p className="text-sm text-destructive mt-6">{staffOrganizerDetailError}</p>

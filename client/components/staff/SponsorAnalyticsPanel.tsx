@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Eye, MousePointerClick, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  StaffChartSkeleton,
+  StaffStatsCardsSkeleton,
+} from "@/components/staff/skeletons/StaffSkeletons";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchSponsorAnalytics } from "@/store/slices/staffPortalSlice";
 
@@ -21,7 +25,12 @@ export default function SponsorAnalyticsPanel({ eventId, role }: SponsorAnalytic
   }, [dispatch, eventId, role]);
 
   if (loadingSponsorAnalytics && !sponsorAnalytics) {
-    return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>;
+    return (
+      <div className="space-y-6" aria-busy="true">
+        <StaffStatsCardsSkeleton count={3} className="lg:grid-cols-3" />
+        <StaffChartSkeleton />
+      </div>
+    );
   }
 
   if (sponsorAnalyticsError) {

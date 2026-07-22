@@ -149,7 +149,9 @@ export function buildStripePayoutChecklist(state: {
   };
 }
 
-export function isTribooPayoutProfileComplete(profile: OrganizerPayoutProfileInput): boolean {
+export function isTribooPayoutProfileComplete(
+  profile: OrganizerPayoutProfileInput,
+): boolean {
   return buildTribooPayoutChecklist(profile).complete;
 }
 
@@ -164,7 +166,8 @@ export function isOrganizerPayoutReady(state: {
   if (!state.triboo_profile_complete) return false;
   if (state.stripe_connect_status !== "ready") return false;
   if (!state.stripe_account_id) return false;
-  if (!state.stripe_charges_enabled || !state.stripe_payouts_enabled) return false;
+  if (!state.stripe_charges_enabled || !state.stripe_payouts_enabled)
+    return false;
   if ((state.requirements_currently_due?.length ?? 0) > 0) return false;
   return true;
 }
@@ -181,9 +184,14 @@ export function deriveStripeConnectStatusFromCapabilities(opts: {
   if (opts.disabled) return "disabled";
   if (!opts.has_account) return "not_started";
   if (opts.disabled_reason) return "restricted";
-  if (opts.charges_enabled && opts.payouts_enabled && opts.currently_due.length === 0) {
+  if (
+    opts.charges_enabled &&
+    opts.payouts_enabled &&
+    opts.currently_due.length === 0
+  ) {
     return "ready";
   }
-  if (opts.details_submitted || opts.currently_due.length > 0) return "action_required";
+  if (opts.details_submitted || opts.currently_due.length > 0)
+    return "action_required";
   return "pending";
 }

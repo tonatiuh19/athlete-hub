@@ -8,6 +8,7 @@ import StaffManualSaleDialog from "@/components/staff/StaffManualSaleDialog";
 import StaffPaymentDetailSheet from "@/components/staff/StaffPaymentDetailSheet";
 import StaffPaymentsPanel from "@/components/staff/StaffPaymentsPanel";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
+import { StaffStatsCardsSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchSellerSalesSummary } from "@/store/slices/staffPortalSlice";
 import {
@@ -99,7 +100,7 @@ export default function StaffPayments() {
             onRetry={() => dispatch(fetchSellerSalesSummary())}
           />
           {loadingSellerSalesSummary ? (
-            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+            <StaffStatsCardsSkeleton count={2} className="lg:grid-cols-2" />
           ) : sellerSalesSummary ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2">

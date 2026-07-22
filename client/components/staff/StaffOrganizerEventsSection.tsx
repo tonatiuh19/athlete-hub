@@ -4,6 +4,7 @@ import { CalendarDays, Link2, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import StaffStatusBadge from "@/components/staff/StaffStatusBadge";
+import { StaffEventCardsSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -104,8 +105,8 @@ export default function StaffOrganizerEventsSection({
               className="mt-2"
             />
             {loadingEvents ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <div className="mt-3" aria-busy="true">
+                <StaffEventCardsSkeleton count={3} />
               </div>
             ) : linkableEvents.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">

@@ -203,7 +203,7 @@ describe("HTTP smoke: Stripe Connect checkout gating", () => {
   });
 });
 
-describe("HTTP smoke: Stripe webhook", () => {
+describe("HTTP smoke: Stripe webhook payment_intent", () => {
   let stripe: MockStripeClient;
   let app: Express;
   let db: Awaited<ReturnType<typeof mountRegistrationScenario>>["db"];
@@ -226,6 +226,7 @@ describe("HTTP smoke: Stripe webhook", () => {
         idempotencyKey: "idem-webhook-pi",
       });
 
+    expect(checkout.status).toBe(200);
     const payUuid = checkout.body.paymentPublicUuid as string;
     db.payments.find((p) => p.public_uuid === payUuid)!.stripe_payment_intent_id =
       "pi_webhook_test";
@@ -268,6 +269,29 @@ describe("HTTP smoke: Stripe webhook", () => {
     expect(db.registrations.some((r) => r.athlete_id === SCENARIO.athleteId)).toBe(true);
     expect(pay!.status).toBe("succeeded");
   });
+});
+
+describe("HTTP smoke: Stripe webhook account.updated", () => {
+  let stripe: MockStripeClient;
+  let app: Express;
+  let db: Awaited<ReturnType<typeof mountRegistrationScenario>>["db"];
+
+  beforeEach(async () => {
+    stripe = createMockStripeClient();
+    const mounted = await mountRegistrationScenario(seeds.paidConnectReady(), {
+      stripe,
+      auth: true,
+    });
+    app = mounted.app;
+    db = mounted.db;
+    vi.mocked(stripe.webhooks.constructEvent).mockImplementation((body) =>
+      JSON.parse(typeof body === "string" ? body : body.toString()),
+    );
+  });
+
+  afterEach(async () => {
+    await teardownHttpScenario();
+  });
 
   it("account.updated webhook syncs organizer when not admin-disabled", async () => {
     const event = {
@@ -292,6 +316,7 @@ describe("HTTP smoke: Stripe webhook", () => {
       .send(JSON.stringify(event));
 
     expect(res.status).toBe(200);
+    expect(res.body.received).toBe(true);
     expect(db.organizer.stripe_connect_status).toBe("ready");
   });
 
@@ -313,12 +338,13 @@ describe("HTTP smoke: Stripe webhook", () => {
       },
     };
 
-    await request(app)
+    const res = await request(app)
       .post("/api/webhooks/stripe")
       .set("stripe-signature", "sig_test")
       .set("Content-Type", "application/json")
       .send(JSON.stringify(event));
 
+    expect(res.status).toBe(200);
     expect(db.organizer.stripe_connect_status).toBe("disabled");
   });
 

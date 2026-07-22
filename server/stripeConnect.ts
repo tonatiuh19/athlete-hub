@@ -13,13 +13,21 @@ import {
   type StripeConnectStatus,
 } from "../shared/stripeConnect.js";
 import type { AuthedRequest } from "./staffPortal.js";
+import { buildMpChecklist, isMercadoPagoConfigured, registerMercadoPagoRoutes } from "./mercadoPago.js";
+import {
+  isPayoutRail,
+  resolveCheckoutRail,
+  resolveServiceFeePercentForRail,
+  type PayoutRail,
+} from "../shared/payoutRail.js";
 
 function respondStripeConnectRouteError(res: Response, err: unknown): void {
   const raw = err instanceof Error ? err.message : String(err);
   console.error("[stripeConnect]", raw);
   if (raw.includes("signed up for Connect")) {
     res.status(503).json({
-      error: "Payout verification is not available on this platform account yet.",
+      error:
+        "Payout verification is not available on this platform account yet.",
       code: "connect_not_enabled",
     });
     return;
@@ -39,6 +47,11 @@ const ORGANIZER_CONNECT_SELECT = `
   o.tax_regime,
   o.service_fee_percent,
   o.fee_presentation,
+  o.payout_rail,
+  o.mp_user_id,
+  o.mp_oauth_status,
+  DATE_FORMAT(o.mp_oauth_connected_at, '%Y-%m-%d %H:%i:%s') AS mp_oauth_connected_at,
+  DATE_FORMAT(o.mp_oauth_last_synced_at, '%Y-%m-%d %H:%i:%s') AS mp_oauth_last_synced_at,
   o.status,
   o.stripe_account_id,
   o.stripe_onboarding_complete,
@@ -75,6 +88,11 @@ type OrganizerConnectRow = RowDataPacket & {
   tax_regime: string | null;
   service_fee_percent: number | string;
   fee_presentation: FeePresentation;
+  payout_rail?: PayoutRail | string | null;
+  mp_user_id?: string | null;
+  mp_oauth_status?: string | null;
+  mp_oauth_connected_at?: string | null;
+  mp_oauth_last_synced_at?: string | null;
   status: string;
   stripe_account_id: string | null;
   stripe_onboarding_complete: number;
@@ -157,7 +175,7 @@ export function buildConnectStatusPayload(
     requirements_currently_due: state.requirements_currently_due,
     requirements_eventually_due: state.requirements_eventually_due,
   });
-  const ready = isOrganizerPayoutReady({
+  const stripeReady = isOrganizerPayoutReady({
     stripe_connect_status: state.stripe_connect_status,
     stripe_account_id: state.stripe_account_id,
     stripe_charges_enabled: state.stripe_charges_enabled,
@@ -166,13 +184,78 @@ export function buildConnectStatusPayload(
     triboo_profile_complete: tribooChecklist.complete,
   });
 
+  const preferredRail: PayoutRail = isPayoutRail(row.payout_rail)
+    ? row.payout_rail
+    : "stripe";
+  const mpPlatformConfigured = isMercadoPagoConfigured();
+  const mpStatus = String(row.mp_oauth_status || "not_started");
+  const mpUserId = row.mp_user_id ?? null;
+  const mpReady =
+    mpPlatformConfigured &&
+    mpStatus === "ready" &&
+    Boolean(mpUserId) &&
+    tribooChecklist.complete;
+
+  const railResolution = resolveCheckoutRail({
+    preferred: preferredRail,
+    stripeReady,
+    mpReady,
+  });
+  const payoutReady = railResolution.ok;
+  const effectiveRail = railResolution.ok ? railResolution.rail : preferredRail;
+  const displayFeePercent = resolveServiceFeePercentForRail({
+    organizerFee: state.service_fee_percent,
+    rail: preferredRail,
+  });
+
+  const mpChecklist = buildMpChecklist({
+    id: state.organizer_id,
+    payout_rail: preferredRail,
+    mp_user_id: mpUserId,
+    mp_access_token_enc: null,
+    mp_refresh_token_enc: null,
+    mp_token_expires_at: null,
+    mp_public_key: null,
+    mp_oauth_status: mpStatus as
+      | "not_started"
+      | "pending"
+      | "ready"
+      | "revoked"
+      | "error",
+    mp_oauth_connected_at: row.mp_oauth_connected_at ?? null,
+    mp_oauth_last_synced_at: row.mp_oauth_last_synced_at ?? null,
+    legal_name: state.legal_name,
+    billing_email: state.billing_email,
+    rfc: state.rfc,
+    payout_terms_accepted_at: state.payout_terms_accepted_at,
+    payout_fee_acknowledged_at: state.payout_fee_acknowledged_at,
+  });
+
   return {
-    organizer: state,
+    organizer: {
+      ...state,
+      payout_rail: preferredRail,
+      mp_user_id: mpUserId,
+      mp_oauth_status: mpStatus,
+      mp_oauth_connected_at: row.mp_oauth_connected_at ?? null,
+      mp_oauth_last_synced_at: row.mp_oauth_last_synced_at ?? null,
+    },
     tribooChecklist,
     stripeChecklist,
-    payoutReady: ready,
-    serviceFeePercent: state.service_fee_percent,
+    mercadoPagoChecklist: mpPlatformConfigured ? mpChecklist : undefined,
+    mercadoPagoAvailable: mpPlatformConfigured,
+    payoutReady,
+    preferredRail,
+    effectiveRail: railResolution.ok ? effectiveRail : null,
+    railFallback: railResolution.ok ? railResolution.fallback : false,
+    serviceFeePercent: displayFeePercent,
+    stripeServiceFeePercent: Number(state.service_fee_percent ?? 11),
+    mpServiceFeePercent: resolveServiceFeePercentForRail({
+      rail: "mercadopago",
+    }),
     feePresentation: state.fee_presentation,
+    stripeReady,
+    mpReady,
   };
 }
 
@@ -236,6 +319,62 @@ export async function persistOrganizerConnectFromStripeAccount(
   );
 }
 
+/**
+ * True when the stored Connect acct_* cannot be used with the current platform
+ * secret (wrong Stripe account, revoked platform access, deleted Connect acct).
+ * Transient network errors must return false so we keep the DB linkage.
+ */
+export function isUnrecoverableStripeConnectAccountError(
+  err: unknown,
+): boolean {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  if (
+    code === "account_invalid" ||
+    code === "resource_missing" ||
+    code === "platform_api_key_expired"
+  ) {
+    return true;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /does not have access to account/i.test(msg) ||
+    /application access may have been revoked/i.test(msg) ||
+    /no such account/i.test(msg) ||
+    /account.*(invalid|deauthorized|not connected)/i.test(msg)
+  );
+}
+
+/** Wipe Connect linkage so the organizer must complete Stripe onboarding again. */
+export async function clearOrganizerStripeConnectAccount(
+  pool: Pool,
+  organizerId: number,
+): Promise<void> {
+  await pool.query<ResultSetHeader>(
+    `UPDATE organizers SET
+       stripe_account_id = NULL,
+       stripe_onboarding_complete = 0,
+       stripe_connect_status = 'not_started',
+       stripe_charges_enabled = 0,
+       stripe_payouts_enabled = 0,
+       stripe_details_submitted = 0,
+       stripe_connect_onboarded_at = NULL,
+       stripe_connect_last_synced_at = NULL,
+       stripe_connect_onboarding_mode = NULL
+     WHERE id = ?
+       AND deleted_at IS NULL
+       AND COALESCE(stripe_connect_status, 'not_started') <> 'disabled'`,
+    [organizerId],
+  );
+}
+
+/**
+ * Best-effort live sync. Transient Stripe failures keep the last known DB row
+ * (no 500). Unrecoverable platform/account mismatch clears Connect so staff
+ * are asked to onboard again under the current Stripe keys.
+ */
 export async function syncOrganizerConnectFromStripe(
   pool: Pool,
   organizerId: number,
@@ -243,9 +382,52 @@ export async function syncOrganizerConnectFromStripe(
 ): Promise<OrganizerConnectRow | null> {
   const row = await loadOrganizerConnectRow(pool, organizerId);
   if (!row?.stripe_account_id) return row;
-  const account = await stripe.accounts.retrieve(row.stripe_account_id);
-  await persistOrganizerConnectFromStripeAccount(pool, organizerId, account);
-  return loadOrganizerConnectRow(pool, organizerId);
+  try {
+    const account = await stripe.accounts.retrieve(row.stripe_account_id);
+    await persistOrganizerConnectFromStripeAccount(pool, organizerId, account);
+    return loadOrganizerConnectRow(pool, organizerId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[stripeConnect] sync failed for organizer ${organizerId}:`,
+      msg,
+    );
+    if (
+      row.stripe_connect_status !== "disabled" &&
+      isUnrecoverableStripeConnectAccountError(err)
+    ) {
+      console.warn(
+        `[stripeConnect] clearing inaccessible Connect account for organizer ${organizerId} (${row.stripe_account_id})`,
+      );
+      await clearOrganizerStripeConnectAccount(pool, organizerId);
+      return loadOrganizerConnectRow(pool, organizerId);
+    }
+    return row;
+  }
+}
+
+async function retrieveConnectAccountSafe(
+  stripe: Stripe,
+  accountId: string,
+  opts?: { pool?: Pool; organizerId?: number },
+): Promise<Stripe.Account | null> {
+  try {
+    return await stripe.accounts.retrieve(accountId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[stripeConnect] accounts.retrieve failed (${accountId}):`,
+      msg,
+    );
+    if (
+      opts?.pool &&
+      opts.organizerId != null &&
+      isUnrecoverableStripeConnectAccountError(err)
+    ) {
+      await clearOrganizerStripeConnectAccount(opts.pool, opts.organizerId);
+    }
+    return null;
+  }
 }
 
 async function ensureStripeConnectAccount(
@@ -254,7 +436,17 @@ async function ensureStripeConnectAccount(
   row: OrganizerConnectRow,
   mode: StripeConnectOnboardingMode,
 ): Promise<string> {
-  if (row.stripe_account_id) return row.stripe_account_id;
+  if (row.stripe_account_id) {
+    const existing = await retrieveConnectAccountSafe(
+      stripe,
+      row.stripe_account_id,
+      { pool, organizerId: row.organizer_id },
+    );
+    if (existing) return row.stripe_account_id;
+    // Stale / wrong-platform account was cleared — create a fresh one below.
+    row = (await loadOrganizerConnectRow(pool, row.organizer_id)) ?? row;
+    if (row.stripe_account_id) return row.stripe_account_id;
+  }
 
   const legalName = row.legal_name?.trim();
   const billingEmail = row.billing_email?.trim().toLowerCase();
@@ -376,16 +568,104 @@ export async function attachEventPaymentAvailability(
   event: { id: number; status: string; organizer_id: number },
   stripe?: Stripe | null,
 ): Promise<{ has_paid_categories: boolean; payments_available: boolean }> {
-  const has_paid_categories = await eventHasPaidActiveCategories(pool, event.id);
+  const has_paid_categories = await eventHasPaidActiveCategories(
+    pool,
+    event.id,
+  );
   if (event.status !== "published" || !has_paid_categories) {
     return { has_paid_categories, payments_available: true };
   }
-  const payoutCheck = await assertOrganizerPayoutReadyForPaidEvent(
+  const rail = await resolveOrganizerCheckoutDestination(
     pool,
     event.organizer_id,
     stripe ?? null,
   );
-  return { has_paid_categories, payments_available: payoutCheck.ok };
+  return { has_paid_categories, payments_available: rail.ok };
+}
+
+/**
+ * Rail-aware readiness: preferred ready, else fallback rail, else blocked.
+ * Used for marketplace payments_available and checkout entry.
+ */
+export async function resolveOrganizerCheckoutDestination(
+  pool: Pool,
+  organizerId: number,
+  stripe?: Stripe | null,
+): Promise<
+  | {
+      ok: true;
+      rail: PayoutRail;
+      fallback: boolean;
+      stripeAccountId?: string;
+      serviceFeePercent: number;
+    }
+  | { ok: false; code: string; message: string }
+> {
+  let row = await loadOrganizerConnectRow(pool, organizerId);
+  if (!row) {
+    return {
+      ok: false,
+      code: "organizer_not_found",
+      message: "Organizer not found",
+    };
+  }
+  if (row.status === "suspended" || row.status === "inactive") {
+    return {
+      ok: false,
+      code: "organizer_suspended",
+      message: "Organizer account is not active",
+    };
+  }
+  if (row.stripe_connect_status === "disabled") {
+    return {
+      ok: false,
+      code: "organizer_payouts_disabled",
+      message: "Organizer payouts are disabled",
+    };
+  }
+
+  if (stripe && row.stripe_account_id) {
+    row =
+      (await syncOrganizerConnectFromStripe(pool, organizerId, stripe)) ?? row;
+  }
+
+  const payload = buildConnectStatusPayload(row);
+  if (!payload.payoutReady || !payload.effectiveRail) {
+    return {
+      ok: false,
+      code: "organizer_payouts_not_ready",
+      message: "Organizer payout setup is not complete",
+    };
+  }
+
+  const serviceFeePercent = resolveServiceFeePercentForRail({
+    organizerFee: payload.stripeServiceFeePercent,
+    rail: payload.effectiveRail,
+  });
+
+  if (payload.effectiveRail === "stripe") {
+    if (!row.stripe_account_id || row.stripe_connect_status === "disabled") {
+      return {
+        ok: false,
+        code: "organizer_payouts_not_ready",
+        message: "Organizer Stripe account is missing",
+      };
+    }
+    return {
+      ok: true,
+      rail: "stripe",
+      fallback: payload.railFallback,
+      stripeAccountId: row.stripe_account_id,
+      serviceFeePercent,
+    };
+  }
+
+  return {
+    ok: true,
+    rail: "mercadopago",
+    fallback: payload.railFallback,
+    serviceFeePercent,
+  };
 }
 
 export async function enrichStaffEventsWithPaymentAvailability<
@@ -394,7 +674,9 @@ export async function enrichStaffEventsWithPaymentAvailability<
   pool: Pool,
   events: T[],
   stripe?: Stripe | null,
-): Promise<(T & { has_paid_categories: boolean; payments_available: boolean })[]> {
+): Promise<
+  (T & { has_paid_categories: boolean; payments_available: boolean })[]
+> {
   if (events.length === 0) return [];
 
   const ids = events.map((e) => e.id);
@@ -418,7 +700,7 @@ export async function enrichStaffEventsWithPaymentAvailability<
       ) {
         const organizerId = Number(event.organizer_id);
         if (!organizerReadyCache.has(organizerId)) {
-          const check = await assertOrganizerPayoutReadyForPaidEvent(
+          const check = await resolveOrganizerCheckoutDestination(
             pool,
             organizerId,
             stripe ?? null,
@@ -465,11 +747,13 @@ export async function assertOrganizerPayoutReadyForPaidEvent(
   }
 
   if (stripe && row.stripe_account_id) {
-    row = (await syncOrganizerConnectFromStripe(pool, organizerId, stripe)) ?? row;
+    row =
+      (await syncOrganizerConnectFromStripe(pool, organizerId, stripe)) ?? row;
   }
 
   const payload = buildConnectStatusPayload(row);
-  if (!payload.payoutReady) {
+  // Stripe Connect destination path — require Stripe ready specifically
+  if (!payload.stripeReady) {
     return {
       ok: false,
       code: "organizer_payouts_not_ready",
@@ -496,7 +780,11 @@ export async function resolveCheckoutConnectMode(
   organizerId: number,
   stripe?: Stripe | null,
 ): Promise<CheckoutConnectResolution> {
-  const check = await assertOrganizerPayoutReadyForPaidEvent(pool, organizerId, stripe);
+  const check = await assertOrganizerPayoutReadyForPaidEvent(
+    pool,
+    organizerId,
+    stripe,
+  );
   if (check.ok === true) {
     return { mode: "destination", stripeAccountId: check.stripeAccountId };
   }
@@ -555,9 +843,18 @@ function assertPayoutRole(role: string | null): boolean {
   return Boolean(role && ["owner", "finance", "organizer"].includes(role));
 }
 
-export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDeps): void {
-  const { pool, requireAdmin, requireOrganizer, getStripeClient, appUrl, getOrganizerMemberRole } =
-    deps;
+export function registerStripeConnectRoutes(
+  app: Express,
+  deps: StripeConnectDeps,
+): void {
+  const {
+    pool,
+    requireAdmin,
+    requireOrganizer,
+    getStripeClient,
+    appUrl,
+    getOrganizerMemberRole,
+  } = deps;
 
   async function buildStatusResponse(organizerId: number) {
     let row = await loadOrganizerConnectRow(pool, organizerId);
@@ -565,95 +862,147 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
 
     const stripe = getStripeClient();
     let requirements:
-      | { currently_due: string[]; eventually_due: string[]; disabled_reason: string | null }
+      | {
+          currently_due: string[];
+          eventually_due: string[];
+          disabled_reason: string | null;
+        }
       | undefined;
     if (stripe && row.stripe_account_id) {
-      row = (await syncOrganizerConnectFromStripe(pool, organizerId, stripe)) ?? row;
-      const account = await stripe.accounts.retrieve(row.stripe_account_id!);
-      requirements = {
-        currently_due: account.requirements?.currently_due ?? [],
-        eventually_due: account.requirements?.eventually_due ?? [],
-        disabled_reason: account.requirements?.disabled_reason ?? null,
-      };
+      row =
+        (await syncOrganizerConnectFromStripe(pool, organizerId, stripe)) ??
+        row;
+    }
+    if (stripe && row.stripe_account_id) {
+      const account = await retrieveConnectAccountSafe(
+        stripe,
+        row.stripe_account_id,
+        { pool, organizerId },
+      );
+      if (account) {
+        requirements = {
+          currently_due: account.requirements?.currently_due ?? [],
+          eventually_due: account.requirements?.eventually_due ?? [],
+          disabled_reason: account.requirements?.disabled_reason ?? null,
+        };
+      } else {
+        // Account may have been cleared as inaccessible — reload for payload.
+        row = (await loadOrganizerConnectRow(pool, organizerId)) ?? row;
+      }
     }
 
     return buildConnectStatusPayload(row, requirements);
   }
 
-  app.get("/api/organizer/payouts/status", requireOrganizer, async (req: AuthedRequest, res) => {
-    const organizerId = req.auth!.organizerId;
-    if (!organizerId) {
-      return res.status(403).json({ error: "Organizer context missing" });
-    }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!assertPayoutRole(memberRole)) {
-      return res.status(403).json({ error: "Insufficient permissions for payouts" });
-    }
+  registerMercadoPagoRoutes(
+    app,
+    pool,
+    requireOrganizer,
+    async (organizerId) => {
+      const status = await buildStatusResponse(organizerId);
+      if (!status) throw new Error("Organizer not found");
+      return status;
+    },
+  );
 
-    const payload = await buildStatusResponse(organizerId);
-    if (!payload) return res.status(404).json({ error: "Organizer not found" });
-    res.json(payload);
-  });
-
-  app.patch("/api/organizer/payouts/profile", requireOrganizer, async (req: AuthedRequest, res) => {
-    const organizerId = req.auth!.organizerId;
-    if (!organizerId) {
-      return res.status(403).json({ error: "Organizer context missing" });
-    }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!assertPayoutRole(memberRole)) {
-      return res.status(403).json({ error: "Insufficient permissions for payouts" });
-    }
-
-    const updates: string[] = [];
-    const params: (string | number | null)[] = [];
-
-    if (req.body?.legal_name != null) {
-      updates.push("legal_name = ?");
-      params.push(String(req.body.legal_name).trim().slice(0, 255) || null);
-    }
-    if (req.body?.billing_email != null) {
-      const billingEmail = String(req.body.billing_email).trim().toLowerCase().slice(0, 255);
-      if (billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingEmail)) {
-        return res.status(400).json({ error: "Invalid billing_email" });
+  app.get(
+    "/api/organizer/payouts/status",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
       }
-      updates.push("billing_email = ?");
-      params.push(billingEmail || null);
-    }
-    if (req.body?.rfc != null) {
-      const rfc = String(req.body.rfc).trim().slice(0, 13).toUpperCase();
-      if (rfc && !/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc)) {
-        return res.status(400).json({ error: "Invalid RFC format" });
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!assertPayoutRole(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payouts" });
       }
-      updates.push("rfc = ?");
-      params.push(rfc || null);
-    }
-    if (req.body?.tax_regime != null) {
-      updates.push("tax_regime = ?");
-      params.push(String(req.body.tax_regime).trim().slice(0, 10) || null);
-    }
-    if (req.body?.fee_presentation != null) {
-      const fp = String(req.body.fee_presentation);
-      if (fp !== "pass_through" && fp !== "absorb_all") {
-        return res.status(400).json({ error: "Invalid fee_presentation" });
+
+      const payload = await buildStatusResponse(organizerId);
+      if (!payload)
+        return res.status(404).json({ error: "Organizer not found" });
+      res.json(payload);
+    },
+  );
+
+  app.patch(
+    "/api/organizer/payouts/profile",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
       }
-      updates.push("fee_presentation = ?");
-      params.push(fp);
-    }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!assertPayoutRole(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payouts" });
+      }
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: "No fields to update" });
-    }
+      const updates: string[] = [];
+      const params: (string | number | null)[] = [];
 
-    params.push(organizerId);
-    await pool.query<ResultSetHeader>(
-      `UPDATE organizers SET ${updates.join(", ")} WHERE id = ?`,
-      params,
-    );
+      if (req.body?.legal_name != null) {
+        updates.push("legal_name = ?");
+        params.push(String(req.body.legal_name).trim().slice(0, 255) || null);
+      }
+      if (req.body?.billing_email != null) {
+        const billingEmail = String(req.body.billing_email)
+          .trim()
+          .toLowerCase()
+          .slice(0, 255);
+        if (billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingEmail)) {
+          return res.status(400).json({ error: "Invalid billing_email" });
+        }
+        updates.push("billing_email = ?");
+        params.push(billingEmail || null);
+      }
+      if (req.body?.rfc != null) {
+        const rfc = String(req.body.rfc).trim().slice(0, 13).toUpperCase();
+        if (rfc && !/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc)) {
+          return res.status(400).json({ error: "Invalid RFC format" });
+        }
+        updates.push("rfc = ?");
+        params.push(rfc || null);
+      }
+      if (req.body?.tax_regime != null) {
+        updates.push("tax_regime = ?");
+        params.push(String(req.body.tax_regime).trim().slice(0, 10) || null);
+      }
+      if (req.body?.fee_presentation != null) {
+        const fp = String(req.body.fee_presentation);
+        if (fp !== "pass_through" && fp !== "absorb_all") {
+          return res.status(400).json({ error: "Invalid fee_presentation" });
+        }
+        updates.push("fee_presentation = ?");
+        params.push(fp);
+      }
 
-    const payload = await buildStatusResponse(organizerId);
-    res.json(payload);
-  });
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "No fields to update" });
+      }
+
+      params.push(organizerId);
+      await pool.query<ResultSetHeader>(
+        `UPDATE organizers SET ${updates.join(", ")} WHERE id = ?`,
+        params,
+      );
+
+      const payload = await buildStatusResponse(organizerId);
+      res.json(payload);
+    },
+  );
 
   app.post(
     "/api/organizer/payouts/accept-terms",
@@ -663,9 +1012,15 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
       if (!organizerId) {
         return res.status(403).json({ error: "Organizer context missing" });
       }
-      const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
       if (!memberRole || !["owner", "finance"].includes(memberRole)) {
-        return res.status(403).json({ error: "Only owner or finance can accept payout terms" });
+        return res
+          .status(403)
+          .json({ error: "Only owner or finance can accept payout terms" });
       }
 
       await pool.query<ResultSetHeader>(
@@ -681,91 +1036,137 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
     },
   );
 
-  app.post("/api/organizer/payouts/onboard", requireOrganizer, async (req: AuthedRequest, res) => {
-    const organizerId = req.auth!.organizerId;
-    if (!organizerId) {
-      return res.status(403).json({ error: "Organizer context missing" });
-    }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!assertPayoutRole(memberRole)) {
-      return res.status(403).json({ error: "Insufficient permissions for payouts" });
-    }
+  app.post(
+    "/api/organizer/payouts/onboard",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!assertPayoutRole(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payouts" });
+      }
 
-    const stripe = getStripeClient();
-    if (!stripe) {
-      return res.status(503).json({ error: "Payment service unavailable" });
-    }
+      const stripe = getStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ error: "Payment service unavailable" });
+      }
 
-    const row = await loadOrganizerConnectRow(pool, organizerId);
-    if (!row) return res.status(404).json({ error: "Organizer not found" });
+      const row = await loadOrganizerConnectRow(pool, organizerId);
+      if (!row) return res.status(404).json({ error: "Organizer not found" });
 
-    const tribooChecklist = buildTribooPayoutChecklist(row);
-    if (!tribooChecklist.complete) {
-      return res.status(400).json({
-        error: "Complete your Triboo payout profile before starting Stripe onboarding",
-        code: "triboo_profile_incomplete",
-      });
-    }
+      const tribooChecklist = buildTribooPayoutChecklist(row);
+      if (!tribooChecklist.complete) {
+        return res.status(400).json({
+          error:
+            "Complete your Triboo payout profile before starting Stripe onboarding",
+          code: "triboo_profile_incomplete",
+        });
+      }
 
-    try {
-      const accountId = await ensureStripeConnectAccount(pool, stripe, row, "self");
-      const account = await stripe.accounts.retrieve(accountId);
-      const url = await createAccountManagementLink(stripe, account, accountId, appUrl);
+      try {
+        const accountId = await ensureStripeConnectAccount(
+          pool,
+          stripe,
+          row,
+          "self",
+        );
+        const account = await stripe.accounts.retrieve(accountId);
+        const url = await createAccountManagementLink(
+          stripe,
+          account,
+          accountId,
+          appUrl,
+        );
+        const payload = await buildStatusResponse(organizerId);
+        res.json({ url, ...payload });
+      } catch (err) {
+        respondStripeConnectRouteError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/organizer/payouts/login",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!assertPayoutRole(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payouts" });
+      }
+
+      const stripe = getStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ error: "Payment service unavailable" });
+      }
+
+      const row = await loadOrganizerConnectRow(pool, organizerId);
+      if (!row?.stripe_account_id) {
+        return res.status(400).json({ error: "No payout account linked" });
+      }
+
+      const url = await createExpressDashboardLoginLink(
+        stripe,
+        row.stripe_account_id,
+      );
+      res.json({ url });
+    },
+  );
+
+  app.post(
+    "/api/organizer/payouts/sync",
+    requireOrganizer,
+    async (req: AuthedRequest, res) => {
+      const organizerId = req.auth!.organizerId;
+      if (!organizerId) {
+        return res.status(403).json({ error: "Organizer context missing" });
+      }
+      const memberRole = await getOrganizerMemberRole(
+        pool,
+        req.auth!.id,
+        organizerId,
+      );
+      if (!assertPayoutRole(memberRole)) {
+        return res
+          .status(403)
+          .json({ error: "Insufficient permissions for payouts" });
+      }
+
+      const stripe = getStripeClient();
+      if (!stripe) {
+        return res.status(503).json({ error: "Payment service unavailable" });
+      }
+
+      const row = await loadOrganizerConnectRow(pool, organizerId);
+      if (!row?.stripe_account_id) {
+        return res
+          .status(400)
+          .json({ error: "No Stripe Connect account linked" });
+      }
+
+      await syncOrganizerConnectFromStripe(pool, organizerId, stripe);
       const payload = await buildStatusResponse(organizerId);
-      res.json({ url, ...payload });
-    } catch (err) {
-      respondStripeConnectRouteError(res, err);
-    }
-  });
-
-  app.post("/api/organizer/payouts/login", requireOrganizer, async (req: AuthedRequest, res) => {
-    const organizerId = req.auth!.organizerId;
-    if (!organizerId) {
-      return res.status(403).json({ error: "Organizer context missing" });
-    }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!assertPayoutRole(memberRole)) {
-      return res.status(403).json({ error: "Insufficient permissions for payouts" });
-    }
-
-    const stripe = getStripeClient();
-    if (!stripe) {
-      return res.status(503).json({ error: "Payment service unavailable" });
-    }
-
-    const row = await loadOrganizerConnectRow(pool, organizerId);
-    if (!row?.stripe_account_id) {
-      return res.status(400).json({ error: "No payout account linked" });
-    }
-
-    const url = await createExpressDashboardLoginLink(stripe, row.stripe_account_id);
-    res.json({ url });
-  });
-
-  app.post("/api/organizer/payouts/sync", requireOrganizer, async (req: AuthedRequest, res) => {
-    const organizerId = req.auth!.organizerId;
-    if (!organizerId) {
-      return res.status(403).json({ error: "Organizer context missing" });
-    }
-    const memberRole = await getOrganizerMemberRole(pool, req.auth!.id, organizerId);
-    if (!assertPayoutRole(memberRole)) {
-      return res.status(403).json({ error: "Insufficient permissions for payouts" });
-    }
-
-    const stripe = getStripeClient();
-    if (!stripe) {
-      return res.status(503).json({ error: "Payment service unavailable" });
-    }
-
-    const row = await loadOrganizerConnectRow(pool, organizerId);
-    if (!row?.stripe_account_id) {
-      return res.status(400).json({ error: "No Stripe Connect account linked" });
-    }
-
-    await syncOrganizerConnectFromStripe(pool, organizerId, stripe);
-    const payload = await buildStatusResponse(organizerId);
-    res.json(payload);
-  });
+      res.json(payload);
+    },
+  );
 
   app.get(
     "/api/admin/organizers/:organizerId/connect",
@@ -776,7 +1177,8 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
         return res.status(400).json({ error: "Invalid organizer id" });
       }
       const payload = await buildStatusResponse(organizerId);
-      if (!payload) return res.status(404).json({ error: "Organizer not found" });
+      if (!payload)
+        return res.status(404).json({ error: "Organizer not found" });
       res.json(payload);
     },
   );
@@ -799,9 +1201,19 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
       if (!row) return res.status(404).json({ error: "Organizer not found" });
 
       try {
-        const accountId = await ensureStripeConnectAccount(pool, stripe, row, "admin");
+        const accountId = await ensureStripeConnectAccount(
+          pool,
+          stripe,
+          row,
+          "admin",
+        );
         const account = await stripe.accounts.retrieve(accountId);
-        const url = await createAccountManagementLink(stripe, account, accountId, appUrl);
+        const url = await createAccountManagementLink(
+          stripe,
+          account,
+          accountId,
+          appUrl,
+        );
         const payload = await buildStatusResponse(organizerId);
         res.json({ url, ...payload });
       } catch (err) {
@@ -826,7 +1238,9 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
 
       const row = await loadOrganizerConnectRow(pool, organizerId);
       if (!row?.stripe_account_id) {
-        return res.status(400).json({ error: "No Stripe Connect account linked" });
+        return res
+          .status(400)
+          .json({ error: "No Stripe Connect account linked" });
       }
 
       await syncOrganizerConnectFromStripe(pool, organizerId, stripe);
@@ -842,7 +1256,9 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
       const organizerId = Number(req.params.organizerId);
       const accountId = String(req.body?.stripe_account_id ?? "").trim();
       if (!Number.isFinite(organizerId) || !accountId.startsWith("acct_")) {
-        return res.status(400).json({ error: "organizerId and stripe_account_id (acct_…) required" });
+        return res.status(400).json({
+          error: "organizerId and stripe_account_id (acct_…) required",
+        });
       }
 
       const stripe = getStripeClient();
@@ -857,10 +1273,17 @@ export function registerStripeConnectRoutes(app: Express, deps: StripeConnectDep
         [accountId, organizerId],
       );
       if (linked.length > 0) {
-        return res.status(409).json({ error: "Stripe account already linked to another organizer" });
+        return res.status(409).json({
+          error: "Stripe account already linked to another organizer",
+        });
       }
 
-      await persistOrganizerConnectFromStripeAccount(pool, organizerId, account, "admin");
+      await persistOrganizerConnectFromStripeAccount(
+        pool,
+        organizerId,
+        account,
+        "admin",
+      );
       const payload = await buildStatusResponse(organizerId);
       res.json(payload);
     },

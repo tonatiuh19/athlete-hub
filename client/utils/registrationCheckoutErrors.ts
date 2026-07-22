@@ -38,6 +38,8 @@ export function checkoutErrorMessage(payload: CheckoutErrorPayload, t: TFunction
       return t("registrationWizard.checkout.errors.notOpen");
     case "registration_closed":
       return t("registrationWizard.checkout.errors.closed");
+    case "registration_closed_event_passed":
+      return t("registrationWizard.checkout.errors.eventPassed");
     case "organizer_payouts_not_ready":
     case "organizer_payouts_disabled":
     case "organizer_suspended":
@@ -55,4 +57,17 @@ export function checkoutErrorMessage(payload: CheckoutErrorPayload, t: TFunction
 
 export function checkoutErrorNeedsProfile(payload: CheckoutErrorPayload): boolean {
   return isCheckoutErrorPayload(payload) && payload.code === "profile_incomplete";
+}
+
+/** Eligibility / window errors — retrying payment setup will not help. */
+export function checkoutErrorIsEligibility(payload: CheckoutErrorPayload): boolean {
+  if (!isCheckoutErrorPayload(payload)) return false;
+  return (
+    payload.code === "profile_incomplete" ||
+    payload.code === "category_age_ineligible" ||
+    payload.code === "category_gender_ineligible" ||
+    payload.code === "registration_not_open" ||
+    payload.code === "registration_closed" ||
+    payload.code === "registration_closed_event_passed"
+  );
 }

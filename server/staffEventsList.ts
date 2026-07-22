@@ -28,6 +28,14 @@ export function isStaffEventStatus(value: string): value is StaffEventStatus {
   return (STAFF_EVENT_STATUSES as readonly string[]).includes(value);
 }
 
+export function parseSimulationListFilter(
+  value: unknown,
+): "all" | "0" | "1" | undefined {
+  const raw = String(value ?? "").trim();
+  if (raw === "1" || raw === "0" || raw === "all") return raw;
+  return undefined;
+}
+
 export function parseStaffEventsListQuery(options: {
   page?: unknown;
   limit?: unknown;
@@ -79,6 +87,11 @@ export interface ListStaffEventsOptions {
   organizerId?: number;
   /** Restrict to specific event IDs (member scoped). Empty array = none. Undefined = no filter. */
   eventIds?: number[];
+  /**
+   * `1` = simulations only, `0` = live events only, omit/`all` = both.
+   * Default includes simulations so they appear in My events.
+   */
+  simulation?: "all" | "0" | "1";
   page?: unknown;
   limit?: unknown;
   sortBy?: unknown;
@@ -90,12 +103,14 @@ export interface StaffEventListRow {
   slug: string;
   title: string;
   status: string;
+  visibility?: string;
   start_date: string;
   organizer_id: number;
   registration_count: number;
   location_city?: string | null;
   sport_name?: string | null;
   organizer_name?: string | null;
+  is_simulation?: boolean;
 }
 
 export async function listStaffEvents(
@@ -116,6 +131,13 @@ export async function listStaffEvents(
 
   const params: (string | number)[] = [];
   const where: string[] = ["e.deleted_at IS NULL"];
+
+  const simulation = String(options.simulation ?? "all").trim();
+  if (simulation === "1") {
+    where.push("COALESCE(e.is_simulation, 0) = 1");
+  } else if (simulation === "0") {
+    where.push("COALESCE(e.is_simulation, 0) = 0");
+  }
 
   if (options.organizerId != null) {
     where.push("e.organizer_id = ?");
@@ -153,7 +175,8 @@ export async function listStaffEvents(
   const total = Number(countRow?.total ?? 0);
 
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT e.id, e.slug, e.title, e.status, e.start_date, e.organizer_id,
+    `SELECT e.id, e.slug, e.title, e.status, e.visibility, e.start_date, e.organizer_id,
+            e.is_simulation,
             ${EVENT_REGISTRATION_COUNT_SQL} AS registration_count,
             e.location_city, st.name AS sport_name, o.name AS organizer_name
      FROM events e
@@ -170,12 +193,14 @@ export async function listStaffEvents(
     slug: String(row.slug),
     title: String(row.title),
     status: String(row.status),
+    visibility: String(row.visibility ?? "public"),
     start_date: String(row.start_date),
     organizer_id: Number(row.organizer_id),
     registration_count: Number(row.registration_count ?? 0),
     location_city: row.location_city != null ? String(row.location_city) : null,
     sport_name: row.sport_name != null ? String(row.sport_name) : null,
     organizer_name: row.organizer_name != null ? String(row.organizer_name) : null,
+    is_simulation: Number(row.is_simulation ?? 0) === 1,
   }));
 
   return {

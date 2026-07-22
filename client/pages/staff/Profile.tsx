@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import MetaHelmet from "@/components/MetaHelmet";
 import PortalErrorAlert from "@/components/athlete/PortalErrorAlert";
 import StaffProfileAvatarUpload from "@/components/staff/StaffProfileAvatarUpload";
+import { StaffPageSkeleton } from "@/components/staff/skeletons/StaffSkeletons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -96,11 +97,7 @@ export default function StaffProfile() {
   };
 
   if (loading && !user) {
-    return (
-      <div className="flex justify-center py-24">
-        <Loader2 className="w-10 h-10 animate-spin text-primary" />
-      </div>
-    );
+    return <StaffPageSkeleton variant="form" className="max-w-2xl py-6" />;
   }
 
   return (

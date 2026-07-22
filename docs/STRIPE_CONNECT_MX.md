@@ -14,6 +14,14 @@ When Connect is active (destination charges):
 
 Free ($0) events skip Connect and use the existing mock checkout path.
 
+## Per-event destinations (promoter / beneficiario)
+
+Product proposal for reusable payment profiles per event (org capability-gated): see [EVENT_PAYMENT_PROFILES_PROPOSAL.md](./EVENT_PAYMENT_PROFILES_PROPOSAL.md). Not implemented until that proposal is built.
+
+## Mercado Pago (second rail)
+
+Org-level alternate checkout/payout rail (11% Stripe / 13% MP): see [MERCADO_PAGO_PROPOSAL.md](./MERCADO_PAGO_PROPOSAL.md). Build **after** event payment profiles.
+
 ## Organizer flow
 
 1. Admin creates organizer with `service_fee_percent` (default 11%).
